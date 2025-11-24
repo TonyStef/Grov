@@ -20,24 +20,21 @@ export async function inject(options: InjectOptions): Promise<void> {
     // Build context string
     const context = buildContextString(tasks);
 
-    // Output JSON for the hook
-    const output = {
-      hookSpecificOutput: {
-        additionalContext: context
-      }
-    };
-
-    // Must output valid JSON to stdout for the hook to read
-    console.log(JSON.stringify(output));
+    // Only output if we have context to inject
+    // Claude Code expects no output (or valid JSON) from hooks
+    if (context) {
+      const output = {
+        hookSpecificOutput: {
+          additionalContext: context
+        }
+      };
+      console.log(JSON.stringify(output));
+    }
+    // If no context, output nothing - this is cleaner for Claude Code
 
   } catch (error) {
-    // On error, output empty context - don't break the session
-    console.log(JSON.stringify({
-      hookSpecificOutput: {
-        additionalContext: ''
-      }
-    }));
-
+    // On error, output nothing - don't break the session
+    // Silent fail is better than outputting potentially invalid JSON
     if (process.env.GROV_DEBUG) {
       console.error('[grov] Inject error:', error);
     }

@@ -1,7 +1,8 @@
 // grov capture - Called by Stop hook, extracts and stores reasoning
 
-import { findLatestSessionFile, parseSession, getSessionSummary } from '../lib/jsonl-parser.js';
+import { findLatestSessionFile, parseSession } from '../lib/jsonl-parser.js';
 import { createTask, type TaskStatus } from '../lib/store.js';
+import { isLLMAvailable, extractReasoning } from '../lib/llm-extractor.js';
 
 interface CaptureOptions {
   sessionDir?: string;
@@ -32,36 +33,70 @@ export async function capture(options: CaptureOptions): Promise<void> {
     // Get the original query (first user message)
     const originalQuery = session.userMessages[0];
 
-    // Combine all files touched
-    const filesTouched = [...new Set([...session.filesRead, ...session.filesWritten])];
+    let goal: string;
+    let reasoningTrace: string[];
+    let filesTouched: string[];
+    let status: TaskStatus;
+    let tags: string[];
 
-    // Simple status classification (will be replaced by LLM in Step 6)
-    // For now, assume complete if there are file writes
-    const status: TaskStatus = session.filesWritten.length > 0 ? 'complete' : 'partial';
+    // Use LLM extraction if available, otherwise fall back to basic extraction
+    if (isLLMAvailable()) {
+      try {
+        if (process.env.GROV_DEBUG) {
+          console.error('[grov] Using LLM extraction...');
+        }
 
-    // Generate simple tags from file paths
-    const tags = generateTags(filesTouched);
+        const extracted = await extractReasoning(session);
 
-    // Create basic reasoning trace from tool usage
-    const reasoningTrace = generateBasicReasoningTrace(session);
+        goal = extracted.goal;
+        reasoningTrace = extracted.reasoning_trace;
+        filesTouched = extracted.files_touched;
+        status = extracted.status;
+        tags = extracted.tags;
+
+        if (process.env.GROV_DEBUG) {
+          console.error(`[grov] LLM extraction complete: status=${status}`);
+        }
+      } catch (llmError) {
+        if (process.env.GROV_DEBUG) {
+          console.error('[grov] LLM extraction failed, using fallback:', llmError);
+        }
+        // Fall back to basic extraction
+        const basic = basicExtraction(session);
+        goal = basic.goal;
+        reasoningTrace = basic.reasoningTrace;
+        filesTouched = basic.filesTouched;
+        status = basic.status;
+        tags = basic.tags;
+      }
+    } else {
+      // No API key - use basic extraction
+      const basic = basicExtraction(session);
+      goal = basic.goal;
+      reasoningTrace = basic.reasoningTrace;
+      filesTouched = basic.filesTouched;
+      status = basic.status;
+      tags = basic.tags;
+    }
 
     // Store the task
     const task = createTask({
       project_path: projectPath,
       original_query: originalQuery,
-      goal: originalQuery, // Same as query for now
+      goal,
       reasoning_trace: reasoningTrace,
       files_touched: filesTouched,
       status,
       tags
     });
 
-    // Log for debugging (can be removed later)
+    // Log for debugging
     if (process.env.GROV_DEBUG) {
       console.error(`[grov] Captured task: ${task.id}`);
       console.error(`[grov] Query: ${originalQuery.substring(0, 50)}...`);
       console.error(`[grov] Files: ${filesTouched.length}`);
       console.error(`[grov] Status: ${status}`);
+      console.error(`[grov] LLM: ${isLLMAvailable() ? 'yes' : 'no'}`);
     }
 
   } catch (error) {
@@ -70,6 +105,22 @@ export async function capture(options: CaptureOptions): Promise<void> {
       console.error('[grov] Capture error:', error);
     }
   }
+}
+
+/**
+ * Basic extraction without LLM
+ */
+function basicExtraction(session: ReturnType<typeof parseSession>) {
+  const filesTouched = [...new Set([...session.filesRead, ...session.filesWritten])];
+  const status: TaskStatus = session.filesWritten.length > 0 ? 'complete' : 'partial';
+
+  return {
+    goal: session.userMessages[0] || 'Unknown goal',
+    reasoningTrace: generateBasicReasoningTrace(session),
+    filesTouched,
+    status,
+    tags: generateTags(filesTouched)
+  };
 }
 
 /**

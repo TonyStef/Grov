@@ -1,0 +1,38 @@
+{
+  "name": "grov",
+  "version": "0.1.0",
+  "description": "Collective AI memory for engineering teams - captures reasoning from Claude Code sessions",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "grov": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/cli.js"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "memory",
+    "reasoning",
+    "context"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "better-sqlite3": "^11.6.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

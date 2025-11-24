@@ -1,13 +1,83 @@
 # Grov MVP - Implementation Guide
 
+## Implementation Status: COMPLETE ✅
+
+All core features implemented. Ready for testing.
+
+| Component | Status | File |
+|-----------|--------|------|
+| CLI Entry Point | ✅ | `src/cli.ts` |
+| Init Command | ✅ | `src/commands/init.ts` |
+| Capture Command | ✅ | `src/commands/capture.ts` |
+| Inject Command | ✅ | `src/commands/inject.ts` |
+| Status Command | ✅ | `src/commands/status.ts` |
+| Unregister Command | ✅ | `src/commands/unregister.ts` |
+| Hooks Helper | ✅ | `src/lib/hooks.ts` |
+| JSONL Parser | ✅ | `src/lib/jsonl-parser.ts` |
+| SQLite Store | ✅ | `src/lib/store.ts` |
+| LLM Extractor | ✅ | `src/lib/llm-extractor.ts` |
+
+---
+
+## Quick Start (Testing)
+
+```bash
+# 1. Build the project
+cd /Users/tonyystef/qsav/grov
+npm install
+npm run build
+
+# 2. Test CLI works
+node dist/cli.js --help
+
+# 3. Register hooks (makes grov active)
+node dist/cli.js init
+
+# 4. Check status
+node dist/cli.js status
+
+# 5. Disable when done testing
+node dist/cli.js unregister
+```
+
+### With LLM Extraction (Optional)
+
+```bash
+# Set API key for smart extraction
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Enable debug logging to see what's happening
+export GROV_DEBUG=true
+
+# Now capture will use Claude Haiku for extraction
+node dist/cli.js capture
+```
+
+### Global Install (Optional)
+
+```bash
+# Link globally so 'grov' works anywhere
+npm link
+
+# Now you can use:
+grov --help
+grov init
+grov status
+grov unregister
+```
+
+---
+
 ## What We're Building
 
-A CLI tool with **3 commands** that makes Claude Code remember reasoning across sessions.
+A CLI tool with **5 commands** that makes Claude Code remember reasoning across sessions.
 
 ```
-grov init      → Registers hooks (user runs once)
-grov capture   → Runs automatically after each Claude response
-grov inject    → Runs automatically when Claude starts a session
+grov init        → Registers hooks (user runs once)
+grov capture     → Runs automatically after each Claude response
+grov inject      → Runs automatically when Claude starts a session
+grov status      → Shows captured tasks for current project
+grov unregister  → Removes hooks (disables grov)
 ```
 
 That's the entire product.
@@ -176,21 +246,25 @@ claude "fix the auth bug"
 grov/
 ├── package.json              # npm package config, bin entry
 ├── tsconfig.json             # TypeScript config
+├── .gitignore                # Ignores node_modules, dist
+├── PROJECT_BRIEF.md          # Design decisions & rationale
+├── MVP.md                    # This file - implementation guide
+├── ROADMAP.md                # Phase 2, 3, 4+ plans
 ├── src/
 │   ├── cli.ts                # Entry point - parses args, routes to commands
 │   │
 │   ├── commands/
 │   │   ├── init.ts           # grov init - register hooks
 │   │   ├── capture.ts        # grov capture - extract & store reasoning
-│   │   └── inject.ts         # grov inject - query & output context
+│   │   ├── inject.ts         # grov inject - query & output context
+│   │   ├── status.ts         # grov status - show captured tasks
+│   │   └── unregister.ts     # grov unregister - remove hooks
 │   │
-│   ├── lib/
-│   │   ├── jsonl-parser.ts   # Parse ~/.claude/projects/ JSONL files
-│   │   ├── llm-extractor.ts  # Call Claude Haiku API for extraction
-│   │   ├── store.ts          # SQLite operations (better-sqlite3)
-│   │   └── hooks.ts          # Read/write ~/.claude/settings.json
-│   │
-│   └── types.ts              # TypeScript interfaces
+│   └── lib/
+│       ├── hooks.ts          # Read/write ~/.claude/settings.json
+│       ├── jsonl-parser.ts   # Parse ~/.claude/projects/ JSONL files
+│       ├── llm-extractor.ts  # Call Claude Haiku API for extraction
+│       └── store.ts          # SQLite operations (better-sqlite3)
 │
 └── dist/                     # Compiled JavaScript (git-ignored)
 ```
@@ -337,7 +411,17 @@ MVP is successful if:
 
 ## Next Steps
 
-1. Initialize npm package
-2. Build commands in order (init → capture → inject)
-3. Test on real Claude Code sessions
-4. Iterate based on what breaks
+### Completed ✅
+1. ~~Initialize npm package~~
+2. ~~Build commands in order (init → capture → inject → status → unregister)~~
+3. ~~Add LLM extraction with Claude Haiku~~
+
+### Still To Do
+1. **Test on real Claude Code sessions** - Use grov while working on a real project
+2. **Verify hook firing** - Check that capture/inject actually run
+3. **Test context injection** - Does Claude actually see the injected context?
+4. **Edge cases** - Empty sessions, malformed JSONL, missing files
+5. **npm publish** - When ready to share publicly
+
+### Future (Phase 2+)
+See `ROADMAP.md` for team sync, cloud storage, semantic search, etc.

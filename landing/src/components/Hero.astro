@@ -1,8 +1,11 @@
 ---
-// Hero section - Luxe Minimalist design
+// Hero section - Luxe Minimalist design with particle constellation
+import ParticleNetwork from './ParticleNetwork.astro';
 ---
 
-<section class="min-h-screen flex flex-col items-center justify-center px-6 py-24">
+<section class="min-h-screen flex flex-col items-center justify-center px-6 py-24 relative overflow-hidden">
+  <!-- Particle Network Background -->
+  <ParticleNetwork />
   <!-- Logo -->
   <div class="opacity-0 animate-fade-in">
     <span class="text-2xl font-bold tracking-wide text-grov-text">grov</span>

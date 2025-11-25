@@ -23,7 +23,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "openai": "^4.70.0",
     "better-sqlite3": "^11.6.0",
     "commander": "^12.1.0"
   },

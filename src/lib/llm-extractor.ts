@@ -1,6 +1,6 @@
-// LLM-based extraction using Claude Haiku for reasoning summaries
+// LLM-based extraction using OpenAI GPT-3.5-turbo for reasoning summaries
 
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import type { ParsedSession } from './jsonl-parser.js';
 import type { TaskStatus } from './store.js';
 
@@ -16,18 +16,18 @@ export interface ExtractedReasoning {
   tags: string[];
 }
 
-let client: Anthropic | null = null;
+let client: OpenAI | null = null;
 
 /**
- * Initialize the Anthropic client
+ * Initialize the OpenAI client
  */
-function getClient(): Anthropic {
+function getClient(): OpenAI {
   if (!client) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required for LLM extraction');
+      throw new Error('OPENAI_API_KEY environment variable is required for LLM extraction');
     }
-    client = new Anthropic({ apiKey });
+    client = new OpenAI({ apiKey });
   }
   return client;
 }
@@ -36,22 +36,26 @@ function getClient(): Anthropic {
  * Check if LLM extraction is available (API key set)
  */
 export function isLLMAvailable(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY;
+  return !!process.env.OPENAI_API_KEY;
 }
 
 /**
- * Extract structured reasoning from a parsed session using Claude Haiku
+ * Extract structured reasoning from a parsed session using GPT-3.5-turbo
  */
 export async function extractReasoning(session: ParsedSession): Promise<ExtractedReasoning> {
-  const anthropic = getClient();
+  const openai = getClient();
 
   // Build session summary for the prompt
   const sessionSummary = buildSessionSummary(session);
 
-  const response = await anthropic.messages.create({
-    model: 'claude-3-haiku-20240307',
+  const response = await openai.chat.completions.create({
+    model: 'gpt-3.5-turbo',
     max_tokens: 1024,
     messages: [
+      {
+        role: 'system',
+        content: 'You are a helpful assistant that extracts structured information from coding sessions. Always respond with valid JSON only, no explanation.'
+      },
       {
         role: 'user',
         content: `Analyze this Claude Code session and extract a structured reasoning summary.
@@ -82,13 +86,13 @@ Return ONLY valid JSON, no explanation.`
   });
 
   // Parse the response
-  const content = response.content[0];
-  if (content.type !== 'text') {
-    throw new Error('Unexpected response type from Claude');
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error('No response from OpenAI');
   }
 
   try {
-    const extracted = JSON.parse(content.text) as Partial<ExtractedReasoning>;
+    const extracted = JSON.parse(content) as Partial<ExtractedReasoning>;
 
     // Validate and fill defaults
     return {
@@ -103,7 +107,9 @@ Return ONLY valid JSON, no explanation.`
     };
   } catch (parseError) {
     // If JSON parsing fails, return basic extraction
-    console.error('[grov] Failed to parse LLM response, using fallback');
+    if (process.env.GROV_DEBUG) {
+      console.error('[grov] Failed to parse LLM response, using fallback');
+    }
     return createFallbackExtraction(session);
   }
 }
@@ -112,21 +118,23 @@ Return ONLY valid JSON, no explanation.`
  * Classify just the task status (lighter weight than full extraction)
  */
 export async function classifyTaskStatus(session: ParsedSession): Promise<TaskStatus> {
-  const anthropic = getClient();
+  const openai = getClient();
 
   // Get last few exchanges for classification
   const lastMessages = session.userMessages.slice(-2).join('\n---\n');
   const lastAssistant = session.assistantMessages.slice(-1)[0] || '';
 
-  const response = await anthropic.messages.create({
-    model: 'claude-3-haiku-20240307',
+  const response = await openai.chat.completions.create({
+    model: 'gpt-3.5-turbo',
     max_tokens: 50,
     messages: [
       {
+        role: 'system',
+        content: 'Classify conversation state. Return ONLY one word: complete, partial, question, or abandoned.'
+      },
+      {
         role: 'user',
-        content: `Classify this conversation state. Return ONLY one word: complete, partial, question, or abandoned.
-
-Last user message(s):
+        content: `Last user message(s):
 ${lastMessages}
 
 Last assistant response (truncated):
@@ -140,12 +148,12 @@ Classification:`
     ]
   });
 
-  const content = response.content[0];
-  if (content.type !== 'text') {
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
     return 'partial';
   }
 
-  return validateStatus(content.text.trim().toLowerCase());
+  return validateStatus(content.trim().toLowerCase());
 }
 
 /**

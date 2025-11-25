@@ -1,15 +1,26 @@
 // grov inject - Called by SessionStart hook, outputs context JSON
 
 import { getTasksForProject, type Task } from '../lib/store.js';
+import { appendFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
 interface InjectOptions {
   task?: string;
 }
 
 export async function inject(options: InjectOptions): Promise<void> {
+  // Debug logging to file (to verify hook fires)
+  const logFile = join(homedir(), '.grov', 'inject.log');
+  const timestamp = new Date().toISOString();
+  const projectDir = process.env.CLAUDE_PROJECT_DIR || 'NOT_SET';
+  const cwd = process.cwd();
+  appendFileSync(logFile, `[${timestamp}] inject called - CLAUDE_PROJECT_DIR=${projectDir}, cwd=${cwd}\n`);
+
   try {
-    // Get current working directory as project path
-    const projectPath = process.cwd();
+    // Get project path from Claude Code env var, fallback to cwd
+    // CLAUDE_PROJECT_DIR is set by Claude Code when running hooks
+    const projectPath = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
     // Get completed tasks for this project
     const tasks = getTasksForProject(projectPath, {
@@ -21,10 +32,11 @@ export async function inject(options: InjectOptions): Promise<void> {
     const context = buildContextString(tasks);
 
     // Only output if we have context to inject
-    // Claude Code expects no output (or valid JSON) from hooks
+    // Claude Code expects JSON with hookEventName for SessionStart hooks
     if (context) {
       const output = {
         hookSpecificOutput: {
+          hookEventName: "SessionStart",
           additionalContext: context
         }
       };

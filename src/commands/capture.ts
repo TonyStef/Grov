@@ -9,8 +9,9 @@ interface CaptureOptions {
 }
 
 export async function capture(options: CaptureOptions): Promise<void> {
-  // Get current working directory as project path
-  const projectPath = process.cwd();
+  // Get project path from Claude Code env var, fallback to cwd
+  // CLAUDE_PROJECT_DIR is set by Claude Code when running hooks
+  const projectPath = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
   // Find the latest session file
   const sessionFile = findLatestSessionFile(projectPath);

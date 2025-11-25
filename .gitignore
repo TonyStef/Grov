@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Astro auto-generated files (landing page)
+landing/.astro/
+landing/src/env.d.ts

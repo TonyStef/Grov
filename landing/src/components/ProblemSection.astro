@@ -1,0 +1,79 @@
+---
+// Problem section with before/after comparison
+---
+
+<section class="py-24 px-6">
+  <div class="max-w-5xl mx-auto">
+    <!-- Section header -->
+    <div class="text-center mb-16">
+      <h2 class="text-section-mobile md:text-section text-grov-text">
+        The problem
+      </h2>
+      <p class="mt-6 text-body-lg text-grov-text-secondary max-w-2xl mx-auto text-balance">
+        Every session, Claude re-explores your codebase.<br />
+        It reads the same files. Rediscovers the same patterns.<br />
+        You burn tokens on redundant exploration.
+      </p>
+    </div>
+
+    <!-- Comparison cards -->
+    <div class="grid md:grid-cols-2 gap-6 mt-12">
+      <!-- Without grov -->
+      <div class="card">
+        <div class="text-sm font-medium text-grov-text-muted uppercase tracking-wider mb-6">
+          Without grov
+        </div>
+
+        <div class="space-y-4">
+          <div class="flex justify-between items-center py-3 border-b border-grov-border">
+            <span class="text-grov-text-secondary">Time per task</span>
+            <span class="text-grov-text font-medium">10+ minutes</span>
+          </div>
+          <div class="flex justify-between items-center py-3 border-b border-grov-border">
+            <span class="text-grov-text-secondary">Token usage</span>
+            <span class="text-grov-text font-medium">7%+</span>
+          </div>
+          <div class="flex justify-between items-center py-3 border-b border-grov-border">
+            <span class="text-grov-text-secondary">Explore agents</span>
+            <span class="text-grov-text font-medium">3+</span>
+          </div>
+          <div class="flex justify-between items-center py-3">
+            <span class="text-grov-text-secondary">Files read</span>
+            <span class="text-grov-text font-medium">10+</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- With grov -->
+      <div class="card card-highlight">
+        <div class="text-sm font-medium text-grov-accent uppercase tracking-wider mb-6">
+          With grov
+        </div>
+
+        <div class="space-y-4">
+          <div class="flex justify-between items-center py-3 border-b border-grov-border">
+            <span class="text-grov-text-secondary">Time per task</span>
+            <span class="text-grov-accent font-medium">1-2 minutes</span>
+          </div>
+          <div class="flex justify-between items-center py-3 border-b border-grov-border">
+            <span class="text-grov-text-secondary">Token usage</span>
+            <span class="text-grov-accent font-medium">&lt;2%</span>
+          </div>
+          <div class="flex justify-between items-center py-3 border-b border-grov-border">
+            <span class="text-grov-text-secondary">Explore agents</span>
+            <span class="text-grov-accent font-medium">0</span>
+          </div>
+          <div class="flex justify-between items-center py-3">
+            <span class="text-grov-text-secondary">Files read</span>
+            <span class="text-grov-accent font-medium">3-4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom note -->
+    <p class="text-center mt-12 text-grov-text-muted text-small">
+      Measured on real Claude Code sessions. Results may vary based on codebase complexity.
+    </p>
+  </div>
+</section>

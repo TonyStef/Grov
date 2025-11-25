@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-grov-black text-grov-text font-sans;
+  }
+
+  ::selection {
+    @apply bg-grov-accent/30 text-grov-text;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3
+           bg-grov-accent text-grov-black font-medium rounded-lg
+           transition-all duration-150 ease-out
+           hover:bg-grov-accent-hover hover:-translate-y-0.5;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-3
+           bg-transparent text-grov-text font-medium rounded-lg
+           border border-grov-border
+           transition-all duration-150 ease-out
+           hover:border-grov-text-secondary hover:bg-grov-surface;
+  }
+
+  .code-block {
+    @apply bg-grov-surface border border-grov-border rounded-xl
+           p-6 font-mono text-code text-grov-text-secondary
+           overflow-x-auto;
+  }
+
+  .card {
+    @apply bg-grov-surface border border-grov-border rounded-2xl p-8;
+  }
+
+  .card-highlight {
+    @apply border-grov-accent shadow-[0_0_0_1px_#10b981,0_0_40px_rgba(16,185,129,0.08)];
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Animation delays for staggered fade-in */
+  .animation-delay-100 { animation-delay: 100ms; }
+  .animation-delay-200 { animation-delay: 200ms; }
+  .animation-delay-300 { animation-delay: 300ms; }
+  .animation-delay-400 { animation-delay: 400ms; }
+  .animation-delay-500 { animation-delay: 500ms; }
+  .animation-delay-600 { animation-delay: 600ms; }
+  .animation-delay-700 { animation-delay: 700ms; }
+}

@@ -1,8 +1,14 @@
 # Grov MVP - Implementation Guide
 
-## Implementation Status: COMPLETE ✅
+## Implementation Status: VALIDATED ✅✅
 
-All core features implemented. Ready for testing.
+All core features implemented AND tested. **Context injection confirmed working.**
+
+### Key Validation (Nov 25, 2025)
+- SessionStart hook fires correctly
+- `additionalContext` is injected into Claude's context
+- Claude uses injected context and skips exploration
+- Zero-friction experience confirmed: user runs `claude` normally, grov works invisibly
 
 | Component | Status | File |
 |-----------|--------|------|
@@ -43,13 +49,13 @@ node dist/cli.js unregister
 ### With LLM Extraction (Optional)
 
 ```bash
-# Set API key for smart extraction
-export ANTHROPIC_API_KEY=sk-ant-...
+# Set API key for smart extraction (uses GPT-3.5-turbo)
+export OPENAI_API_KEY=sk-...
 
 # Enable debug logging to see what's happening
 export GROV_DEBUG=true
 
-# Now capture will use Claude Haiku for extraction
+# Now capture will use LLM for intelligent extraction
 node dist/cli.js capture
 ```
 
@@ -110,16 +116,22 @@ claude "fix the auth bug"
 **What it does:**
 ```
 1. Read ~/.claude/settings.json (create if doesn't exist)
-2. Add hook entries:
+2. Add hook entries (Claude Code 2.x format):
    {
      "hooks": {
-       "Stop": ["grov capture"],
-       "SessionStart": ["grov inject"]
+       "Stop": [
+         {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov capture"}]}
+       ],
+       "SessionStart": [
+         {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov inject"}]}
+       ]
      }
    }
 3. Save file
 4. Print "Done! Grov is now active."
 ```
+
+**CRITICAL:** Uses absolute path to grov binary (e.g., `/opt/homebrew/bin/grov`) because Claude Code hooks may not have the same PATH as user shell.
 
 **User runs this once, never again.**
 
@@ -178,9 +190,12 @@ claude "fix the auth bug"
 3. Format the results as additionalContext:
    {
      "hookSpecificOutput": {
+       "hookEventName": "SessionStart",
        "additionalContext": "VERIFIED CONTEXT FROM PREVIOUS SESSIONS:\n\n[Task: fix auth bug]\n- Files: auth/session.js, middleware/token.js\n- Decision: Extended token refresh window from 5min to 15min\n- Reason: Users were getting logged out during long forms\n\nYOU MAY SKIP EXPLORE AGENTS for these files. Read them directly if needed."
      }
    }
+
+   **CRITICAL:** Must include `hookEventName: "SessionStart"` - without this field, Claude Code reports an error.
 
 4. Print JSON to stdout (Claude Code reads this)
 ```
@@ -316,7 +331,7 @@ CREATE INDEX idx_created ON tasks(created_at);
 | Language | TypeScript | Type safety, better DX |
 | CLI Framework | Commander.js | Simple, well-documented |
 | Database | better-sqlite3 | Zero-config, fast, single file |
-| LLM | Anthropic SDK (Haiku) | Cheap (~$0.001/call), fast |
+| LLM | OpenAI GPT-3.5-turbo | Cheap (~$0.001/call), fast |
 
 ---
 
@@ -337,8 +352,8 @@ CREATE INDEX idx_created ON tasks(created_at);
 ## Environment Variables
 
 ```bash
-# Required for LLM extraction
-ANTHROPIC_API_KEY=sk-ant-...
+# Required for LLM extraction (uses OpenAI GPT-3.5-turbo)
+OPENAI_API_KEY=sk-...
 
 # Optional
 GROV_DB_PATH=~/.grov/memory.db      # Default
@@ -378,6 +393,7 @@ Claude: *reads auth/session.ts, investigates, fixes token refresh*
 ```json
 {
   "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
     "additionalContext": "VERIFIED CONTEXT FROM PREVIOUS SESSIONS:\n\n[Task: fix auth logout bug]\n- Files: src/auth/session.ts, src/middleware/token.ts\n- Decision: Extended token refresh window from 5min to 15min\n- Reason: Users were getting logged out during long forms\n\nYOU MAY SKIP EXPLORE AGENTS for these files."
   }
 }
@@ -414,14 +430,21 @@ MVP is successful if:
 ### Completed ✅
 1. ~~Initialize npm package~~
 2. ~~Build commands in order (init → capture → inject → status → unregister)~~
-3. ~~Add LLM extraction with Claude Haiku~~
+3. ~~Add LLM extraction~~ (switched to OpenAI GPT-3.5-turbo)
+4. ~~Test on real Claude Code sessions~~ - **VALIDATED Nov 25, 2025**
+5. ~~Verify hook firing~~ - Hooks fire correctly
+6. ~~Test context injection~~ - Claude uses injected context and skips exploration
 
 ### Still To Do
-1. **Test on real Claude Code sessions** - Use grov while working on a real project
-2. **Verify hook firing** - Check that capture/inject actually run
-3. **Test context injection** - Does Claude actually see the injected context?
-4. **Edge cases** - Empty sessions, malformed JSONL, missing files
-5. **npm publish** - When ready to share publicly
+1. **Edge cases** - Empty sessions, malformed JSONL, missing files
+2. **npm publish** - When ready to share publicly
+3. **More real-world testing** - Use grov across multiple projects
+
+### Critical Findings
+- **hookEventName is required** - Must include `"hookEventName": "SessionStart"` in JSON output
+- **Absolute paths required** - Hooks need full path like `/opt/homebrew/bin/grov` (not just `grov`)
+- **CLAUDE_PROJECT_DIR env var** - Claude Code passes this to hooks, use it for project path
+- **additionalContext works** - Claude reads and uses the injected context
 
 ### Future (Phase 2+)
 See `ROADMAP.md` for team sync, cloud storage, semantic search, etc.

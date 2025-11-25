@@ -1,7 +1,13 @@
 # Project: Collective AI Memory for Engineering Teams
 
+## Status: MVP VALIDATED (Nov 25, 2025)
+
+The core hypothesis has been validated. Context injection via Claude Code hooks works.
+
 ## One-Line Summary
-A CLI wrapper for Claude Code that captures reasoning from AI coding sessions and injects relevant team context into new sessions, eliminating redundant codebase exploration and preserving institutional knowledge.
+A zero-friction CLI that uses Claude Code hooks to automatically capture reasoning from AI coding sessions and inject relevant context into future sessions, eliminating redundant codebase exploration and preserving institutional knowledge.
+
+**Key change from original design:** We use pure hooks with `additionalContext`, NOT a CLI wrapper with `--append-system-prompt`. Zero friction - users just run `claude` normally.
 
 ---
 
@@ -26,69 +32,101 @@ When developers use AI coding agents (Claude Code, Cursor, etc.):
 
 ---
 
-## Solution (Validated)
+## Solution (VALIDATED - Working)
 
-### Core Insight
-Claude Code respects `--append-system-prompt` flag. When you inject verified context at the system level (not user level), Claude:
+### Core Insight (Updated)
+Claude Code's SessionStart hooks support `additionalContext` output. When you inject verified context via hooks, Claude:
 - Skips mandatory exploration agents
 - Directly reads only the files mentioned
 - Trusts the provided context as verified
 - Proceeds to implementation faster
 
-### How It Works
+**Original hypothesis:** Use `--append-system-prompt` wrapper
+**Validated approach:** Use hooks with `hookSpecificOutput.additionalContext`
+
+### How It Works (Actual Implementation)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      YOUR TOOL                              │
+│                         GROV                                │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  1. CAPTURE (after each Claude Code session):               │
-│     - Thinking blocks (reasoning)                           │
-│     - Intent object (goal, constraints, approach)           │
-│     - Files touched                                         │
-│     - Patterns used                                         │
-│     - Key decisions + rejected alternatives                 │
+│  1. SETUP (one-time):                                       │
+│     npm install -g grov && grov init                        │
+│     → Registers hooks in ~/.claude/settings.json            │
 │                                                             │
-│  2. STORE:                                                  │
-│     - Local DB or cloud (team sync)                         │
-│     - Tagged by: files, modules, task type                  │
-│     - Searchable by semantic similarity                     │
+│  2. INJECT (SessionStart hook - automatic):                 │
+│     → grov queries SQLite for relevant past tasks           │
+│     → Outputs JSON: {"hookSpecificOutput": {                │
+│         "hookEventName": "SessionStart",                    │
+│         "additionalContext": "VERIFIED CONTEXT..."          │
+│       }}                                                    │
+│     → Claude sees context, skips exploration                │
 │                                                             │
-│  3. RETRIEVE (when new task starts):                        │
-│     - Query: "What reasoning exists for files/modules       │
-│       related to this task?"                                │
-│     - Pull relevant past session context                    │
+│  3. USER WORKS NORMALLY                                     │
+│     → No change to workflow                                 │
 │                                                             │
-│  4. INJECT:                                                 │
-│     - Construct system prompt with verified context         │
-│     - Call: claude --append-system-prompt "{context}" "task"│
-│     - Claude skips exploration, uses provided patterns      │
+│  4. CAPTURE (Stop hook - automatic):                        │
+│     → grov parses ~/.claude/projects/.../<session>.jsonl    │
+│     → Extracts reasoning via LLM (GPT-3.5-turbo)            │
+│     → Stores in ~/.grov/memory.db (SQLite)                  │
+│                                                             │
+│  5. REPEAT                                                  │
+│     → Context compounds over time                           │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Technical Findings (from experiments)
+## Technical Findings (from experiments + MVP validation)
 
-### What Works
-- `--append-system-prompt` flag changes Claude Code behavior
-- System-level instructions override plan mode's "always explore first" default
-- Claude explicitly acknowledges: "The user explicitly told me NOT to use explore agents since they've already verified the context"
-- Direct file reads instead of spawning explore agents
+### What Works (VALIDATED Nov 25, 2025)
+- **SessionStart hooks with `additionalContext`** - Claude receives and uses injected context
+- **hookEventName is REQUIRED** - Must include `"hookEventName": "SessionStart"` in JSON output
+- **Absolute paths in hooks** - Must use `/opt/homebrew/bin/grov` not just `grov`
+- **CLAUDE_PROJECT_DIR env var** - Claude Code passes this to hooks, use for project path
+- **Claude Code 2.x hook format** - Uses nested objects, not strings
 
 ### What Doesn't Work
 - User-level context injection (in the prompt itself) gets deprioritized
 - Claude's plan mode has hardcoded behavior: "Since I'm in plan mode, I should launch explore agents"
-- User context is acknowledged but then ignored in favor of system instructions
+- Hooks without `hookEventName` cause "SessionStart:startup hook error"
+- Relative paths in hooks (grov not found in PATH)
 
-### Key Discovery
+### Key Discovery (Updated)
 ```bash
-# This changes Claude's behavior:
-claude --append-system-prompt "VERIFIED CONTEXT: Rate limiting pattern is in middleware/rateLimits.ts. Follow leadExportRateLimit. Bulk-update route is at properties.routes.ts line 98. DO NOT launch explore agents for these files." "add rate limiting to bulk-update"
+# Original hypothesis - wrapper approach:
+claude --append-system-prompt "VERIFIED CONTEXT..." "task"
+# This works but requires user to change workflow
 
-# Result: 0 explore agents, direct file reads, ~80% faster
+# Validated approach - pure hooks:
+# grov inject outputs:
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "VERIFIED CONTEXT FROM PREVIOUS SESSIONS:\n..."
+  }
+}
+# Result: 0 explore agents, direct file reads, ZERO user friction
 ```
+
+### Critical Implementation Details
+1. **Hook format (Claude Code 2.x):**
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov inject"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov capture"}]}
+    ]
+  }
+}
+```
+
+2. **LLM extraction uses OpenAI GPT-3.5-turbo** (not Claude Haiku as originally planned)
 
 ---
 
@@ -261,10 +299,13 @@ That's it. User never thinks about grov again.
 ```json
 {
   "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
     "additionalContext": "VERIFIED CONTEXT FROM PREVIOUS SESSIONS:\n[Task: Add bulk property status update]\n- Rate limiting: middleware/rateLimits.ts:45\n- Decision: Used token bucket because...\n\nYOU MAY SKIP EXPLORE AGENTS for these files."
   }
 }
 ```
+
+**CRITICAL:** Must include `hookEventName: "SessionStart"` - without it, Claude Code reports an error.
 
 This injects directly into Claude's awareness. No wrapper needed - pure hooks.
 
@@ -284,31 +325,45 @@ Plus tool calls, thinking blocks, etc. Parse this to extract reasoning.
 
 ## MVP Scope
 
-### Phase 1: CLI Wrapper (Week 1-2)
-Build a CLI that:
-1. Wraps `claude` command
-2. After session ends, prompts user to save reasoning summary (or auto-extracts)
-3. Stores to local JSON/SQLite
-4. On new session, retrieves relevant context by file path matching
-5. Injects via `--append-system-prompt`
+### Phase 1: Zero-Friction CLI - COMPLETE ✅
+Built a CLI that:
+1. ~~Wraps `claude` command~~ → Uses hooks instead (zero friction)
+2. Auto-extracts reasoning via LLM (OpenAI GPT-3.5-turbo)
+3. Stores to SQLite at `~/.grov/memory.db`
+4. On new session, retrieves relevant context by project path
+5. Injects via SessionStart hook with `additionalContext`
 
 ```bash
-# User runs:
-yourtool "add rate limiting to bulk-update"
+# User runs (unchanged workflow):
+claude "add rate limiting to bulk-update"
 
-# Tool does:
-# 1. Queries local store: "any reasoning touching properties.routes.ts or rateLimits.ts?"
-# 2. Finds relevant past session
-# 3. Constructs system prompt
-# 4. Executes: claude --append-system-prompt "{context}" "add rate limiting to bulk-update"
+# Grov does automatically:
+# 1. SessionStart hook fires → grov inject
+# 2. Queries SQLite for relevant past tasks
+# 3. Outputs JSON with additionalContext
+# 4. Claude receives context, skips exploration
+# 5. Stop hook fires → grov capture → stores reasoning
 ```
 
-### Phase 2: Team Sync (Week 3-4)
-- Cloud storage option
-- Team dashboard showing sessions
-- Reasoning shared across team members' machines
+**Implemented files:**
+- `src/cli.ts` - Entry point
+- `src/commands/init.ts` - Register hooks
+- `src/commands/capture.ts` - Extract and store reasoning
+- `src/commands/inject.ts` - Query and inject context
+- `src/commands/status.ts` - Show stored tasks
+- `src/commands/unregister.ts` - Remove hooks
+- `src/lib/hooks.ts` - Hook registration
+- `src/lib/store.ts` - SQLite operations
+- `src/lib/jsonl-parser.ts` - Parse session files
+- `src/lib/llm-extractor.ts` - LLM-based extraction
 
-### Phase 3: Smart Retrieval (Week 5-6)
+### Phase 2: Team Sync (Next)
+- Cloud storage option (Supabase/Postgres)
+- `grov login` command
+- Sync reasoning across team members
+- Team dashboard
+
+### Phase 3: Smart Retrieval (Future)
 - Embedding-based semantic search
 - Auto-tagging by module/domain
 - Relevance scoring
@@ -363,11 +418,19 @@ Real value prop: "Save 40%+ on AI token costs by eliminating redundant explorati
 
 ## Next Steps
 
-1. **Build minimal CLI wrapper** - just capture + inject, no fancy retrieval
-2. **Test on real workflow** - use it yourself for a week
-3. **Measure** - token savings, time savings, quality difference
-4. **Iterate** - what context format works best?
-5. **Share with 5 devs** - get feedback before building more
+### Completed ✅
+1. ~~Build minimal CLI~~ - capture + inject working
+2. ~~Test on real workflow~~ - validated Nov 25, 2025
+3. ~~Validate hypothesis~~ - context injection works, Claude uses it
+
+### In Progress
+4. **Edge case testing** - empty sessions, malformed JSONL
+5. **More real-world testing** - use across multiple projects
+
+### Next
+6. **npm publish** - make publicly installable
+7. **Phase 2: Team Sync** - cloud backend for shared reasoning
+8. **Share with 5 devs** - get feedback
 
 ---
 
@@ -379,34 +442,52 @@ This is "Git for reasoning."
 
 ---
 
-## Session Log (Tonight's Experiments)
+## Session Log
 
-### Experiment 1: Baseline Task
+### Original Experiments (Nov 24, 2025)
+
+#### Experiment 1: Baseline Task
 - Task: Add bulk property status update endpoint
 - Result: Claude completed in ~3 min with full codebase context
 - Generated reasoning summary for injection testing
 
-### Experiment 2: Related Task Without Context (Run A)
+#### Experiment 2: Related Task Without Context (Run A)
 - Task: Add rate limiting to bulk-update endpoint
 - Fresh session, no injected context
 - Result: 10-11 min, 7%+ usage, 3+ explore agents, 10+ files read
 
-### Experiment 3: User-Level Context Injection (Run B)
+#### Experiment 3: User-Level Context Injection (Run B)
 - Same task, context injected in user prompt
 - Result: Claude acknowledged context but still launched explore agents
 - "Since I'm in plan mode, I should..." overrode user context
 - ~10 min, similar token usage
 
-### Experiment 4: System-Level Context Injection (Run C)
+#### Experiment 4: System-Level Context Injection (Run C)
 - Same task, context via `--append-system-prompt`
 - Result: **0 explore agents**, direct file reads, ~1-2 min to plan
 - Claude said: "The user explicitly told me NOT to use explore agents since they've already verified the context"
 - **Hypothesis validated**
 
+### MVP Validation (Nov 25, 2025)
+
+#### Experiment 5: Pure Hooks with additionalContext
+- Built full grov CLI with hooks
+- SessionStart hook injects context via `additionalContext`
+- Stop hook captures reasoning via LLM
+- **Result: Claude said "Based on the session context, here's what we worked on previously"**
+- 0 explore agents, 0 git commands, directly answered from injected context
+- **ZERO FRICTION VALIDATED** - user runs `claude` normally, grov works invisibly
+
+#### Key Debugging Notes
+- Initial hooks didn't work - missing `hookEventName` in JSON output
+- Hook format changed in Claude Code 2.x - requires nested objects
+- Absolute paths required in hooks (PATH not available)
+- `CLAUDE_PROJECT_DIR` env var available in hooks
+
 ---
 
 ## Contact / Credits
 
-Research session: [Your name]
-Date: [Tonight's date]
+Research & Implementation: Tony
+Dates: Nov 24-25, 2025
 Built during exploration of AI agent infrastructure opportunities

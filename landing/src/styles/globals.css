@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-grov-black text-grov-text font-sans;
+    position: relative;
+  }
+
+  /* Vignette effect - subtle darkening at edges */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(
+      ellipse at center,
+      transparent 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.4) 100%
+    );
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* Film grain overlay - subtle texture */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url('/grain-texture.svg');
+    background-repeat: repeat;
+    background-size: 200px 200px;
+    opacity: 0.025;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+    z-index: 9999;
+  }
+
+  ::selection {
+    @apply bg-grov-accent/30 text-grov-text;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3
+           bg-grov-accent text-grov-black font-medium rounded-lg
+           transition-all duration-200 ease-out
+           hover:bg-grov-accent-hover hover:-translate-y-0.5;
+    box-shadow:
+      0 0 20px rgba(16, 185, 129, 0.25),
+      0 0 40px rgba(16, 185, 129, 0.1);
+  }
+
+  .btn-primary:hover {
+    box-shadow:
+      0 0 30px rgba(16, 185, 129, 0.4),
+      0 0 60px rgba(16, 185, 129, 0.15);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-3
+           bg-transparent text-grov-text font-medium rounded-lg
+           border border-grov-border
+           transition-all duration-200 ease-out
+           hover:border-grov-accent hover:bg-grov-surface;
+  }
+
+  .btn-secondary:hover {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
+  }
+
+  .code-block {
+    @apply bg-grov-surface border border-grov-border rounded-xl
+           p-6 font-mono text-code text-grov-text-secondary
+           overflow-x-auto;
+  }
+
+  /* Syntax highlighting with glow effects */
+  .code-block .json-key,
+  .code-block span[class*="text-grov-accent"] {
+    text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+  }
+
+  .syntax-glow {
+    text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+  }
+
+  .card {
+    @apply bg-grov-surface border border-grov-border rounded-2xl p-8;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  }
+
+  .card-highlight {
+    @apply border-grov-accent;
+    box-shadow:
+      0 0 0 1px #10b981,
+      0 0 40px rgba(16, 185, 129, 0.08),
+      0 0 80px rgba(16, 185, 129, 0.04);
+  }
+
+  .card-highlight:hover {
+    box-shadow:
+      0 0 0 1px #10b981,
+      0 0 50px rgba(16, 185, 129, 0.12),
+      0 0 100px rgba(16, 185, 129, 0.06);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Animation delays for staggered fade-in */
+  .animation-delay-100 { animation-delay: 100ms; }
+  .animation-delay-200 { animation-delay: 200ms; }
+  .animation-delay-300 { animation-delay: 300ms; }
+  .animation-delay-400 { animation-delay: 400ms; }
+  .animation-delay-500 { animation-delay: 500ms; }
+  .animation-delay-600 { animation-delay: 600ms; }
+  .animation-delay-700 { animation-delay: 700ms; }
+
+  /* Scroll-triggered section reveals */
+  .reveal-section {
+    opacity: 0;
+    transform: scale(0.96) translateY(20px);
+    transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .reveal-section.in-view {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

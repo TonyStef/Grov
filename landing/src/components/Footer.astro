@@ -1,0 +1,95 @@
+---
+// Footer - minimal and clean with stats marquee
+---
+
+<!-- Stats Marquee Ticker -->
+<div class="overflow-hidden border-t border-grov-border py-4">
+  <div class="marquee-container">
+    <div class="marquee-track">
+      <span class="marquee-item">847K tokens saved</span>
+      <span class="marquee-divider">|</span>
+      <span class="marquee-item">14h 23m time saved</span>
+      <span class="marquee-divider">|</span>
+      <span class="marquee-item">203 sessions captured</span>
+      <span class="marquee-divider">|</span>
+      <span class="marquee-item">42 teams using grov</span>
+      <span class="marquee-divider">|</span>
+      <span class="marquee-item">847K tokens saved</span>
+      <span class="marquee-divider">|</span>
+      <span class="marquee-item">14h 23m time saved</span>
+      <span class="marquee-divider">|</span>
+      <span class="marquee-item">203 sessions captured</span>
+      <span class="marquee-divider">|</span>
+      <span class="marquee-item">42 teams using grov</span>
+      <span class="marquee-divider">|</span>
+    </div>
+  </div>
+</div>
+
+<footer class="py-12 px-6 border-t border-grov-border">
+  <div class="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+    <!-- Logo -->
+    <div class="text-grov-text font-bold">
+      grov
+    </div>
+
+    <!-- Links -->
+    <div class="flex items-center gap-6 text-small text-grov-text-muted">
+      <a
+        href="https://github.com/yourusername/grov"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:text-grov-text transition-colors"
+      >
+        GitHub
+      </a>
+      <a
+        href="https://github.com/yourusername/grov/blob/main/LICENSE"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:text-grov-text transition-colors"
+      >
+        MIT License
+      </a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .marquee-container {
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .marquee-track {
+    display: flex;
+    gap: 2rem;
+    animation: marquee 30s linear infinite;
+    width: max-content;
+  }
+
+  .marquee-item {
+    color: #71717a;
+    font-size: 0.875rem;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+  }
+
+  .marquee-divider {
+    color: #3f3f46;
+    font-size: 0.875rem;
+  }
+
+  @keyframes marquee {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  .marquee-container:hover .marquee-track {
+    animation-play-state: paused;
+  }
+</style>

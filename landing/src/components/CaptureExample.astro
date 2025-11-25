@@ -1,0 +1,58 @@
+---
+// What gets captured - JSON example
+---
+
+<section class="py-24 px-6 reveal-section">
+  <div class="max-w-4xl mx-auto">
+    <!-- Section header -->
+    <div class="text-center mb-16">
+      <h2 class="text-section-mobile md:text-section text-grov-text">
+        What gets captured
+      </h2>
+      <p class="mt-6 text-body-lg text-grov-text-secondary max-w-2xl mx-auto">
+        Not what changed. <span class="text-grov-text">Why</span> it changed.
+      </p>
+    </div>
+
+    <!-- JSON example -->
+    <div class="code-block text-left">
+      <pre class="text-code"><code><span class="text-grov-text-muted">&#123;</span>
+  <span class="text-grov-accent">"task"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Fix auth logout bug"</span><span class="text-grov-text-muted">,</span>
+  <span class="text-grov-accent">"goal"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Prevent random user logouts"</span><span class="text-grov-text-muted">,</span>
+  <span class="text-grov-accent">"files_touched"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span>
+    <span class="text-grov-text">"src/auth/session.ts"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-text">"src/middleware/token.ts"</span>
+  <span class="text-grov-text-muted">],</span>
+  <span class="text-grov-accent">"reasoning_trace"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span>
+    <span class="text-grov-text">"Investigated token refresh logic"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-text">"Found refresh window was too short"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-text">"Extended from 5min to 15min"</span>
+  <span class="text-grov-text-muted">],</span>
+  <span class="text-grov-accent">"status"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"complete"</span><span class="text-grov-text-muted">,</span>
+  <span class="text-grov-accent">"tags"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span><span class="text-grov-text">"auth"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"session"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"token"</span><span class="text-grov-text-muted">]</span>
+<span class="text-grov-text-muted">&#125;</span></code></pre>
+    </div>
+
+    <!-- Explanation -->
+    <div class="mt-12 grid md:grid-cols-3 gap-6">
+      <div class="text-center">
+        <div class="text-grov-accent text-2xl font-bold mb-2">Reasoning</div>
+        <p class="text-grov-text-secondary text-small">
+          The "why" behind each decision, not just the code diff
+        </p>
+      </div>
+      <div class="text-center">
+        <div class="text-grov-accent text-2xl font-bold mb-2">Context</div>
+        <p class="text-grov-text-secondary text-small">
+          Files touched, patterns used, constraints discovered
+        </p>
+      </div>
+      <div class="text-center">
+        <div class="text-grov-accent text-2xl font-bold mb-2">Tags</div>
+        <p class="text-grov-text-secondary text-small">
+          Auto-generated for quick retrieval and team search
+        </p>
+      </div>
+    </div>
+  </div>
+</section>

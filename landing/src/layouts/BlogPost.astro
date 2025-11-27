@@ -1,0 +1,161 @@
+---
+import Layout from './Layout.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  pubDate?: Date;
+  author?: string;
+  image?: string;
+}
+
+const { title, description, pubDate, author, image } = Astro.props;
+
+const formattedDate = pubDate?.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric'
+});
+---
+
+<Layout title={`${title} | Grov`} description={description}>
+  <div class="bg-grov-black min-h-screen">
+    <!-- Back to home link -->
+    <nav class="border-b border-grov-surface">
+      <div class="max-w-4xl mx-auto px-6 py-6">
+        <a
+          href="/"
+          class="inline-flex items-center text-grov-text-secondary hover:text-grov-accent transition-colors font-mono text-sm"
+        >
+          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          Back to home
+        </a>
+      </div>
+    </nav>
+
+    <!-- Article container -->
+    <article class="max-w-4xl mx-auto px-6 py-16">
+      <!-- Article header -->
+      <header class="mb-16">
+        <h1 class="text-hero font-bold text-grov-text mb-6 leading-tight">
+          {title}
+        </h1>
+        <p class="text-subhead text-grov-text-secondary mb-8">
+          {description}
+        </p>
+        {(author || formattedDate) && (
+          <div class="flex items-center gap-4 text-sm text-grov-text-secondary font-mono">
+            {author && <span>By {author}</span>}
+            {author && formattedDate && <span>•</span>}
+            {formattedDate && <time datetime={pubDate?.toISOString()}>{formattedDate}</time>}
+          </div>
+        )}
+      </header>
+
+      <!-- Article content -->
+      <div class="prose prose-invert prose-lg max-w-none">
+        <slot />
+      </div>
+
+      <!-- Share buttons -->
+      <footer class="mt-16 pt-8 border-t border-grov-surface">
+        <div class="flex items-center gap-4">
+          <span class="text-sm text-grov-text-secondary font-mono">Share:</span>
+          <a
+            href={`https://twitter.com/intent/tweet?url=${encodeURIComponent('https://grov.dev/blog/launch-announcement')}&text=${encodeURIComponent(title)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-grov-text-secondary hover:text-grov-accent transition-colors text-sm font-mono"
+          >
+            Twitter
+          </a>
+          <a
+            href="https://news.ycombinator.com/submitlink?u=https://grov.dev/blog/launch-announcement"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-grov-text-secondary hover:text-grov-accent transition-colors text-sm font-mono"
+          >
+            Hacker News
+          </a>
+          <a
+            href={`https://www.reddit.com/submit?url=${encodeURIComponent('https://grov.dev/blog/launch-announcement')}&title=${encodeURIComponent(title)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-grov-text-secondary hover:text-grov-accent transition-colors text-sm font-mono"
+          >
+            Reddit
+          </a>
+        </div>
+      </footer>
+    </article>
+  </div>
+</Layout>
+
+<style>
+  /* Blog-specific typography styles */
+  :global(.prose) {
+    @apply text-grov-text;
+  }
+
+  :global(.prose h2) {
+    @apply text-section font-bold text-grov-text mt-12 mb-6;
+  }
+
+  :global(.prose h3) {
+    @apply text-subhead font-bold text-grov-text mt-8 mb-4;
+  }
+
+  :global(.prose p) {
+    @apply text-body text-grov-text-secondary mb-6 leading-relaxed;
+  }
+
+  :global(.prose strong) {
+    @apply text-grov-text font-semibold;
+  }
+
+  :global(.prose em) {
+    @apply text-grov-accent;
+  }
+
+  :global(.prose a) {
+    @apply text-grov-accent hover:underline;
+  }
+
+  :global(.prose ul) {
+    @apply list-disc list-outside ml-6 mb-6 space-y-2;
+  }
+
+  :global(.prose ol) {
+    @apply list-decimal list-outside ml-6 mb-6 space-y-2;
+  }
+
+  :global(.prose li) {
+    @apply text-grov-text-secondary;
+  }
+
+  :global(.prose code) {
+    @apply font-mono text-sm bg-grov-surface px-2 py-1 rounded text-grov-accent;
+  }
+
+  :global(.prose pre) {
+    @apply font-mono text-sm bg-grov-surface p-6 rounded-lg overflow-x-auto mb-6 border border-grov-surface;
+  }
+
+  :global(.prose pre code) {
+    @apply bg-transparent p-0 text-grov-text;
+  }
+
+  :global(.prose img) {
+    @apply rounded-lg border border-grov-surface shadow-lg my-8 max-w-2xl mx-auto;
+  }
+
+  :global(.prose blockquote) {
+    @apply border-l-4 border-grov-accent pl-6 italic text-grov-text-secondary my-6;
+  }
+
+  :global(.prose hr) {
+    @apply border-grov-surface my-12;
+  }
+</style>

@@ -1,0 +1,19 @@
+---
+import BlogPost from '../../layouts/BlogPost.astro';
+import { getEntry } from 'astro:content';
+
+const post = await getEntry('blog', 'launch-announcement');
+const { Content } = await post.render();
+
+const { title, description, pubDate, author, image } = post.data;
+---
+
+<BlogPost
+  title={title}
+  description={description}
+  pubDate={pubDate}
+  author={author}
+  image={image}
+>
+  <Content />
+</BlogPost>

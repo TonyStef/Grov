@@ -1,0 +1,89 @@
+---
+// Blog preview section for landing page
+---
+
+<section
+  class="py-32 px-6 border-t border-grov-surface relative overflow-hidden"
+  data-reveal
+>
+  <!-- Background grain texture -->
+  <div class="absolute inset-0 opacity-[0.015] pointer-events-none">
+    <div class="absolute inset-0 bg-grain"></div>
+  </div>
+
+  <div class="max-w-4xl mx-auto relative">
+    <!-- Section header -->
+    <div class="mb-12">
+      <div class="inline-block px-3 py-1 bg-grov-accent/10 border border-grov-accent/20 rounded-full mb-4">
+        <span class="text-grov-accent text-code font-mono font-medium">
+          New Post
+        </span>
+      </div>
+      <h2 class="text-section font-bold text-grov-text mb-4" data-reveal-delay="100">
+        Building Grov: How We Made AI Agents Remember
+      </h2>
+      <p class="text-body text-grov-text-secondary max-w-2xl" data-reveal-delay="200">
+        The story of building a zero-friction CLI that eliminates redundant AI exploration by capturing and injecting reasoning across Claude Code sessions
+      </p>
+    </div>
+
+    <!-- Blog preview content -->
+    <div class="space-y-6 text-body text-grov-text-secondary leading-relaxed mb-8" data-reveal-delay="300">
+      <p>
+        Have you ever started a fresh Claude Code session, asked it to fix a bug, and watched it spend 10 minutes exploring files it already analyzed yesterday?
+      </p>
+      <p>
+        Every AI coding session starts from zero. The agent doesn't remember:
+      </p>
+      <ul class="list-disc list-outside ml-6 space-y-2">
+        <li>The architecture decisions from last week</li>
+        <li>Why you chose that specific pattern</li>
+        <li>Which files it already explored</li>
+        <li>The "why" behind previous changes</li>
+      </ul>
+      <p>
+        For solo developers, this is annoying. For teams, it's a productivity black hole.
+      </p>
+
+      <!-- Preview placeholder for first screenshot -->
+      <div class="bg-grov-surface border border-grov-surface rounded-lg p-8 flex items-center justify-center my-8">
+        <p class="text-grov-text-secondary font-mono text-sm text-center">
+          [Twitter screenshot placeholder]<br/>
+          <span class="text-xs opacity-75">Developer frustration with AI context loss</span>
+        </p>
+      </div>
+
+      <p class="text-grov-text font-semibold mt-8">
+        I built Grov to solve this. Here's how it works...
+      </p>
+    </div>
+
+    <!-- Read full post CTA -->
+    <div data-reveal-delay="400">
+      <a
+        href="/blog/launch-announcement"
+        class="inline-flex items-center gap-2 bg-grov-accent hover:bg-grov-accent/90 text-grov-black font-medium px-6 py-3 rounded-lg transition-all hover:scale-105"
+      >
+        Read Full Post
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        </svg>
+      </a>
+    </div>
+
+    <!-- Meta info -->
+    <div class="mt-8 pt-8 border-t border-grov-surface flex items-center gap-4 text-sm text-grov-text-secondary font-mono" data-reveal-delay="500">
+      <span>By Tony</span>
+      <span>•</span>
+      <span>Launch announcement</span>
+      <span>•</span>
+      <span>~8 min read</span>
+    </div>
+  </div>
+</section>
+
+<style>
+  .bg-grain {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  }
+</style>

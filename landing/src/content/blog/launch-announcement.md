@@ -1,0 +1,251 @@
+---
+title: "Building Grov: How We Made AI Agents Remember"
+description: "The story of building a zero-friction CLI that eliminates redundant AI exploration by capturing and injecting reasoning across Claude Code sessions"
+pubDate: 2025-01-27
+author: Tony
+image: /images/twitter/tweet-problem-1.png
+tags: ["launch", "ai", "tooling", "claude-code"]
+---
+
+**[SCREENSHOT 1: Tweet about developer frustration with AI context loss]**
+*Suggested tweet type: Someone complaining about Claude "forgetting" what it learned, having to re-explain the codebase*
+
+Have you ever started a fresh Claude Code session, asked it to fix a bug, and watched it spend 10 minutes exploring files it already analyzed yesterday?
+
+Every AI coding session starts from zero. The agent doesn't remember:
+- The architecture decisions from last week
+- Why you chose that specific pattern
+- Which files it already explored
+- The "why" behind previous changes
+
+For solo developers, this is annoying. For teams, it's a productivity black hole.
+
+## The Problem: AI Agents Have Amnesia
+
+When developers use AI coding agents like Claude Code, they face four recurring pain points:
+
+**1. Context degradation**
+
+Long sessions accumulate context until the agent gets "dumber" as the conversation window fills up.
+
+**[SCREENSHOT 2: Tweet about context degradation or "Claude getting dumber" in long sessions]**
+
+**2. Redundant exploration**
+
+Every new session re-explores the same codebase patterns. In our tests, baseline tasks took:
+- **10-11 minutes** to complete
+- **7%+ token usage** for exploration
+- **3+ explore agents** launched
+- **10+ files** re-read that were already analyzed
+
+**[SCREENSHOT 3: Tweet about wasting time/tokens on redundant AI exploration]**
+
+**3. Lost reasoning**
+
+The "why" behind decisions disappears when sessions end. Git stores *what* changed, but commit messages rarely capture the reasoning process.
+
+**4. No team memory**
+
+Developer B's Claude doesn't know what Developer A's Claude learned yesterday. Every team member's AI starts from scratch.
+
+## The "Aha" Moment
+
+While testing Claude Code's new hooks feature, I discovered something interesting: `SessionStart` hooks support an `additionalContext` output field.
+
+What if we could automatically inject past reasoning into new sessions?
+
+The idea was simple:
+1. After each Claude Code session, extract the reasoning (what it learned, why decisions were made)
+2. Store it locally in SQLite
+3. When a new session starts, query for relevant past reasoning
+4. Inject it via the SessionStart hook
+5. Claude sees the context and skips redundant exploration
+
+Zero friction. Users just run `claude` normally. Grov works invisibly in the background.
+
+## How Grov Works
+
+Grov is a CLI tool with five commands, but users only run one:
+
+```bash
+npm install -g grov
+grov init
+# Done. Forget grov exists.
+```
+
+From that point on, every time you use Claude Code:
+
+### 1. SessionStart Hook Fires (Automatic)
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "VERIFIED CONTEXT FROM PREVIOUS SESSIONS:\n\n[Task: fix auth bug]\n- Files: auth/session.ts, middleware/token.ts\n- Decision: Extended token refresh window from 5min to 15min\n- Reason: Users were getting logged out during long forms\n\nYOU MAY SKIP EXPLORE AGENTS for these files."
+  }
+}
+```
+
+Claude receives this context injection. It trusts it as verified information.
+
+### 2. User Works Normally
+
+You interact with Claude Code exactly as before. No change to workflow.
+
+### 3. Stop Hook Fires (Automatic)
+
+When the session ends, grov:
+- Parses the session's JSONL file from `~/.claude/projects/`
+- Sends it to GPT-3.5-turbo with the prompt: "Extract the task description, files touched, key decisions, and status"
+- Stores the condensed reasoning in SQLite (`~/.grov/memory.db`)
+
+### 4. Context Compounds Over Time
+
+Each session makes the next session smarter. The reasoning builds up like institutional knowledge.
+
+**The entire loop is invisible to the user.**
+
+## Validation: Does It Actually Work?
+
+I ran three controlled experiments on the same task: adding rate limiting to a bulk-update endpoint.
+
+### Baseline (No Context)
+- **Time**: 10-11 minutes
+- **Token usage**: 7%+
+- **Explore agents launched**: 3+
+- **Files read**: 10+
+
+Claude explored the entire codebase to understand patterns.
+
+### With Grov (Context Injected)
+- **Time**: ~1-2 minutes to plan
+- **Token usage**: 1.6k tokens
+- **Explore agents launched**: 0
+- **Files read**: 3-4 (only the ones mentioned in context)
+
+**[SCREENSHOT 4: Screenshot of Claude acknowledging injected context]**
+*Suggested: Claude saying something like "Based on the session context, here's what we worked on previously..." or skipping explore agents*
+
+Claude's response began with: *"Based on the session context, here's what we worked on previously..."*
+
+It directly read the files mentioned in the injected context. No exploration phase. Straight to implementation.
+
+**80%+ reduction in time. 70%+ reduction in tokens.**
+
+The hypothesis was validated: system-level context injection eliminates mandatory exploration.
+
+## Under the Hood: Technical Details
+
+For the developers reading this, here are the critical technical decisions:
+
+### Hook Format (Claude Code 2.x)
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov inject"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov capture"}]}
+    ]
+  }
+}
+```
+
+**Critical**: Must use absolute paths (`/opt/homebrew/bin/grov`), not just `grov`, because hooks don't inherit your shell's PATH.
+
+### Data Model: Tasks, Not Sessions
+
+A single Claude Code session might contain multiple unrelated tasks:
+```
+9:15 AM - "fix auth bug"
+10:30 AM - "add rate limiting"
+11:45 AM - "refactor user service"
+```
+
+These are three separate atomic units. Grov stores per-task, not per-session, so retrieval is precise: "What reasoning exists about *this area of the codebase*?"
+
+### LLM-Based Extraction
+
+Grov uses GPT-3.5-turbo (cheap, fast) to extract reasoning from raw session JSONL:
+
+```typescript
+const prompt = `Extract from this Claude Code session:
+- Task description
+- Files touched
+- Key decisions made
+- Status: COMPLETE | QUESTION | PARTIAL | ABANDONED`;
+```
+
+Only `COMPLETE` tasks are injected as context. Partial or abandoned tasks are stored but not used.
+
+### Local-First Architecture
+
+```
+~/.grov/
+  └── memory.db (SQLite)
+
+~/.claude/
+  ├── settings.json (hooks registered here)
+  └── projects/<project>/<session>.jsonl (parsed by grov)
+```
+
+Everything is local. No cloud. No API calls except for LLM extraction.
+
+## Try It Yourself
+
+Grov is open source and ready to use:
+
+```bash
+# Install globally
+npm install -g grov
+
+# Register hooks (one-time setup)
+grov init
+
+# That's it. Use Claude Code normally.
+claude "your task here"
+```
+
+**Requirements:**
+- Node.js 18+
+- Claude Code (with hooks support)
+- OpenAI API key (for LLM extraction)
+
+**Links:**
+- GitHub: [github.com/youruser/grov](#)
+- Docs: [grov.dev](#)
+
+## What's Next
+
+Grov is currently in MVP phase. The core loop works. What comes next:
+
+**Phase 2: Team Sync**
+- Cloud storage (Supabase/Postgres)
+- Shared reasoning across team members
+- Web dashboard to browse team knowledge
+
+**Phase 3: Smart Retrieval**
+- Embedding-based semantic search
+- Relevance scoring (recency, file overlap, outcome)
+- Auto-tagging by domain
+
+**Phase 4: Enterprise**
+- SSO (SAML, OIDC)
+- On-premise deployment
+- Compliance (SOC 2, GDPR)
+
+## The Bigger Picture
+
+This is "Git for reasoning."
+
+Git stores *what* changed. Grov stores *why* it changed—and makes it retrievable for future sessions and team members.
+
+AI coding agents are powerful, but they're amnesiac. Every session starts from zero. Grov gives them memory.
+
+If you're tired of watching AI agents re-explore your codebase, give Grov a try. And if you have feedback, I'd love to hear it.
+
+---
+
+**Built by Tony** | [GitHub](#) | [Twitter](#)

@@ -3,12 +3,11 @@ title: "Building Grov: How We Made AI Agents Remember"
 description: "The story of building a zero-friction CLI that eliminates redundant AI exploration by capturing and injecting reasoning across Claude Code sessions"
 pubDate: 2025-01-27
 author: Tony
-image: /images/twitter/tweet-problem-1.png
+image: /images/twitter/tweet-problem-3.jpg
 tags: ["launch", "ai", "tooling", "claude-code"]
 ---
 
-**[SCREENSHOT 1: Tweet about developer frustration with AI context loss]**
-*Suggested tweet type: Someone complaining about Claude "forgetting" what it learned, having to re-explain the codebase*
+![Tweet about context-switching overhead with AI desktop apps](/images/twitter/tweet-problem-3.jpg)
 
 Have you ever started a fresh Claude Code session, asked it to fix a bug, and watched it spend 10 minutes exploring files it already analyzed yesterday?
 
@@ -28,7 +27,7 @@ When developers use AI coding agents like Claude Code, they face four recurring 
 
 Long sessions accumulate context until the agent gets "dumber" as the conversation window fills up.
 
-**[SCREENSHOT 2: Tweet about context degradation or "Claude getting dumber" in long sessions]**
+![Tweets about AI ignoring CLAUDE.md instructions and creating unwanted files](/images/twitter/tweet-problem-2.jpg)
 
 **2. Redundant exploration**
 
@@ -38,7 +37,7 @@ Every new session re-explores the same codebase patterns. In our tests, baseline
 - **3+ explore agents** launched
 - **10+ files** re-read that were already analyzed
 
-**[SCREENSHOT 3: Tweet about wasting time/tokens on redundant AI exploration]**
+![Tweet showing overwhelming codebase with many .md files on first day](/images/twitter/tweet-problem-1.jpg)
 
 **3. Lost reasoning**
 
@@ -123,10 +122,9 @@ Claude explored the entire codebase to understand patterns.
 - **Explore agents launched**: 0
 - **Files read**: 3-4 (only the ones mentioned in context)
 
-**[SCREENSHOT 4: Screenshot of Claude acknowledging injected context]**
-*Suggested: Claude saying something like "Based on the session context, here's what we worked on previously..." or skipping explore agents*
+![Claude Code terminal showing context injection and skipping explore agents](/images/twitter/validation-proof.webp)
 
-Claude's response began with: *"Based on the session context, here's what we worked on previously..."*
+Claude's response: *"I'll skip exploration and directly examine the relevant files."*
 
 It directly read the files mentioned in the injected context. No exploration phase. Straight to implementation.
 

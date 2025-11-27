@@ -2,12 +2,16 @@
 interface Props {
   title?: string;
   description?: string;
+  image?: string;
 }
 
 const {
   title = "grov - Collective AI memory for engineering teams",
-  description = "Your AI remembers what it learned. Skip the exploration. Ship faster."
+  description = "Your AI remembers what it learned. Skip the exploration. Ship faster.",
+  image = "/og-image.png"
 } = Astro.props;
+
+const ogImageUrl = `https://grov.dev${image}`;
 ---
 
 <!doctype html>
@@ -18,18 +22,21 @@ const {
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
 
-    <!-- Open Graph -->
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://grov.dev/" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:type" content="website" />
+    <meta property="og:image" content={ogImageUrl} />
 
-    <!-- Twitter -->
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
 
     <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
 
     <!-- Fonts - Satoshi from Fontshare -->
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin />

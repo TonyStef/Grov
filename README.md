@@ -138,4 +138,4 @@ Read them directly if relevant to the current task.
 
 ## License
 
-MIT
+Apache License 2.0 - see [LICENSE](LICENSE) file for details.

@@ -21,7 +21,7 @@
     "context"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "openai": "^4.70.0",
     "better-sqlite3": "^11.6.0",

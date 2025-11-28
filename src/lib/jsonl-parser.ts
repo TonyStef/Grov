@@ -111,7 +111,17 @@ export function listSessionFiles(projectPath: string): string[] {
  * Parse a JSONL file into entries
  */
 export function parseJsonlFile(filePath: string): JsonlEntry[] {
-  const content = readFileSync(filePath, 'utf-8');
+  let content: string;
+  try {
+    content = readFileSync(filePath, 'utf-8');
+  } catch {
+    // File may have been deleted/moved between finding and reading
+    if (process.env.GROV_DEBUG) {
+      console.error(`[grov] Could not read file: ${filePath}`);
+    }
+    return [];
+  }
+
   const lines = content.trim().split('\n').filter(line => line.trim());
 
   const entries: JsonlEntry[] = [];
@@ -122,7 +132,9 @@ export function parseJsonlFile(filePath: string): JsonlEntry[] {
       entries.push(entry);
     } catch {
       // Skip malformed lines
-      console.error('Warning: Could not parse JSONL line');
+      if (process.env.GROV_DEBUG) {
+        console.error('[grov] Skipping malformed JSONL line');
+      }
     }
   }
 

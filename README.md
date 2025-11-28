@@ -6,6 +6,13 @@
 
 <p align="center"><strong>Collective AI memory for engineering teams.</strong></p>
 
+<p align="center">
+  <a href="https://grov.dev">Website</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#roadmap">Roadmap</a> •
+  <a href="#contributing">Contributing</a>
+</p>
+
 Grov automatically captures reasoning from your Claude Code sessions and injects relevant context into future sessions. Your AI remembers what it learned.
 
 ## The Problem
@@ -139,6 +146,37 @@ Read them directly if relevant to the current task.
 - [ ] Team sync (cloud backend)
 - [ ] Web dashboard
 - [ ] Semantic search
+
+## Contributing
+
+We welcome contributions! Here's how to get started:
+
+1. **Fork the repo** and clone locally
+2. **Install dependencies:** `npm install`
+3. **Build:** `npm run build`
+4. **Test locally:** `node dist/cli.js --help`
+
+### Development
+
+```bash
+# Watch mode for development
+npm run dev
+
+# Test the CLI
+node dist/cli.js init
+node dist/cli.js status
+```
+
+### Guidelines
+
+- Keep PRs focused on a single change
+- Follow existing code style
+- Update tests if applicable
+- Update docs if adding features
+
+### Reporting Issues
+
+Found a bug or have a feature request? [Open an issue](https://github.com/TonyStef/Grov/issues).
 
 ## License
 

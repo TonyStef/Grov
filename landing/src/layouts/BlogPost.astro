@@ -16,6 +16,9 @@ const formattedDate = pubDate?.toLocaleDateString('en-US', {
   month: 'long',
   day: 'numeric'
 });
+
+// Build the current page URL from Astro.site
+const currentUrl = new URL(Astro.url.pathname, Astro.site).href;
 ---
 
 <Layout title={`${title} | Grov`} description={description}>
@@ -27,7 +30,7 @@ const formattedDate = pubDate?.toLocaleDateString('en-US', {
           href="/"
           class="inline-flex items-center text-grov-text-secondary hover:text-grov-accent transition-colors font-mono text-sm"
         >
-          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
           Back to home
@@ -64,7 +67,7 @@ const formattedDate = pubDate?.toLocaleDateString('en-US', {
         <div class="flex items-center gap-4">
           <span class="text-sm text-grov-text-secondary font-mono">Share:</span>
           <a
-            href={`https://twitter.com/intent/tweet?url=${encodeURIComponent('https://grov.dev/blog/launch-announcement')}&text=${encodeURIComponent(title)}`}
+            href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(currentUrl)}&text=${encodeURIComponent(title)}`}
             target="_blank"
             rel="noopener noreferrer"
             class="text-grov-text-secondary hover:text-grov-accent transition-colors text-sm font-mono"
@@ -72,7 +75,7 @@ const formattedDate = pubDate?.toLocaleDateString('en-US', {
             Twitter
           </a>
           <a
-            href="https://news.ycombinator.com/submitlink?u=https://grov.dev/blog/launch-announcement"
+            href={`https://news.ycombinator.com/submitlink?u=${encodeURIComponent(currentUrl)}`}
             target="_blank"
             rel="noopener noreferrer"
             class="text-grov-text-secondary hover:text-grov-accent transition-colors text-sm font-mono"
@@ -80,7 +83,7 @@ const formattedDate = pubDate?.toLocaleDateString('en-US', {
             Hacker News
           </a>
           <a
-            href={`https://www.reddit.com/submit?url=${encodeURIComponent('https://grov.dev/blog/launch-announcement')}&title=${encodeURIComponent(title)}`}
+            href={`https://www.reddit.com/submit?url=${encodeURIComponent(currentUrl)}&title=${encodeURIComponent(title)}`}
             target="_blank"
             rel="noopener noreferrer"
             class="text-grov-text-secondary hover:text-grov-accent transition-colors text-sm font-mono"
@@ -94,6 +97,8 @@ const formattedDate = pubDate?.toLocaleDateString('en-US', {
 </Layout>
 
 <style>
+  @reference "../styles/globals.css";
+
   /* Blog-specific typography styles */
   :global(.prose) {
     @apply text-grov-text;

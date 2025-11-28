@@ -1,12 +1,10 @@
 import { defineConfig } from 'astro/config';
-import tailwind from '@astrojs/tailwind';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  integrations: [tailwind()],
-  build: {
-    inlineStylesheets: 'auto'
-  },
+  site: 'https://grov.dev',
   vite: {
+    plugins: [tailwindcss()],
     build: {
       cssMinify: true
     }

@@ -1,0 +1,41 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="404 - Page Not Found | grov">
+  <main class="min-h-screen flex flex-col items-center justify-center px-6 py-24 relative">
+    <!-- Background effect -->
+    <div class="absolute inset-0 bg-gradient-to-b from-grov-black via-grov-surface/20 to-grov-black"></div>
+
+    <div class="relative z-10 text-center max-w-2xl">
+      <!-- 404 Number -->
+      <div class="text-[8rem] md:text-[12rem] font-bold leading-none text-grov-surface-elevated select-none">
+        404
+      </div>
+
+      <!-- Message -->
+      <h1 class="mt-4 text-section-mobile md:text-section text-grov-text">
+        Page not found
+      </h1>
+
+      <p class="mt-6 text-body-lg text-grov-text-secondary max-w-md mx-auto">
+        The page you're looking for doesn't exist or has been moved.
+      </p>
+
+      <!-- CTA -->
+      <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+        <a href="/" class="btn-primary">
+          Back to Home
+        </a>
+        <a
+          href="https://github.com/TonyStef/Grov"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-secondary"
+        >
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </main>
+</Layout>

@@ -27,7 +27,8 @@ function getClient(): OpenAI {
   if (!client) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is required for LLM extraction');
+      // SECURITY: Generic error to avoid confirming API key mechanism exists
+      throw new Error('LLM extraction unavailable');
     }
     client = new OpenAI({ apiKey });
   }
@@ -96,16 +97,33 @@ Return ONLY valid JSON, no explanation.`
   try {
     const extracted = JSON.parse(content) as Partial<ExtractedReasoning>;
 
-    // Validate and fill defaults
+    // SECURITY: Validate types to prevent LLM injection attacks
+    const safeTask = typeof extracted.task === 'string' ? extracted.task : '';
+    const safeGoal = typeof extracted.goal === 'string' ? extracted.goal : '';
+    const safeTrace = Array.isArray(extracted.reasoning_trace)
+      ? extracted.reasoning_trace.filter((t): t is string => typeof t === 'string')
+      : [];
+    const safeDecisions = Array.isArray(extracted.decisions)
+      ? extracted.decisions.filter((d): d is { choice: string; reason: string } =>
+          d && typeof d === 'object' && typeof d.choice === 'string' && typeof d.reason === 'string')
+      : [];
+    const safeConstraints = Array.isArray(extracted.constraints)
+      ? extracted.constraints.filter((c): c is string => typeof c === 'string')
+      : [];
+    const safeTags = Array.isArray(extracted.tags)
+      ? extracted.tags.filter((t): t is string => typeof t === 'string')
+      : [];
+
+    // Fill defaults with validated values
     return {
-      task: extracted.task || session.userMessages[0]?.substring(0, 100) || 'Unknown task',
-      goal: extracted.goal || extracted.task || 'Unknown goal',
-      reasoning_trace: extracted.reasoning_trace || [],
+      task: safeTask || session.userMessages[0]?.substring(0, 100) || 'Unknown task',
+      goal: safeGoal || safeTask || 'Unknown goal',
+      reasoning_trace: safeTrace,
       files_touched: session.filesRead.concat(session.filesWritten),
-      decisions: extracted.decisions || [],
-      constraints: extracted.constraints || [],
+      decisions: safeDecisions,
+      constraints: safeConstraints,
       status: validateStatus(extracted.status),
-      tags: extracted.tags || []
+      tags: safeTags
     };
   } catch (parseError) {
     // If JSON parsing fails, return basic extraction

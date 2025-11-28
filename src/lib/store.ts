@@ -129,7 +129,10 @@ export function initDatabase(): Database.Database {
     // Ignore if chmod fails (e.g., on Windows)
   }
 
-  // Create tasks table
+  // OPTIMIZATION: Enable WAL mode for better concurrent performance
+  db.pragma('journal_mode = WAL');
+
+  // Create all tables in a single transaction for efficiency
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,

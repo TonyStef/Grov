@@ -225,7 +225,8 @@ export function findAnchorAtLine(anchors: AnchorInfo[], lineNumber: number): Anc
 }
 
 /**
- * Compute a hash of a code region for change detection
+ * Compute a hash of a code region for change detection.
+ * Uses SHA-256 (truncated) for security scanner compliance.
  */
 export function computeCodeHash(content: string, lineStart: number, lineEnd: number): string {
   const lines = content.split('\n');
@@ -234,7 +235,8 @@ export function computeCodeHash(content: string, lineStart: number, lineEnd: num
   // Normalize whitespace for more stable hashes
   const normalized = slice.replace(/\s+/g, ' ').trim();
 
-  return createHash('md5').update(normalized).digest('hex').substring(0, 16);
+  // SECURITY: Use SHA-256 instead of MD5 (truncated for storage efficiency)
+  return createHash('sha256').update(normalized).digest('hex').substring(0, 16);
 }
 
 /**

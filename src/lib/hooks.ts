@@ -8,6 +8,9 @@ import { fileURLToPath } from 'url';
 const CLAUDE_DIR = join(homedir(), '.claude');
 const SETTINGS_PATH = join(CLAUDE_DIR, 'settings.json');
 
+// Cache for grov path to avoid repeated file system checks
+let cachedGrovPath: string | null = null;
+
 /**
  * Safe locations where grov executable can be found.
  * We only check these known paths - no shell commands are executed.
@@ -54,11 +57,18 @@ function getNvmPaths(): string[] {
 /**
  * Find the absolute path to the grov executable.
  * SECURITY: Only checks known safe locations - no shell command execution.
+ * OPTIMIZED: Caches result to avoid repeated file system checks.
  */
 function findGrovPath(): string {
+  // Return cached path if available
+  if (cachedGrovPath) {
+    return cachedGrovPath;
+  }
+
   // Check safe locations first
   for (const p of SAFE_GROV_LOCATIONS) {
     if (existsSync(p)) {
+      cachedGrovPath = p;
       return p;
     }
   }
@@ -66,6 +76,7 @@ function findGrovPath(): string {
   // Check nvm locations
   for (const p of getNvmPaths()) {
     if (existsSync(p)) {
+      cachedGrovPath = p;
       return p;
     }
   }
@@ -76,14 +87,16 @@ function findGrovPath(): string {
     const __dirname = dirname(__filename);
     const localCli = resolve(__dirname, '../../dist/cli.js');
     if (existsSync(localCli)) {
-      return `node "${localCli}"`;
+      cachedGrovPath = `node "${localCli}"`;
+      return cachedGrovPath;
     }
   } catch {
     // ESM import.meta not available, skip
   }
 
   // Fallback to just 'grov' - will work if it's in PATH
-  return 'grov';
+  cachedGrovPath = 'grov';
+  return cachedGrovPath;
 }
 
 // New hook format (Claude Code 2.x+)

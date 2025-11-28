@@ -145,8 +145,12 @@ export function listSessionFiles(projectPath: string): string[] {
     .map(f => join(sessionsDir, f));
 }
 
+// SECURITY: Maximum entries to prevent memory exhaustion
+const MAX_JSONL_ENTRIES = 10000;
+
 /**
- * Parse a JSONL file into entries
+ * Parse a JSONL file into entries.
+ * SECURITY: Limits entries to prevent memory exhaustion attacks.
  */
 export function parseJsonlFile(filePath: string): JsonlEntry[] {
   let content: string;
@@ -163,6 +167,12 @@ export function parseJsonlFile(filePath: string): JsonlEntry[] {
   const entries: JsonlEntry[] = [];
 
   for (const line of lines) {
+    // SECURITY: Limit entries to prevent memory exhaustion
+    if (entries.length >= MAX_JSONL_ENTRIES) {
+      debugParser('Entry limit reached (%d), stopping parse', MAX_JSONL_ENTRIES);
+      break;
+    }
+
     try {
       const entry = JSON.parse(line) as JsonlEntry;
       entries.push(entry);

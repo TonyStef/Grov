@@ -26,7 +26,8 @@ export async function init(): Promise<void> {
     console.log('\nJust use Claude Code normally. Grov works in the background.');
 
   } catch (error) {
-    console.error('Failed to register hooks:', error);
+    // SECURITY: Only show error message, not full stack trace with paths
+    console.error('Failed to register hooks:', error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
   }
 }

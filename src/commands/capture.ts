@@ -1,6 +1,6 @@
 // grov capture - Called by Stop hook, extracts and stores reasoning
 
-import { findLatestSessionFile, parseSession, getSessionIdFromPath } from '../lib/jsonl-parser.js';
+import { findLatestSessionFile, parseSession, getSessionIdFromPath, isPathWithinProject } from '../lib/jsonl-parser.js';
 import {
   createTask,
   createFileReasoning,
@@ -114,12 +114,12 @@ export async function capture(options: CaptureOptions): Promise<void> {
           files_explored: [...new Set([...sessionState.files_explored, ...filesTouched])],
           original_goal: goal,
         });
-        debugCapture('Updated session state: %s', sessionId);
+        debugCapture('Updated session state: %s...', sessionId.substring(0, 8));
       }
     }
 
     // Log for debugging
-    debugCapture('Captured task: %s', task.id);
+    debugCapture('Captured task: %s...', task.id.substring(0, 8));
     debugCapture('Query: %s...', originalQuery.substring(0, 50));
     debugCapture('Files: %d', filesTouched.length);
     debugCapture('Status: %s', status);
@@ -259,6 +259,13 @@ async function createFileReasoningForFile(
   wasModified: boolean
 ): Promise<void> {
   try {
+    // SECURITY: Validate path is within project boundary to prevent path traversal
+    const projectPath = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    if (!isPathWithinProject(projectPath, filePath)) {
+      debugCapture('Skipping file outside project boundary: %s', filePath);
+      return;
+    }
+
     // Check if file exists
     if (!existsSync(filePath)) {
       return;

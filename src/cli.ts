@@ -3,6 +3,19 @@
 import { Command } from 'commander';
 import { closeDatabase } from './lib/store.js';
 
+// SECURITY: Global error handlers to catch unhandled rejections from dynamic imports
+process.on('unhandledRejection', (reason) => {
+  console.error('Error:', reason instanceof Error ? reason.message : 'Unknown error');
+  closeDatabase();
+  process.exit(1);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Error:', error.message);
+  closeDatabase();
+  process.exit(1);
+});
+
 const program = new Command();
 
 /**

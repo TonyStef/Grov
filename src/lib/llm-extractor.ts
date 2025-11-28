@@ -95,7 +95,19 @@ Return ONLY valid JSON, no explanation.`
   }
 
   try {
-    const extracted = JSON.parse(content) as Partial<ExtractedReasoning>;
+    // SECURITY: Parse to plain object first, then sanitize prototype pollution
+    const rawParsed = JSON.parse(content) as Record<string, unknown>;
+
+    // SECURITY: Prevent prototype pollution from LLM-generated JSON
+    // An attacker could manipulate LLM to return {"__proto__": {"isAdmin": true}}
+    const pollutionKeys = ['__proto__', 'constructor', 'prototype'];
+    for (const key of pollutionKeys) {
+      if (key in rawParsed) {
+        delete rawParsed[key];
+      }
+    }
+
+    const extracted = rawParsed as Partial<ExtractedReasoning>;
 
     // SECURITY: Validate types to prevent LLM injection attacks
     const safeTask = typeof extracted.task === 'string' ? extracted.task : '';

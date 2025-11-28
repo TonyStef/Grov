@@ -35,7 +35,7 @@ export async function inject(options: InjectOptions): Promise<void> {
           project_path: projectPath,
           user_id: process.env.USER || undefined,
         });
-        debugInject('Created session state: %s', sessionId);
+        debugInject('Created session state: %s...', sessionId.substring(0, 8));
       }
     }
 

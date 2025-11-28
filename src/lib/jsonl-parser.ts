@@ -92,12 +92,24 @@ export function getProjectSessionsDir(projectPath: string): string {
   return join(CLAUDE_PROJECTS_DIR, encoded);
 }
 
+// SECURITY: Valid session ID pattern (hex chars, dashes for UUIDs)
+const SESSION_ID_PATTERN = /^[a-f0-9-]+$/i;
+
 /**
  * Extract session ID from a JSONL file path
  * ~/.claude/projects/-Users-dev-myapp/abc123def456.jsonl -> abc123def456
+ * SECURITY: Validates session ID format to prevent path confusion attacks.
  */
 export function getSessionIdFromPath(jsonlPath: string): string {
-  return basename(jsonlPath, '.jsonl');
+  const sessionId = basename(jsonlPath, '.jsonl');
+
+  // SECURITY: Validate session ID contains only safe characters
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    debugParser('Invalid session ID format: %s', sessionId.substring(0, 20));
+    throw new Error('Invalid session ID format');
+  }
+
+  return sessionId;
 }
 
 /**
@@ -109,7 +121,8 @@ export function getCurrentSessionId(projectPath: string): string | null {
 }
 
 /**
- * Find the most recent session file for a project
+ * Find the most recent session file for a project.
+ * SECURITY: Handles TOCTOU race conditions gracefully.
  */
 export function findLatestSessionFile(projectPath: string): string | null {
   const sessionsDir = getProjectSessionsDir(projectPath);
@@ -118,14 +131,34 @@ export function findLatestSessionFile(projectPath: string): string | null {
     return null;
   }
 
-  const files = readdirSync(sessionsDir)
-    .filter(f => f.endsWith('.jsonl'))
-    .map(f => ({
-      name: f,
-      path: join(sessionsDir, f),
-      mtime: statSync(join(sessionsDir, f)).mtime
-    }))
-    .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  // SECURITY: Handle TOCTOU - files may be deleted between list and stat
+  const files: { name: string; path: string; mtime: Date }[] = [];
+
+  try {
+    const entries = readdirSync(sessionsDir).filter(f => f.endsWith('.jsonl'));
+
+    for (const f of entries) {
+      const filePath = join(sessionsDir, f);
+      try {
+        // SECURITY: Wrap stat in try-catch to handle deleted files
+        const stat = statSync(filePath);
+        files.push({
+          name: f,
+          path: filePath,
+          mtime: stat.mtime
+        });
+      } catch {
+        // File was deleted between readdir and stat - skip it
+        debugParser('File disappeared during listing: %s', f);
+      }
+    }
+  } catch {
+    // Directory may have been deleted
+    debugParser('Could not read sessions directory: %s', sessionsDir);
+    return null;
+  }
+
+  files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
 
   return files.length > 0 ? files[0].path : null;
 }

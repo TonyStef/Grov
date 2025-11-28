@@ -1,7 +1,7 @@
 ---
 title: "Building Grov: How We Made AI Agents Remember"
 description: "The story of building a zero-friction CLI that eliminates redundant AI exploration by capturing and injecting reasoning across Claude Code sessions"
-pubDate: 2025-01-27
+pubDate: 2025-11-27
 author: Tony
 image: /images/twitter/tweet-problem-3.jpg
 tags: ["launch", "ai", "tooling", "claude-code"]

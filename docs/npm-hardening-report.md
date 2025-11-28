@@ -260,3 +260,53 @@ Stability:
 - Clean up stdin event listeners
 - Organize tests into dedicated folder
 ```
+
+---
+
+## v0.2 Roadmap - Deferred Issues
+
+The following issues were identified during security audits but deferred to v0.2 as they are low priority and don't block the initial release.
+
+| ID | Issue | File | Description | Reason Deferred |
+|----|-------|------|-------------|-----------------|
+| M7 | Lazy JSON Parsing | `store.ts` | JSON fields parsed on every retrieval | Micro-optimization, minimal impact |
+| L1 | Debug Info Disclosure | debug module | Full error objects in DEBUG output | Only affects developers with DEBUG=grov:* |
+| L2 | Session ID Entropy | `jsonl-parser.ts` | No entropy validation on session IDs | Claude Code controls ID generation |
+| L3 | JSONL Integrity Check | `jsonl-parser.ts` | No HMAC verification of session files | Would need key management infrastructure |
+| L4 | Graceful Shutdown | `cli.ts` | No SIGINT/SIGTERM handlers | Nice-to-have, CLI exits quickly anyway |
+| L5 | LLM Call Timeout | `llm-extractor.ts` | API calls can hang indefinitely | OpenAI has server-side timeouts |
+| L6 | LLM Rate Limiting | `llm-extractor.ts` | No daily/hourly call limits | User controls their own API key & costs |
+
+### Implementation Notes for v0.2
+
+**M7 - Lazy JSON Parsing:**
+```typescript
+// Current: Parse immediately
+const task = rowToTask(row); // parses JSON fields
+
+// v0.2: Parse on access with getters
+get reasoning_trace() {
+  if (!this._reasoning_trace) {
+    this._reasoning_trace = JSON.parse(this._raw.reasoning_trace);
+  }
+  return this._reasoning_trace;
+}
+```
+
+**L5 - LLM Call Timeout:**
+```typescript
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), 30000);
+const response = await openai.chat.completions.create({...}, { signal: controller.signal });
+```
+
+**L6 - LLM Rate Limiting:**
+```typescript
+// Simple daily counter in SQLite
+const MAX_DAILY_CALLS = 100;
+function checkRateLimit(): boolean {
+  const today = new Date().toISOString().split('T')[0];
+  const count = db.prepare('SELECT count FROM rate_limits WHERE date = ?').get(today);
+  return (count?.count || 0) < MAX_DAILY_CALLS;
+}
+```

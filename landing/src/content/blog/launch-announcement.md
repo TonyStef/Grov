@@ -212,8 +212,8 @@ claude "your task here"
 - OpenAI API key (for LLM extraction)
 
 **Links:**
-- GitHub: [github.com/youruser/grov](#)
-- Docs: [grov.dev](#)
+- GitHub: [github.com/TonyStef/Grov](https://github.com/TonyStef/Grov)
+- Docs: [grov.dev](https://grov.dev)
 
 ## What's Next
 
@@ -246,4 +246,4 @@ If you're tired of watching AI agents re-explore your codebase, give Grov a try.
 
 ---
 
-**Built by Tony** | [GitHub](#) | [Twitter](#)
+**Built by Tony** | [GitHub](https://github.com/TonyStef/Grov) | [Twitter](https://x.com/VirgillSA)

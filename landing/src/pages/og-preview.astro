@@ -1,0 +1,229 @@
+---
+/**
+ * OG Image Preview Page
+ *
+ * Renders the 1200x630 OG image for social sharing.
+ * Visit /og-preview to see the design, then screenshot to PNG.
+ *
+ * Export instructions:
+ * 1. Open http://localhost:4321/og-preview
+ * 2. Right-click the image container → Inspect
+ * 3. Right-click the .og-container element → Capture node screenshot
+ * 4. Save as public/og-image.png
+ */
+
+import OGNetwork from '../components/OGNetwork.astro';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OG Image Preview - grov</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #18181b;
+        padding: 40px;
+        font-family: 'Satoshi', system-ui, sans-serif;
+      }
+
+      .preview-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        align-items: center;
+      }
+
+      .preview-label {
+        color: #71717a;
+        font-size: 14px;
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      /* The actual OG image container - exactly 1200x630 */
+      .og-container {
+        width: 1200px;
+        height: 630px;
+        background: #09090b;
+        position: relative;
+        overflow: hidden;
+        border-radius: 0; /* No border radius for export */
+      }
+
+      /* Radial vignette effect */
+      .og-container::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          ellipse 80% 80% at 30% 50%,
+          transparent 0%,
+          transparent 40%,
+          rgba(0, 0, 0, 0.5) 100%
+        );
+        pointer-events: none;
+        z-index: 2;
+      }
+
+      /* Film grain overlay */
+      .og-container::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        background-repeat: repeat;
+        background-size: 200px 200px;
+        opacity: 0.03;
+        pointer-events: none;
+        mix-blend-mode: overlay;
+        z-index: 3;
+      }
+
+      /* Network background layer */
+      .network-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+      }
+
+      /* Content layer (text, logo) */
+      .content-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 60px 80px;
+      }
+
+      /* Main headline */
+      .headline {
+        font-size: 64px;
+        font-weight: 700;
+        color: #fafafa;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        max-width: 700px;
+        text-shadow:
+          0 0 60px rgba(0, 0, 0, 0.8),
+          0 0 120px rgba(0, 0, 0, 0.6);
+      }
+
+      .headline .accent {
+        color: #10b981;
+        text-shadow:
+          0 0 40px rgba(16, 185, 129, 0.4),
+          0 0 80px rgba(16, 185, 129, 0.2);
+      }
+
+      /* Subheadline */
+      .subheadline {
+        margin-top: 24px;
+        font-size: 24px;
+        font-weight: 400;
+        color: #a1a1aa;
+        max-width: 500px;
+        text-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+      }
+
+      /* Footer with logo and URL */
+      .footer {
+        position: absolute;
+        bottom: 48px;
+        left: 80px;
+        right: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 5;
+      }
+
+      .logo-container {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .logo-container img {
+        height: 44px;
+        width: auto;
+        filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.5));
+      }
+
+      .url {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 20px;
+        color: #71717a;
+        text-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+      }
+
+      /* Decorative accent line */
+      .accent-line {
+        width: 60px;
+        height: 3px;
+        background: linear-gradient(90deg, #10b981, transparent);
+        margin-bottom: 32px;
+        border-radius: 2px;
+        box-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preview-wrapper">
+      <div class="preview-label">1200 x 630px — Right-click → Capture node screenshot</div>
+
+      <div class="og-container">
+        <!-- Network visualization layer -->
+        <div class="network-layer">
+          <OGNetwork />
+        </div>
+
+        <!-- Content overlay -->
+        <div class="content-layer">
+          <div class="accent-line"></div>
+          <h1 class="headline">
+            Your AI <span class="accent">remembers</span><br />
+            what it learned.
+          </h1>
+          <p class="subheadline">
+            Skip the exploration. Ship faster.
+          </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+          <div class="logo-container">
+            <img src="/logo.png" alt="grov" />
+          </div>
+          <span class="url">grov.dev</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

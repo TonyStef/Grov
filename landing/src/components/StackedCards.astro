@@ -1,0 +1,95 @@
+---
+/**
+ * Stacked Cards Component
+ *
+ * Displays Twitter screenshots in a stacked card layout
+ * that reveals on scroll using CSS sticky positioning.
+ */
+
+const cards = [
+  {
+    image: '/images/twitter/tweet-problem-3.jpg',
+    alt: 'Tweet about context-switching overhead with AI desktop apps'
+  },
+  {
+    image: '/images/twitter/tweet-problem-2.jpg',
+    alt: 'Tweets about AI ignoring CLAUDE.md instructions and creating unwanted files'
+  },
+  {
+    image: '/images/twitter/tweet-problem-1.jpg',
+    alt: 'Tweet showing overwhelming codebase with many .md files on first day'
+  },
+];
+---
+
+<div class="stacked-cards-container">
+  {cards.map((card, i) => (
+    <div class="stacked-card" style={`--card-index: ${i}`}>
+      <img src={card.image} alt={card.alt} loading="lazy" />
+    </div>
+  ))}
+</div>
+
+<style>
+  .stacked-cards-container {
+    position: relative;
+    margin: 3rem 0;
+    /* Each card needs scroll space to "stick" before next arrives */
+    padding-bottom: 2rem;
+  }
+
+  .stacked-card {
+    position: sticky;
+    /* Stagger the top position for each card */
+    top: calc(60px + var(--card-index) * 24px);
+    background: var(--color-grov-surface, #18181b);
+    border-left: 4px solid var(--color-grov-accent, #10b981);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 60px;
+    box-shadow:
+      0 10px 40px rgba(0, 0, 0, 0.4),
+      0 0 0 1px rgba(63, 63, 70, 0.5);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .stacked-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 15px 50px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(63, 63, 70, 0.5);
+  }
+
+  .stacked-card:last-child {
+    margin-bottom: 0;
+  }
+
+  .stacked-card img {
+    width: 100%;
+    border-radius: 8px;
+    display: block;
+  }
+
+  /* Reduced motion - disable sticky effect */
+  @media (prefers-reduced-motion: reduce) {
+    .stacked-card {
+      position: relative;
+      top: 0;
+    }
+  }
+
+  /* Mobile adjustments */
+  @media (max-width: 640px) {
+    .stacked-card {
+      padding: 12px;
+      margin-bottom: 40px;
+      border-radius: 12px;
+      /* Tighter stacking on mobile */
+      top: calc(50px + var(--card-index) * 16px);
+    }
+
+    .stacked-card img {
+      border-radius: 6px;
+    }
+  }
+</style>

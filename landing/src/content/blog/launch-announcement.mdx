@@ -7,7 +7,7 @@ image: /images/twitter/tweet-problem-3.jpg
 tags: ["launch", "ai", "tooling", "claude-code"]
 ---
 
-![Tweet about context-switching overhead with AI desktop apps](/images/twitter/tweet-problem-3.jpg)
+import StackedCards from '../../components/StackedCards.astro';
 
 Have you ever started a fresh Claude Code session, asked it to fix a bug, and watched it spend 10 minutes exploring files it already analyzed yesterday?
 
@@ -27,8 +27,6 @@ When developers use AI coding agents like Claude Code, they face four recurring 
 
 Long sessions accumulate context until the agent gets "dumber" as the conversation window fills up.
 
-![Tweets about AI ignoring CLAUDE.md instructions and creating unwanted files](/images/twitter/tweet-problem-2.jpg)
-
 **2. Redundant exploration**
 
 Every new session re-explores the same codebase patterns. In our tests, baseline tasks took:
@@ -37,8 +35,6 @@ Every new session re-explores the same codebase patterns. In our tests, baseline
 - **3+ explore agents** launched
 - **10+ files** re-read that were already analyzed
 
-![Tweet showing overwhelming codebase with many .md files on first day](/images/twitter/tweet-problem-1.jpg)
-
 **3. Lost reasoning**
 
 The "why" behind decisions disappears when sessions end. Git stores *what* changed, but commit messages rarely capture the reasoning process.
@@ -46,6 +42,8 @@ The "why" behind decisions disappears when sessions end. Git stores *what* chang
 **4. No team memory**
 
 Developer B's Claude doesn't know what Developer A's Claude learned yesterday. Every team member's AI starts from scratch.
+
+<StackedCards />
 
 ## The Industry Knows — But No One's Solving It
 

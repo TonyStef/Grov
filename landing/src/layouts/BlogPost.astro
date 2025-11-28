@@ -7,9 +7,10 @@ interface Props {
   pubDate?: Date;
   author?: string;
   image?: string;
+  showCards?: boolean;
 }
 
-const { title, description, pubDate, author, image } = Astro.props;
+const { title, description, pubDate, author, image, showCards = false } = Astro.props;
 
 const formattedDate = pubDate?.toLocaleDateString('en-US', {
   year: 'numeric',
@@ -61,6 +62,9 @@ const currentUrl = new URL(Astro.url.pathname, Astro.site).href;
       <div class="prose prose-invert prose-lg max-w-none">
         <slot />
       </div>
+
+      <!-- Optional stacked cards slot -->
+      <slot name="cards" />
 
       <!-- Share buttons -->
       <footer class="mt-16 pt-8 border-t border-grov-surface">

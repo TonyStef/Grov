@@ -47,6 +47,31 @@ The "why" behind decisions disappears when sessions end. Git stores *what* chang
 
 Developer B's Claude doesn't know what Developer A's Claude learned yesterday. Every team member's AI starts from scratch.
 
+## The Industry Knows — But No One's Solving It
+
+This isn't just our observation. The industry's top voices are saying the same thing.
+
+From [Sanity's engineering blog](https://www.sanity.io/blog/first-attempt-will-be-95-garbage):
+
+> "AI can't retain learning between sessions (unless you spend the time manually giving it the 'memories')."
+
+> "AI doesn't learn from mistakes. You fix the same misunderstandings repeatedly."
+
+Their workaround? Manually maintaining CLAUDE.md files, MCP integrations, and explicit documentation. It works, but it's friction.
+
+Even Anthropic acknowledges this in their [Claude 4 announcement](https://www.anthropic.com/news/claude-4):
+
+> "When developers build applications that provide Claude local file access, Opus 4 becomes skilled at creating and maintaining 'memory files'"
+
+But this is:
+- **Manual** — you have to set it up
+- **Per-user** — your teammate's Claude doesn't see it
+- **Per-session** — it doesn't persist automatically
+
+The industry has identified the problem. The workarounds are manual and siloed. **No one is offering automated, team-shared memory.**
+
+That's the gap Grov fills.
+
 ## The "Aha" Moment
 
 While testing Claude Code's new hooks feature, I discovered something interesting: `SessionStart` hooks support an `additionalContext` output field.
@@ -234,13 +259,20 @@ Grov is currently in MVP phase. The core loop works. What comes next:
 - On-premise deployment
 - Compliance (SOC 2, GDPR)
 
-## The Bigger Picture
+## The Bigger Picture: Shared Consciousness for AI Agents
 
-This is "Git for reasoning."
+This is more than "Git for reasoning." It's **shared consciousness for AI agents**.
 
-Git stores *what* changed. Grov stores *why* it changed—and makes it retrievable for future sessions and team members.
+Think about it:
+- Git stores *what* changed
+- Grov stores *why* it changed
+- And makes it retrievable across **time** (future sessions) and **users** (your whole team)
 
-AI coding agents are powerful, but they're amnesiac. Every session starts from zero. Grov gives them memory.
+Your AI agents are no longer isolated. Developer A's Claude learns something at 9am. Developer B's Claude knows it by 10am. The reasoning compounds across your entire team.
+
+**AI agents communicating across time and users.** No one else is doing this.
+
+AI coding agents are powerful, but they're amnesiac. Every session starts from zero. Grov gives them collective memory.
 
 If you're tired of watching AI agents re-explore your codebase, give Grov a try. And if you have feedback, I'd love to hear it.
 

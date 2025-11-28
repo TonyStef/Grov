@@ -1,10 +1,18 @@
 // SQLite store for task reasoning at ~/.grov/memory.db
 
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
+
+/**
+ * Escape LIKE pattern special characters to prevent SQL injection.
+ * SECURITY: Prevents wildcard injection in LIKE queries.
+ */
+function escapeLikePattern(str: string): string {
+  return str.replace(/[%_\\]/g, '\\$&');
+}
 
 const GROV_DIR = join(homedir(), '.grov');
 const DB_PATH = join(GROV_DIR, 'memory.db');
@@ -107,12 +115,19 @@ let db: Database.Database | null = null;
 export function initDatabase(): Database.Database {
   if (db) return db;
 
-  // Ensure .grov directory exists
+  // Ensure .grov directory exists with secure permissions
   if (!existsSync(GROV_DIR)) {
-    mkdirSync(GROV_DIR, { recursive: true });
+    mkdirSync(GROV_DIR, { recursive: true, mode: 0o700 });
   }
 
   db = new Database(DB_PATH);
+
+  // Set secure file permissions on the database
+  try {
+    chmodSync(DB_PATH, 0o600);
+  } catch {
+    // Ignore if chmod fails (e.g., on Windows)
+  }
 
   // Create tasks table
   db.exec(`
@@ -275,7 +290,8 @@ export function getTasksForProject(
 }
 
 /**
- * Get tasks that touched specific files
+ * Get tasks that touched specific files.
+ * SECURITY: Uses json_each for proper array handling and escaped LIKE patterns.
  */
 export function getTasksByFiles(
   projectPath: string,
@@ -284,11 +300,21 @@ export function getTasksByFiles(
 ): Task[] {
   const database = initDatabase();
 
-  // SQLite JSON search - look for any file match
-  const fileConditions = files.map(() => "json_extract(files_touched, '$') LIKE ?").join(' OR ');
+  if (files.length === 0) {
+    return [];
+  }
+
+  // Use json_each for proper array iteration with escaped LIKE patterns
+  const fileConditions = files.map(() =>
+    "EXISTS (SELECT 1 FROM json_each(files_touched) WHERE value LIKE ? ESCAPE '\\')"
+  ).join(' OR ');
 
   let sql = `SELECT * FROM tasks WHERE project_path = ? AND (${fileConditions})`;
-  const params: (string | number)[] = [projectPath, ...files.map(f => `%${f}%`)];
+  // Escape LIKE special characters to prevent injection
+  const params: (string | number)[] = [
+    projectPath,
+    ...files.map(f => `%${escapeLikePattern(f)}%`)
+  ];
 
   if (options.status) {
     sql += ' AND status = ?';
@@ -337,9 +363,23 @@ export function getTaskCount(projectPath: string): number {
   const database = initDatabase();
 
   const stmt = database.prepare('SELECT COUNT(*) as count FROM tasks WHERE project_path = ?');
-  const row = stmt.get(projectPath) as { count: number };
+  const row = stmt.get(projectPath) as { count: number } | undefined;
 
-  return row.count;
+  return row?.count ?? 0;
+}
+
+/**
+ * Safely parse JSON with fallback to empty array.
+ */
+function safeJsonParse<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string' || !value) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 /**
@@ -352,13 +392,13 @@ function rowToTask(row: Record<string, unknown>): Task {
     user: row.user as string | undefined,
     original_query: row.original_query as string,
     goal: row.goal as string | undefined,
-    reasoning_trace: JSON.parse(row.reasoning_trace as string || '[]'),
-    files_touched: JSON.parse(row.files_touched as string || '[]'),
+    reasoning_trace: safeJsonParse<string[]>(row.reasoning_trace, []),
+    files_touched: safeJsonParse<string[]>(row.files_touched, []),
     status: row.status as TaskStatus,
     linked_commit: row.linked_commit as string | undefined,
     parent_task_id: row.parent_task_id as string | undefined,
     turn_number: row.turn_number as number | undefined,
-    tags: JSON.parse(row.tags as string || '[]'),
+    tags: safeJsonParse<string[]>(row.tags, []),
     created_at: row.created_at as string
   };
 }
@@ -512,10 +552,10 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
     user_id: row.user_id as string | undefined,
     project_path: row.project_path as string,
     original_goal: row.original_goal as string | undefined,
-    actions_taken: JSON.parse(row.actions_taken as string || '[]'),
-    files_explored: JSON.parse(row.files_explored as string || '[]'),
+    actions_taken: safeJsonParse<string[]>(row.actions_taken, []),
+    files_explored: safeJsonParse<string[]>(row.files_explored, []),
     current_intent: row.current_intent as string | undefined,
-    drift_warnings: JSON.parse(row.drift_warnings as string || '[]'),
+    drift_warnings: safeJsonParse<string[]>(row.drift_warnings, []),
     start_time: row.start_time as string,
     last_update: row.last_update as string,
     status: row.status as SessionStatus
@@ -597,7 +637,8 @@ export function getFileReasoningByPath(filePath: string, limit = 10): FileReason
 }
 
 /**
- * Get file reasoning entries matching a pattern (for files in a project)
+ * Get file reasoning entries matching a pattern (for files in a project).
+ * SECURITY: Uses escaped LIKE patterns to prevent injection.
  */
 export function getFileReasoningByPathPattern(
   pathPattern: string,
@@ -605,10 +646,12 @@ export function getFileReasoningByPathPattern(
 ): FileReasoning[] {
   const database = initDatabase();
 
+  // Escape LIKE special characters to prevent injection
+  const escapedPattern = escapeLikePattern(pathPattern);
   const stmt = database.prepare(
-    'SELECT * FROM file_reasoning WHERE file_path LIKE ? ORDER BY created_at DESC LIMIT ?'
+    "SELECT * FROM file_reasoning WHERE file_path LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?"
   );
-  const rows = stmt.all(`%${pathPattern}%`, limit) as Record<string, unknown>[];
+  const rows = stmt.all(`%${escapedPattern}%`, limit) as Record<string, unknown>[];
 
   return rows.map(rowToFileReasoning);
 }

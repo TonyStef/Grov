@@ -2,7 +2,8 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join, basename, resolve, normalize } from 'path';
+import { debugParser } from './debug.js';
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 
@@ -51,15 +52,36 @@ export interface ToolCall {
  * /Users/dev/myapp -> -Users-dev-myapp
  */
 export function encodeProjectPath(projectPath: string): string {
-  return projectPath.replace(/\//g, '-');
+  // Normalize the path first to prevent encoding malicious paths
+  const normalized = projectPath.replace(/\.\.+/g, '.');
+  return normalized.replace(/\//g, '-');
 }
 
 /**
- * Decode an encoded project path back to the original
+ * Decode an encoded project path back to the original.
+ * SECURITY: Validates that the decoded path doesn't contain traversal sequences.
+ * @throws Error if path contains traversal sequences
  */
 export function decodeProjectPath(encoded: string): string {
   // First char is always '-' representing the root '/'
-  return encoded.replace(/-/g, '/');
+  const decoded = encoded.replace(/-/g, '/');
+
+  // SECURITY: Prevent path traversal attacks
+  if (decoded.includes('..')) {
+    throw new Error('Invalid path: traversal sequence detected');
+  }
+
+  return decoded;
+}
+
+/**
+ * Validate that a file path is within the expected project boundary.
+ * SECURITY: Prevents path traversal outside project directory.
+ */
+export function isPathWithinProject(projectPath: string, filePath: string): boolean {
+  const resolvedProject = resolve(normalize(projectPath));
+  const resolvedFile = resolve(normalize(filePath));
+  return resolvedFile.startsWith(resolvedProject);
 }
 
 /**
@@ -132,9 +154,7 @@ export function parseJsonlFile(filePath: string): JsonlEntry[] {
     content = readFileSync(filePath, 'utf-8');
   } catch {
     // File may have been deleted/moved between finding and reading
-    if (process.env.GROV_DEBUG) {
-      console.error(`[grov] Could not read file: ${filePath}`);
-    }
+    debugParser('Could not read file: %s', filePath);
     return [];
   }
 
@@ -148,9 +168,7 @@ export function parseJsonlFile(filePath: string): JsonlEntry[] {
       entries.push(entry);
     } catch {
       // Skip malformed lines
-      if (process.env.GROV_DEBUG) {
-        console.error('[grov] Skipping malformed JSONL line');
-      }
+      debugParser('Skipping malformed JSONL line');
     }
   }
 

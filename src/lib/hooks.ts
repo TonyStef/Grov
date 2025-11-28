@@ -1,43 +1,88 @@
 // Helper to read/write ~/.claude/settings.json
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { execSync } from 'child_process';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, readdirSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const CLAUDE_DIR = join(homedir(), '.claude');
 const SETTINGS_PATH = join(CLAUDE_DIR, 'settings.json');
 
 /**
- * Find the absolute path to the grov executable
- * This is needed because Claude Code hooks may not have the same PATH
+ * Safe locations where grov executable can be found.
+ * We only check these known paths - no shell commands are executed.
  */
-function findGrovPath(): string {
-  try {
-    // Try to find grov using 'which'
-    const result = execSync('which grov', { encoding: 'utf-8' }).trim();
-    if (result && existsSync(result)) {
-      return result;
+const SAFE_GROV_LOCATIONS = [
+  '/opt/homebrew/bin/grov',                    // macOS ARM (Homebrew)
+  '/usr/local/bin/grov',                       // macOS Intel / Linux
+  '/usr/bin/grov',                             // System-wide Linux
+  join(homedir(), '.npm-global/bin/grov'),     // Custom npm prefix
+  join(homedir(), '.local/bin/grov'),          // Local user bin
+];
+
+/**
+ * Get nvm-based paths for current and common Node versions.
+ * Returns paths without executing any shell commands.
+ */
+function getNvmPaths(): string[] {
+  const nvmDir = join(homedir(), '.nvm/versions/node');
+  const paths: string[] = [];
+
+  // Add current Node version path
+  paths.push(join(nvmDir, process.version, 'bin/grov'));
+
+  // Try common LTS versions
+  const ltsVersions = ['v18', 'v20', 'v22'];
+  for (const ver of ltsVersions) {
+    try {
+      const versionDir = join(nvmDir, ver);
+      if (existsSync(versionDir)) {
+        // Find actual version directories
+        const entries = readdirSync(versionDir);
+        for (const entry of entries) {
+          paths.push(join(nvmDir, ver, entry, 'bin/grov'));
+        }
+      }
+    } catch {
+      // Skip if can't read directory
     }
-  } catch {
-    // which failed, try common locations
   }
 
-  // Common locations for npm global binaries
-  const commonPaths = [
-    '/opt/homebrew/bin/grov',           // macOS ARM (M1/M2)
-    '/usr/local/bin/grov',              // macOS Intel / Linux
-    join(homedir(), '.npm-global/bin/grov'),  // Custom npm prefix
-    join(homedir(), '.nvm/versions/node', process.version, 'bin/grov'), // nvm
-  ];
+  return paths;
+}
 
-  for (const p of commonPaths) {
+/**
+ * Find the absolute path to the grov executable.
+ * SECURITY: Only checks known safe locations - no shell command execution.
+ */
+function findGrovPath(): string {
+  // Check safe locations first
+  for (const p of SAFE_GROV_LOCATIONS) {
     if (existsSync(p)) {
       return p;
     }
   }
 
-  // Fallback to just 'grov' and hope it's in PATH
+  // Check nvm locations
+  for (const p of getNvmPaths()) {
+    if (existsSync(p)) {
+      return p;
+    }
+  }
+
+  // Check if running from source (development mode)
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const localCli = resolve(__dirname, '../../dist/cli.js');
+    if (existsSync(localCli)) {
+      return `node "${localCli}"`;
+    }
+  } catch {
+    // ESM import.meta not available, skip
+  }
+
+  // Fallback to just 'grov' - will work if it's in PATH
   return 'grov';
 }
 
@@ -76,12 +121,12 @@ export function readClaudeSettings(): ClaudeSettings {
 }
 
 export function writeClaudeSettings(settings: ClaudeSettings): void {
-  // Ensure .claude directory exists
+  // Ensure .claude directory exists with restricted permissions
   if (!existsSync(CLAUDE_DIR)) {
-    mkdirSync(CLAUDE_DIR, { recursive: true });
+    mkdirSync(CLAUDE_DIR, { recursive: true, mode: 0o700 });
   }
 
-  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), { mode: 0o600 });
 }
 
 export function registerGrovHooks(): { added: string[]; alreadyExists: string[] } {

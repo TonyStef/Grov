@@ -16,6 +16,8 @@ import {
   estimateLineNumber,
   type AnchorInfo
 } from '../lib/anchor-extractor.js';
+import { debugCapture } from '../lib/debug.js';
+import { truncate, capitalize } from '../lib/utils.js';
 import { readFileSync, existsSync } from 'fs';
 
 interface CaptureOptions {
@@ -57,9 +59,7 @@ export async function capture(options: CaptureOptions): Promise<void> {
     // Use LLM extraction if available, otherwise fall back to basic extraction
     if (isLLMAvailable()) {
       try {
-        if (process.env.GROV_DEBUG) {
-          console.error('[grov] Using LLM extraction...');
-        }
+        debugCapture('Using LLM extraction...');
 
         const extracted = await extractReasoning(session);
 
@@ -69,13 +69,9 @@ export async function capture(options: CaptureOptions): Promise<void> {
         status = extracted.status;
         tags = extracted.tags;
 
-        if (process.env.GROV_DEBUG) {
-          console.error(`[grov] LLM extraction complete: status=${status}`);
-        }
+        debugCapture('LLM extraction complete: status=%s', status);
       } catch (llmError) {
-        if (process.env.GROV_DEBUG) {
-          console.error('[grov] LLM extraction failed, using fallback:', llmError);
-        }
+        debugCapture('LLM extraction failed, using fallback: %O', llmError);
         // Fall back to basic extraction
         const basic = basicExtraction(session);
         goal = basic.goal;
@@ -118,26 +114,20 @@ export async function capture(options: CaptureOptions): Promise<void> {
           files_explored: [...new Set([...sessionState.files_explored, ...filesTouched])],
           original_goal: goal,
         });
-        if (process.env.GROV_DEBUG) {
-          console.error(`[grov] Updated session state: ${sessionId}`);
-        }
+        debugCapture('Updated session state: %s', sessionId);
       }
     }
 
     // Log for debugging
-    if (process.env.GROV_DEBUG) {
-      console.error(`[grov] Captured task: ${task.id}`);
-      console.error(`[grov] Query: ${originalQuery.substring(0, 50)}...`);
-      console.error(`[grov] Files: ${filesTouched.length}`);
-      console.error(`[grov] Status: ${status}`);
-      console.error(`[grov] LLM: ${isLLMAvailable() ? 'yes' : 'no'}`);
-    }
+    debugCapture('Captured task: %s', task.id);
+    debugCapture('Query: %s...', originalQuery.substring(0, 50));
+    debugCapture('Files: %d', filesTouched.length);
+    debugCapture('Status: %s', status);
+    debugCapture('LLM: %s', isLLMAvailable() ? 'yes' : 'no');
 
   } catch (error) {
     // Silent fail - don't interrupt user's workflow
-    if (process.env.GROV_DEBUG) {
-      console.error('[grov] Capture error:', error);
-    }
+    debugCapture('Capture error: %O', error);
   }
 }
 
@@ -254,9 +244,7 @@ async function createFileReasoningEntries(
       await createFileReasoningForFile(taskId, filePath, session, goal, false);
     }
   } catch (error) {
-    if (process.env.GROV_DEBUG) {
-      console.error('[grov] Error creating file reasoning entries:', error);
-    }
+    debugCapture('Error creating file reasoning entries: %O', error);
   }
 }
 
@@ -335,13 +323,11 @@ async function createFileReasoningForFile(
         file_path: filePath,
         anchor: anchors.length > 0 ? anchors[0].name : undefined,
         change_type: 'read',
-        reasoning: `Read during: ${truncateGoal(goal)}`
+        reasoning: `Read during: ${truncate(goal, 80)}`
       });
     }
   } catch (error) {
-    if (process.env.GROV_DEBUG) {
-      console.error(`[grov] Error processing file ${filePath}:`, error);
-    }
+    debugCapture('Error processing file %s: %O', filePath, error);
   }
 }
 
@@ -349,23 +335,9 @@ async function createFileReasoningForFile(
  * Build a reasoning string for a file modification
  */
 function buildReasoningString(anchor: AnchorInfo | null, goal: string, action: string): string {
+  const shortGoal = truncate(goal, 80);
   if (anchor) {
-    return `${capitalize(action)} ${anchor.type} "${anchor.name}": ${truncateGoal(goal)}`;
+    return `${capitalize(action)} ${anchor.type} "${anchor.name}": ${shortGoal}`;
   }
-  return `${capitalize(action)} file: ${truncateGoal(goal)}`;
-}
-
-/**
- * Capitalize first letter
- */
-function capitalize(str: string): string {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-/**
- * Truncate goal to reasonable length
- */
-function truncateGoal(goal: string): string {
-  if (goal.length <= 80) return goal;
-  return goal.substring(0, 77) + '...';
+  return `${capitalize(action)} file: ${shortGoal}`;
 }

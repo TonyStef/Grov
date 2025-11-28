@@ -7,21 +7,18 @@ import {
   type Task
 } from '../lib/store.js';
 import { getCurrentSessionId } from '../lib/jsonl-parser.js';
-import { appendFileSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { debugInject } from '../lib/debug.js';
+import { truncate } from '../lib/utils.js';
 
 interface InjectOptions {
   task?: string;
 }
 
 export async function inject(options: InjectOptions): Promise<void> {
-  // Debug logging to file (to verify hook fires)
-  const logFile = join(homedir(), '.grov', 'inject.log');
-  const timestamp = new Date().toISOString();
-  const projectDir = process.env.CLAUDE_PROJECT_DIR || 'NOT_SET';
-  const cwd = process.cwd();
-  appendFileSync(logFile, `[${timestamp}] inject called - CLAUDE_PROJECT_DIR=${projectDir}, cwd=${cwd}\n`);
+  debugInject('inject called - CLAUDE_PROJECT_DIR=%s, cwd=%s',
+    process.env.CLAUDE_PROJECT_DIR || 'NOT_SET',
+    process.cwd()
+  );
 
   try {
     // Get project path from Claude Code env var, fallback to cwd
@@ -38,9 +35,7 @@ export async function inject(options: InjectOptions): Promise<void> {
           project_path: projectPath,
           user_id: process.env.USER || undefined,
         });
-        if (process.env.GROV_DEBUG) {
-          console.error(`[grov] Created session state: ${sessionId}`);
-        }
+        debugInject('Created session state: %s', sessionId);
       }
     }
 
@@ -69,9 +64,7 @@ export async function inject(options: InjectOptions): Promise<void> {
   } catch (error) {
     // On error, output nothing - don't break the session
     // Silent fail is better than outputting potentially invalid JSON
-    if (process.env.GROV_DEBUG) {
-      console.error('[grov] Inject error:', error);
-    }
+    debugInject('Inject error: %O', error);
   }
 }
 
@@ -121,12 +114,4 @@ function buildContextString(tasks: Task[]): string {
   lines.push('Read them directly if relevant to the current task.');
 
   return lines.join('\n');
-}
-
-/**
- * Truncate string to max length
- */
-function truncate(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str;
-  return str.substring(0, maxLength - 3) + '...';
 }

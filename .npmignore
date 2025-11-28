@@ -1,0 +1,30 @@
+# Source files (we only publish dist/)
+src/
+tsconfig.json
+
+# Development files
+.github/
+.vscode/
+.claude/
+*.log
+.env*
+.DS_Store
+
+# Documentation (not needed in npm package)
+docs/
+landing/
+*.md
+!README.md
+
+# Test files
+tests/
+__tests__/
+coverage/
+vitest.config.ts
+
+# Build artifacts
+node_modules/
+
+# Git
+.git/
+.gitignore

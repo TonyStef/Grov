@@ -7,6 +7,11 @@ import {
   getFileReasoningByPathPattern,
   type Task,
 } from '../lib/store.js';
+import { debugInject } from '../lib/debug.js';
+import { truncate } from '../lib/utils.js';
+
+// Maximum stdin size to prevent memory exhaustion (1MB)
+const MAX_STDIN_SIZE = 1024 * 1024;
 
 // Input format from UserPromptSubmit hook (via stdin)
 interface PromptInput {
@@ -104,23 +109,24 @@ export async function promptInject(_options: PromptInjectOptions): Promise<void>
 
   } catch (error) {
     // Silent fail - don't break user workflow
-    if (process.env.GROV_DEBUG) {
-      console.error('[grov] prompt-inject error:', error);
-    }
+    debugInject('prompt-inject error: %O', error);
   }
 }
 
 /**
- * Read JSON input from stdin with timeout
+ * Read JSON input from stdin with timeout and size limit.
+ * SECURITY: Limits input size to prevent memory exhaustion attacks.
  */
 async function readStdinInput(): Promise<PromptInput | null> {
   return new Promise((resolve) => {
     // Set a timeout to prevent hanging
     const timeout = setTimeout(() => {
+      debugInject('stdin timeout reached');
       resolve(null);
     }, 3000); // 3 second timeout
 
     let data = '';
+    let sizeLimitExceeded = false;
 
     process.stdin.setEncoding('utf-8');
 
@@ -128,24 +134,48 @@ async function readStdinInput(): Promise<PromptInput | null> {
       let chunk;
       while ((chunk = process.stdin.read()) !== null) {
         data += chunk;
+        // SECURITY: Check size limit
+        if (data.length > MAX_STDIN_SIZE) {
+          sizeLimitExceeded = true;
+          clearTimeout(timeout);
+          debugInject('stdin size limit exceeded');
+          resolve(null);
+          return;
+        }
       }
     });
 
     process.stdin.on('end', () => {
       clearTimeout(timeout);
+      if (sizeLimitExceeded) return;
+
       try {
-        const parsed = JSON.parse(data.trim());
-        resolve(parsed);
-      } catch {
-        if (process.env.GROV_DEBUG) {
-          console.error('[grov] Failed to parse stdin JSON');
+        const parsed = JSON.parse(data.trim()) as unknown;
+
+        // Validate required fields
+        if (!parsed || typeof parsed !== 'object') {
+          debugInject('Invalid stdin input: not an object');
+          resolve(null);
+          return;
         }
+
+        const input = parsed as Record<string, unknown>;
+        if (typeof input.prompt !== 'string' || typeof input.cwd !== 'string') {
+          debugInject('Invalid stdin input: missing required fields');
+          resolve(null);
+          return;
+        }
+
+        resolve(input as unknown as PromptInput);
+      } catch {
+        debugInject('Failed to parse stdin JSON');
         resolve(null);
       }
     });
 
     process.stdin.on('error', () => {
       clearTimeout(timeout);
+      debugInject('stdin error');
       resolve(null);
     });
   });
@@ -321,12 +351,4 @@ function buildPromptContext(
   lines.push('[END GROV CONTEXT]');
 
   return lines.join('\n');
-}
-
-/**
- * Truncate string to max length
- */
-function truncate(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str;
-  return str.substring(0, maxLength - 3) + '...';
 }

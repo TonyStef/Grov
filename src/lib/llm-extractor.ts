@@ -3,6 +3,8 @@
 import OpenAI from 'openai';
 import type { ParsedSession } from './jsonl-parser.js';
 import type { TaskStatus } from './store.js';
+import { debugLLM } from './debug.js';
+import { truncate } from './utils.js';
 
 // Extracted reasoning structure
 export interface ExtractedReasoning {
@@ -107,9 +109,7 @@ Return ONLY valid JSON, no explanation.`
     };
   } catch (parseError) {
     // If JSON parsing fails, return basic extraction
-    if (process.env.GROV_DEBUG) {
-      console.error('[grov] Failed to parse LLM response, using fallback');
-    }
+    debugLLM('Failed to parse LLM response, using fallback');
     return createFallbackExtraction(session);
   }
 }
@@ -271,12 +271,4 @@ function validateStatus(status: string | undefined): TaskStatus {
     return normalized;
   }
   return 'partial'; // Default
-}
-
-/**
- * Truncate string
- */
-function truncate(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str;
-  return str.substring(0, maxLength - 3) + '...';
 }

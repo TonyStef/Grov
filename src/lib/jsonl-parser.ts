@@ -71,6 +71,22 @@ export function getProjectSessionsDir(projectPath: string): string {
 }
 
 /**
+ * Extract session ID from a JSONL file path
+ * ~/.claude/projects/-Users-dev-myapp/abc123def456.jsonl -> abc123def456
+ */
+export function getSessionIdFromPath(jsonlPath: string): string {
+  return basename(jsonlPath, '.jsonl');
+}
+
+/**
+ * Get the current session ID for a project (from the most recent session file)
+ */
+export function getCurrentSessionId(projectPath: string): string | null {
+  const latestFile = findLatestSessionFile(projectPath);
+  return latestFile ? getSessionIdFromPath(latestFile) : null;
+}
+
+/**
  * Find the most recent session file for a project
  */
 export function findLatestSessionFile(projectPath: string): string | null {

@@ -134,6 +134,20 @@ export function registerGrovHooks(): { added: string[]; alreadyExists: string[] 
     alreadyExists.push('SessionStart → grov inject');
   }
 
+  // Register UserPromptSubmit hook for continuous context injection
+  const promptInjectCommand = `${grovPath} prompt-inject`;
+  if (!settings.hooks.UserPromptSubmit) {
+    settings.hooks.UserPromptSubmit = [];
+  }
+  if (!hasGrovCommand(settings.hooks.UserPromptSubmit, 'grov prompt-inject') && !hasGrovCommand(settings.hooks.UserPromptSubmit, promptInjectCommand)) {
+    settings.hooks.UserPromptSubmit.push({
+      hooks: [{ type: 'command', command: promptInjectCommand }]
+    });
+    added.push(`UserPromptSubmit → ${promptInjectCommand}`);
+  } else {
+    alreadyExists.push('UserPromptSubmit → grov prompt-inject');
+  }
+
   writeClaudeSettings(settings);
 
   return { added, alreadyExists };
@@ -198,6 +212,22 @@ export function unregisterGrovHooks(): { removed: string[] } {
     }
 
     settings.hooks.SessionStart = cleaned.length > 0 ? cleaned : undefined;
+  }
+
+  if (settings.hooks?.UserPromptSubmit) {
+    const originalLength = settings.hooks.UserPromptSubmit.length;
+
+    // Remove new format (handles both 'grov prompt-inject' and '/path/to/grov prompt-inject')
+    const newFormatFiltered = removeGrovCommands(settings.hooks.UserPromptSubmit, 'grov prompt-inject');
+
+    // Also clean up old string format if present
+    const cleaned = removeOldFormat(newFormatFiltered || [], 'grov prompt-inject') as HookEntry[];
+
+    if (cleaned.length < originalLength) {
+      removed.push('UserPromptSubmit → grov prompt-inject');
+    }
+
+    settings.hooks.UserPromptSubmit = cleaned.length > 0 ? cleaned : undefined;
   }
 
   // Clean up empty hooks object

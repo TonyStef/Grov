@@ -22,6 +22,7 @@ export async function init(): Promise<void> {
     console.log('\nGrov is now active! Your Claude Code sessions will automatically:');
     console.log('  - Capture reasoning after each task (Stop hook)');
     console.log('  - Inject relevant context at session start (SessionStart hook)');
+    console.log('  - Inject targeted context before each prompt (UserPromptSubmit hook)');
     console.log('\nJust use Claude Code normally. Grov works in the background.');
 
   } catch (error) {

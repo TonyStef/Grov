@@ -1,6 +1,12 @@
 // grov inject - Called by SessionStart hook, outputs context JSON
 
-import { getTasksForProject, type Task } from '../lib/store.js';
+import {
+  getTasksForProject,
+  createSessionState,
+  getSessionState,
+  type Task
+} from '../lib/store.js';
+import { getCurrentSessionId } from '../lib/jsonl-parser.js';
 import { appendFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -21,6 +27,22 @@ export async function inject(options: InjectOptions): Promise<void> {
     // Get project path from Claude Code env var, fallback to cwd
     // CLAUDE_PROJECT_DIR is set by Claude Code when running hooks
     const projectPath = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+
+    // Initialize session state for this session
+    const sessionId = getCurrentSessionId(projectPath);
+    if (sessionId) {
+      const existing = getSessionState(sessionId);
+      if (!existing) {
+        createSessionState({
+          session_id: sessionId,
+          project_path: projectPath,
+          user_id: process.env.USER || undefined,
+        });
+        if (process.env.GROV_DEBUG) {
+          console.error(`[grov] Created session state: ${sessionId}`);
+        }
+      }
+    }
 
     // Get completed tasks for this project
     const tasks = getTasksForProject(projectPath, {

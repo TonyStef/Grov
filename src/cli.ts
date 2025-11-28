@@ -38,6 +38,15 @@ program
     await inject(options);
   });
 
+// grov prompt-inject - Called by UserPromptSubmit hook, outputs context JSON per-turn
+program
+  .command('prompt-inject')
+  .description('Inject context before each prompt (called by UserPromptSubmit hook)')
+  .action(async (options) => {
+    const { promptInject } = await import('./commands/prompt-inject.js');
+    await promptInject(options);
+  });
+
 // grov status - Show stored reasoning for current project
 program
   .command('status')

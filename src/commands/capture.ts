@@ -1,8 +1,22 @@
 // grov capture - Called by Stop hook, extracts and stores reasoning
 
-import { findLatestSessionFile, parseSession } from '../lib/jsonl-parser.js';
-import { createTask, type TaskStatus } from '../lib/store.js';
+import { findLatestSessionFile, parseSession, getSessionIdFromPath } from '../lib/jsonl-parser.js';
+import {
+  createTask,
+  createFileReasoning,
+  getSessionState,
+  updateSessionState,
+  type TaskStatus
+} from '../lib/store.js';
 import { isLLMAvailable, extractReasoning } from '../lib/llm-extractor.js';
+import {
+  extractAnchors,
+  findAnchorAtLine,
+  computeCodeHash,
+  estimateLineNumber,
+  type AnchorInfo
+} from '../lib/anchor-extractor.js';
+import { readFileSync, existsSync } from 'fs';
 
 interface CaptureOptions {
   sessionDir?: string;
@@ -90,6 +104,25 @@ export async function capture(options: CaptureOptions): Promise<void> {
       status,
       tags
     });
+
+    // Create file_reasoning entries for each file touched
+    await createFileReasoningEntries(task.id, session, goal);
+
+    // Update session state if exists
+    const sessionId = getSessionIdFromPath(sessionFile);
+    if (sessionId) {
+      const sessionState = getSessionState(sessionId);
+      if (sessionState) {
+        updateSessionState(sessionId, {
+          status: status === 'complete' ? 'completed' : 'abandoned',
+          files_explored: [...new Set([...sessionState.files_explored, ...filesTouched])],
+          original_goal: goal,
+        });
+        if (process.env.GROV_DEBUG) {
+          console.error(`[grov] Updated session state: ${sessionId}`);
+        }
+      }
+    }
 
     // Log for debugging
     if (process.env.GROV_DEBUG) {
@@ -198,4 +231,141 @@ function generateBasicReasoningTrace(session: ReturnType<typeof parseSession>): 
   }
 
   return trace;
+}
+
+/**
+ * Create file_reasoning entries for each file touched in the session
+ */
+async function createFileReasoningEntries(
+  taskId: string,
+  session: ReturnType<typeof parseSession>,
+  goal: string
+): Promise<void> {
+  try {
+    // Process files that were written/edited
+    for (const filePath of session.filesWritten) {
+      await createFileReasoningForFile(taskId, filePath, session, goal, true);
+    }
+
+    // Also process files that were only read (with less detail)
+    for (const filePath of session.filesRead) {
+      // Skip if already processed as written
+      if (session.filesWritten.includes(filePath)) continue;
+      await createFileReasoningForFile(taskId, filePath, session, goal, false);
+    }
+  } catch (error) {
+    if (process.env.GROV_DEBUG) {
+      console.error('[grov] Error creating file reasoning entries:', error);
+    }
+  }
+}
+
+/**
+ * Create a file_reasoning entry for a specific file
+ */
+async function createFileReasoningForFile(
+  taskId: string,
+  filePath: string,
+  session: ReturnType<typeof parseSession>,
+  goal: string,
+  wasModified: boolean
+): Promise<void> {
+  try {
+    // Check if file exists
+    if (!existsSync(filePath)) {
+      return;
+    }
+
+    // Read file content
+    const content = readFileSync(filePath, 'utf-8');
+
+    // Extract anchors from the file
+    const anchors = extractAnchors(filePath, content);
+
+    // Find the Edit tool call for this file to determine what was changed
+    const editCalls = session.toolCalls.filter(
+      t => t.name === 'Edit' && (t.input as { file_path?: string })?.file_path === filePath
+    );
+
+    if (editCalls.length > 0 && wasModified) {
+      // For each edit, try to find the anchor
+      for (const editCall of editCalls) {
+        const input = editCall.input as { old_string?: string; new_string?: string };
+        if (input.old_string) {
+          const lineNumber = estimateLineNumber(input.old_string, content);
+          const anchor = lineNumber ? findAnchorAtLine(anchors, lineNumber) : null;
+
+          const lineStart = anchor?.lineStart || lineNumber || undefined;
+          const lineEnd = anchor?.lineEnd || lineNumber || undefined;
+
+          createFileReasoning({
+            task_id: taskId,
+            file_path: filePath,
+            anchor: anchor?.name,
+            line_start: lineStart,
+            line_end: lineEnd,
+            code_hash: lineStart && lineEnd ? computeCodeHash(content, lineStart, lineEnd) : undefined,
+            change_type: 'edit',
+            reasoning: buildReasoningString(anchor, goal, 'edited')
+          });
+        }
+      }
+    } else if (wasModified) {
+      // File was created/written without Edit
+      const writeCalls = session.toolCalls.filter(
+        t => t.name === 'Write' && (t.input as { file_path?: string })?.file_path === filePath
+      );
+
+      const changeType = writeCalls.length > 0 ? 'create' : 'write';
+
+      createFileReasoning({
+        task_id: taskId,
+        file_path: filePath,
+        anchor: anchors.length > 0 ? anchors[0].name : undefined,
+        line_start: 1,
+        line_end: content.split('\n').length,
+        code_hash: computeCodeHash(content, 1, content.split('\n').length),
+        change_type: changeType,
+        reasoning: buildReasoningString(null, goal, changeType === 'create' ? 'created' : 'wrote')
+      });
+    } else {
+      // File was only read
+      createFileReasoning({
+        task_id: taskId,
+        file_path: filePath,
+        anchor: anchors.length > 0 ? anchors[0].name : undefined,
+        change_type: 'read',
+        reasoning: `Read during: ${truncateGoal(goal)}`
+      });
+    }
+  } catch (error) {
+    if (process.env.GROV_DEBUG) {
+      console.error(`[grov] Error processing file ${filePath}:`, error);
+    }
+  }
+}
+
+/**
+ * Build a reasoning string for a file modification
+ */
+function buildReasoningString(anchor: AnchorInfo | null, goal: string, action: string): string {
+  if (anchor) {
+    return `${capitalize(action)} ${anchor.type} "${anchor.name}": ${truncateGoal(goal)}`;
+  }
+  return `${capitalize(action)} file: ${truncateGoal(goal)}`;
+}
+
+/**
+ * Capitalize first letter
+ */
+function capitalize(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+/**
+ * Truncate goal to reasonable length
+ */
+function truncateGoal(goal: string): string {
+  if (goal.length <= 80) return goal;
+  return goal.substring(0, 77) + '...';
 }

@@ -124,6 +124,10 @@
     box-shadow:
       0 0 20px rgba(16, 185, 129, 0.25),
       0 0 40px rgba(16, 185, 129, 0.1);
+    /* Safari mobile fixes */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .btn-primary:hover {
@@ -138,6 +142,10 @@
            border border-grov-border
            transition-all duration-200 ease-out
            hover:border-grov-accent hover:bg-grov-surface;
+    /* Safari mobile fixes */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .btn-secondary:hover {
@@ -146,7 +154,7 @@
 
   .code-block {
     @apply bg-grov-surface border border-grov-border rounded-xl
-           p-6 font-mono text-code text-grov-text-secondary
+           p-4 sm:p-6 font-mono text-code text-grov-text-secondary
            overflow-x-auto;
   }
 
@@ -210,5 +218,29 @@
   .reveal-section.in-view {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+/* Accessibility: Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .reveal-section {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .marquee-track {
+    animation: none !important;
+  }
+
+  .card:hover {
+    transform: none;
   }
 }

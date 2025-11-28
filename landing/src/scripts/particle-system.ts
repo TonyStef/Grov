@@ -6,8 +6,9 @@
  * - 20-30 floating emerald particles
  * - Soft connections between nearby nodes
  * - Gentle breathing/pulsing effect
- * - Mouse magnetic attraction
+ * - Mouse/touch magnetic attraction
  * - Responsive particle count (fewer on mobile)
+ * - Respects prefers-reduced-motion
  */
 
 interface Particle {
@@ -45,9 +46,10 @@ class ParticleSystem {
     if (!ctx) throw new Error('Could not get canvas context');
     this.ctx = ctx;
 
-    // Responsive particle count
+    // Responsive particle count - reduced on smaller devices for performance
+    const isSmallMobile = window.innerWidth < 480;
     const isMobile = window.innerWidth < 768;
-    const defaultParticleCount = isMobile ? 15 : 25;
+    const defaultParticleCount = isSmallMobile ? 8 : (isMobile ? 12 : 25);
 
     this.config = {
       particleCount: config.particleCount ?? defaultParticleCount,
@@ -62,6 +64,11 @@ class ParticleSystem {
   }
 
   private init(): void {
+    // Respect user's reduced motion preference
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return; // Don't animate particles
+    }
+
     this.resize();
     this.createParticles();
     this.bindEvents();
@@ -101,8 +108,13 @@ class ParticleSystem {
 
   private bindEvents(): void {
     window.addEventListener('resize', this.handleResize);
+    // Mouse events
     this.canvas.addEventListener('mousemove', this.handleMouseMove);
     this.canvas.addEventListener('mouseleave', this.handleMouseLeave);
+    // Touch events for mobile
+    this.canvas.addEventListener('touchstart', this.handleTouchStart, { passive: true });
+    this.canvas.addEventListener('touchmove', this.handleTouchMove, { passive: true });
+    this.canvas.addEventListener('touchend', this.handleTouchEnd, { passive: true });
   }
 
   private handleResize = (): void => {
@@ -120,6 +132,30 @@ class ParticleSystem {
     this.mouseX = -1000;
     this.mouseY = -1000;
   };
+
+  // Touch event handlers for mobile
+  private handleTouchStart = (e: TouchEvent): void => {
+    if (e.touches.length > 0) {
+      this.updatePointerPosition(e.touches[0]);
+    }
+  };
+
+  private handleTouchMove = (e: TouchEvent): void => {
+    if (e.touches.length > 0) {
+      this.updatePointerPosition(e.touches[0]);
+    }
+  };
+
+  private handleTouchEnd = (): void => {
+    this.mouseX = -1000;
+    this.mouseY = -1000;
+  };
+
+  private updatePointerPosition(touch: Touch): void {
+    const rect = this.canvas.getBoundingClientRect();
+    this.mouseX = touch.clientX - rect.left;
+    this.mouseY = touch.clientY - rect.top;
+  }
 
   private updateParticles(): void {
     const rect = this.canvas.parentElement?.getBoundingClientRect();
@@ -248,8 +284,13 @@ class ParticleSystem {
       cancelAnimationFrame(this.animationId);
     }
     window.removeEventListener('resize', this.handleResize);
+    // Remove mouse events
     this.canvas.removeEventListener('mousemove', this.handleMouseMove);
     this.canvas.removeEventListener('mouseleave', this.handleMouseLeave);
+    // Remove touch events
+    this.canvas.removeEventListener('touchstart', this.handleTouchStart);
+    this.canvas.removeEventListener('touchmove', this.handleTouchMove);
+    this.canvas.removeEventListener('touchend', this.handleTouchEnd);
   }
 }
 

@@ -1,6 +1,9 @@
 {
   "name": "grov-landing",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "version": "0.0.1",
   "license": "Apache-2.0",
   "scripts": {

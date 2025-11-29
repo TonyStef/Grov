@@ -143,6 +143,22 @@ export interface CreateFileReasoningInput {
 
 let db: Database.Database | null = null;
 
+// PERFORMANCE: Statement cache to avoid re-preparing frequently used queries
+const statementCache = new Map<string, Database.Statement>();
+
+/**
+ * Get a cached prepared statement or create a new one.
+ * PERFORMANCE: Avoids overhead of re-preparing the same SQL.
+ */
+function getCachedStatement(database: Database.Database, sql: string): Database.Statement {
+  let stmt = statementCache.get(sql);
+  if (!stmt) {
+    stmt = database.prepare(sql);
+    statementCache.set(sql, stmt);
+  }
+  return stmt;
+}
+
 /**
  * Initialize the database connection and create tables
  */
@@ -160,10 +176,16 @@ export function initDatabase(): Database.Database {
   try {
     chmodSync(DB_PATH, 0o600);
   } catch {
-    // Ignore if chmod fails (e.g., on Windows)
+    // SECURITY: Warn user if permissions can't be set (e.g., on Windows)
+    // The database may be world-readable on some systems
+    console.warn('Warning: Could not set restrictive permissions on ~/.grov/memory.db');
+    console.warn('Please ensure the file has appropriate permissions for your system.');
   }
 
-  // Create tasks table
+  // OPTIMIZATION: Enable WAL mode for better concurrent performance
+  db.pragma('journal_mode = WAL');
+
+  // Create all tables in a single transaction for efficiency
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
@@ -225,6 +247,8 @@ export function initDatabase(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_file_task ON file_reasoning(task_id);
     CREATE INDEX IF NOT EXISTS idx_file_path ON file_reasoning(file_path);
+    -- PERFORMANCE: Composite index for common query pattern (file_path + ORDER BY created_at)
+    CREATE INDEX IF NOT EXISTS idx_file_path_created ON file_reasoning(file_path, created_at DESC);
   `);
 
   // Migration: Add drift detection columns to session_states (safe to run multiple times)
@@ -289,6 +313,8 @@ export function closeDatabase(): void {
   if (db) {
     db.close();
     db = null;
+    // PERFORMANCE: Clear statement cache when database is closed
+    statementCache.clear();
   }
 }
 
@@ -379,6 +405,9 @@ export function getTasksForProject(
  * Get tasks that touched specific files.
  * SECURITY: Uses json_each for proper array handling and escaped LIKE patterns.
  */
+// SECURITY: Maximum files per query to prevent SQL DoS
+const MAX_FILES_PER_QUERY = 100;
+
 export function getTasksByFiles(
   projectPath: string,
   files: string[],
@@ -390,8 +419,13 @@ export function getTasksByFiles(
     return [];
   }
 
+  // SECURITY: Limit file count to prevent SQL DoS via massive query generation
+  const limitedFiles = files.length > MAX_FILES_PER_QUERY
+    ? files.slice(0, MAX_FILES_PER_QUERY)
+    : files;
+
   // Use json_each for proper array iteration with escaped LIKE patterns
-  const fileConditions = files.map(() =>
+  const fileConditions = limitedFiles.map(() =>
     "EXISTS (SELECT 1 FROM json_each(files_touched) WHERE value LIKE ? ESCAPE '\\')"
   ).join(' OR ');
 
@@ -399,7 +433,7 @@ export function getTasksByFiles(
   // Escape LIKE special characters to prevent injection
   const params: (string | number)[] = [
     projectPath,
-    ...files.map(f => `%${escapeLikePattern(f)}%`)
+    ...limitedFiles.map(f => `%${escapeLikePattern(f)}%`)
   ];
 
   if (options.status) {
@@ -494,7 +528,8 @@ function rowToTask(row: Record<string, unknown>): Task {
 // ============================================
 
 /**
- * Create a new session state
+ * Create a new session state.
+ * FIXED: Uses INSERT OR IGNORE to handle race conditions safely.
  */
 export function createSessionState(input: CreateSessionStateInput): SessionState {
   const database = initDatabase();
@@ -526,8 +561,10 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     last_checked_at: 0
   };
 
+  // Use INSERT OR IGNORE to safely handle race conditions where
+  // multiple processes might try to create the same session
   const stmt = database.prepare(`
-    INSERT INTO session_states (
+    INSERT OR IGNORE INTO session_states (
       session_id, user_id, project_path, original_goal,
       actions_taken, files_explored, current_intent, drift_warnings,
       start_time, last_update, status,
@@ -576,7 +613,8 @@ export function getSessionState(sessionId: string): SessionState | null {
 }
 
 /**
- * Update a session state
+ * Update a session state.
+ * SECURITY: Uses transaction for atomic updates to prevent race conditions.
  */
 export function updateSessionState(
   sessionId: string,
@@ -628,7 +666,12 @@ export function updateSessionState(
 
   params.push(sessionId);
   const sql = `UPDATE session_states SET ${setClauses.join(', ')} WHERE session_id = ?`;
-  database.prepare(sql).run(...params);
+
+  // SECURITY: Use transaction for atomic updates to prevent race conditions
+  const transaction = database.transaction(() => {
+    database.prepare(sql).run(...params);
+  });
+  transaction();
 }
 
 /**

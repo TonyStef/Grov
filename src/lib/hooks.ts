@@ -8,6 +8,27 @@ import { fileURLToPath } from 'url';
 const CLAUDE_DIR = join(homedir(), '.claude');
 const SETTINGS_PATH = join(CLAUDE_DIR, 'settings.json');
 
+// Cache for grov path to avoid repeated file system checks
+let cachedGrovPath: string | null = null;
+
+// SECURITY: Pattern for safe grov executable paths (no shell metacharacters)
+// Allows: alphanumeric, /, -, _, ., space, and quotes (for paths with spaces)
+const SAFE_PATH_PATTERN = /^[a-zA-Z0-9/\-_. "]+$/;
+
+/**
+ * Validate that a path doesn't contain shell metacharacters.
+ * SECURITY: Prevents command injection via malicious path names.
+ */
+function isPathSafe(path: string): boolean {
+  // Must match safe pattern
+  if (!SAFE_PATH_PATTERN.test(path)) {
+    return false;
+  }
+  // Must not contain shell dangerous sequences
+  const dangerousPatterns = [';', '|', '&', '`', '$', '(', ')', '<', '>', '\n', '\r'];
+  return !dangerousPatterns.some(p => path.includes(p));
+}
+
 /**
  * Safe locations where grov executable can be found.
  * We only check these known paths - no shell commands are executed.
@@ -54,18 +75,29 @@ function getNvmPaths(): string[] {
 /**
  * Find the absolute path to the grov executable.
  * SECURITY: Only checks known safe locations - no shell command execution.
+ * SECURITY: Validates paths don't contain shell metacharacters.
+ * OPTIMIZED: Caches result to avoid repeated file system checks.
  */
 function findGrovPath(): string {
+  // Return cached path if available
+  if (cachedGrovPath) {
+    return cachedGrovPath;
+  }
+
   // Check safe locations first
   for (const p of SAFE_GROV_LOCATIONS) {
-    if (existsSync(p)) {
+    // SECURITY: Validate path is safe before using
+    if (existsSync(p) && isPathSafe(p)) {
+      cachedGrovPath = p;
       return p;
     }
   }
 
   // Check nvm locations
   for (const p of getNvmPaths()) {
-    if (existsSync(p)) {
+    // SECURITY: Validate path is safe before using
+    if (existsSync(p) && isPathSafe(p)) {
+      cachedGrovPath = p;
       return p;
     }
   }
@@ -75,15 +107,19 @@ function findGrovPath(): string {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     const localCli = resolve(__dirname, '../../dist/cli.js');
-    if (existsSync(localCli)) {
-      return `node "${localCli}"`;
+    // SECURITY: Validate development path is safe before using
+    if (existsSync(localCli) && isPathSafe(localCli)) {
+      cachedGrovPath = `node "${localCli}"`;
+      return cachedGrovPath;
     }
   } catch {
     // ESM import.meta not available, skip
   }
 
   // Fallback to just 'grov' - will work if it's in PATH
-  return 'grov';
+  // Note: 'grov' is inherently safe (no special chars)
+  cachedGrovPath = 'grov';
+  return cachedGrovPath;
 }
 
 // New hook format (Claude Code 2.x+)

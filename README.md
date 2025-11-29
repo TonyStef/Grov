@@ -68,7 +68,9 @@ That's it. Grov works invisibly in the background.
 ```bash
 grov init        # Register hooks (run once)
 grov status      # Show captured tasks for current project
+grov status -a   # Show all tasks (including partial/abandoned)
 grov unregister  # Disable grov
+grov drift-test  # Test drift detection (debug)
 ```
 
 ## How It Actually Works
@@ -77,24 +79,48 @@ grov unregister  # Disable grov
    - Grov queries its database for relevant past reasoning
    - Outputs context that Claude Code injects into the session
 
-2. **You work normally** with Claude Code
+2. **UserPromptSubmit hook** fires on every prompt
+   - Monitors Claude's actions (files touched, commands run)
+   - Detects scope drift and injects corrections if needed
+   - Smart filtering skips simple prompts ("yes", "ok", "continue")
 
-3. **Stop hook** fires when the session ends
+3. **You work normally** with Claude Code
+
+4. **Stop hook** fires when the session ends
    - Grov parses the session's JSONL file
-   - Extracts reasoning via LLM (GPT-3.5-turbo)
+   - Extracts reasoning via LLM (Claude Haiku 4.5)
    - Stores structured summary in SQLite
 
-4. **Next session**, Claude has context and skips re-exploration
+5. **Next session**, Claude has context and skips re-exploration
 
-## LLM Extraction (Optional)
+## Anti-Drift Detection
 
-For smarter reasoning extraction, set your OpenAI API key:
+Grov monitors what Claude **does** (not what you ask) and warns if it drifts from your original goal.
+
+**How it works:**
+- Extracts your intent from the first prompt
+- Monitors Claude's actions (file edits, commands, explorations)
+- Uses Claude Haiku 4.5 to score alignment (1-10)
+- Injects corrections at 5 levels: nudge → correct → intervene → halt
+
+**Key principle:** You can explore freely. Grov watches Claude's actions, not your prompts.
 
 ```bash
-export OPENAI_API_KEY=sk-...
+# Test drift detection manually
+grov drift-test "refactor the auth system" --goal "fix login bug"
 ```
 
-Without an API key, grov uses basic extraction (files touched, tool usage counts).
+## Environment Variables
+
+```bash
+# Required for drift detection and LLM extraction
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional: Override drift model (default: claude-haiku-4-5)
+export GROV_DRIFT_MODEL=claude-sonnet-4-20250514
+```
+
+Without an API key, grov uses basic extraction (files touched, tool usage counts) and disables drift detection.
 
 ## What Gets Stored
 
@@ -141,8 +167,10 @@ Read them directly if relevant to the current task.
 ## Roadmap
 
 - [x] Local capture & inject
-- [x] LLM-powered extraction
+- [x] LLM-powered extraction (Claude Haiku 4.5)
 - [x] Zero-friction hooks
+- [x] Per-prompt context injection
+- [x] Anti-drift detection & correction
 - [ ] Team sync (cloud backend)
 - [ ] Web dashboard
 - [ ] Semantic search

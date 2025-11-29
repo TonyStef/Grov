@@ -1,11 +1,14 @@
 // grov capture - Called by Stop hook, extracts and stores reasoning
 
+import 'dotenv/config';
 import { findLatestSessionFile, parseSession, getSessionIdFromPath } from '../lib/jsonl-parser.js';
 import {
   createTask,
   createFileReasoning,
   getSessionState,
   updateSessionState,
+  shouldFlagForReview,
+  getDriftSummary,
   type TaskStatus
 } from '../lib/store.js';
 import { isLLMAvailable, extractReasoning } from '../lib/llm-extractor.js';
@@ -90,27 +93,64 @@ export async function capture(options: CaptureOptions): Promise<void> {
       tags = basic.tags;
     }
 
+    // Get session ID for drift check
+    const sessionId = getSessionIdFromPath(sessionFile);
+
+    // === GRADUATION LOGIC: Check if task should be flagged for review ===
+    let finalStatus = status;
+    let finalTags = [...tags];
+    let finalReasoningTrace = [...reasoningTrace];
+
+    if (sessionId) {
+      const needsReview = shouldFlagForReview(sessionId);
+      const driftSummary = getDriftSummary(sessionId);
+
+      if (needsReview) {
+        debugCapture('Task flagged for review due to drift');
+
+        // Downgrade status if was complete
+        if (finalStatus === 'complete') {
+          finalStatus = 'partial';
+          debugCapture('Status downgraded from complete to partial');
+        }
+
+        // Add drift tags
+        finalTags.push('needs-review', 'had-drift');
+
+        // Add drift summary to reasoning trace
+        if (driftSummary.totalEvents > 0) {
+          finalReasoningTrace.push(`[Drift events: ${driftSummary.totalEvents} corrections given]`);
+          finalReasoningTrace.push(`[Drift ${driftSummary.resolved ? 'resolved' : 'unresolved'}: final score ${driftSummary.finalScore}]`);
+          if (driftSummary.hadHalt) {
+            finalReasoningTrace.push('[Warning: HALT-level drift occurred during session]');
+          }
+        }
+      } else if (driftSummary.totalEvents > 0) {
+        // Had drift but recovered - still note it
+        finalReasoningTrace.push(`[Drift events: ${driftSummary.totalEvents} - all resolved]`);
+      }
+    }
+
     // Store the task
     const task = createTask({
       project_path: projectPath,
       original_query: originalQuery,
       goal,
-      reasoning_trace: reasoningTrace,
+      reasoning_trace: finalReasoningTrace,
       files_touched: filesTouched,
-      status,
-      tags
+      status: finalStatus,
+      tags: finalTags
     });
 
     // Create file_reasoning entries for each file touched
     await createFileReasoningEntries(task.id, session, goal);
 
     // Update session state if exists
-    const sessionId = getSessionIdFromPath(sessionFile);
     if (sessionId) {
       const sessionState = getSessionState(sessionId);
       if (sessionState) {
         updateSessionState(sessionId, {
-          status: status === 'complete' ? 'completed' : 'abandoned',
+          status: finalStatus === 'complete' ? 'completed' : 'abandoned',
           files_explored: [...new Set([...sessionState.files_explored, ...filesTouched])],
           original_goal: goal,
         });
@@ -122,7 +162,7 @@ export async function capture(options: CaptureOptions): Promise<void> {
     debugCapture('Captured task: %s', task.id);
     debugCapture('Query: %s...', originalQuery.substring(0, 50));
     debugCapture('Files: %d', filesTouched.length);
-    debugCapture('Status: %s', status);
+    debugCapture('Status: %s (original: %s)', finalStatus, status);
     debugCapture('LLM: %s', isLLMAvailable() ? 'yes' : 'no');
 
   } catch (error) {

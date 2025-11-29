@@ -1,6 +1,8 @@
 // LLM-based extraction using OpenAI GPT-3.5-turbo for reasoning summaries
+// and Anthropic Claude Haiku for drift detection
 
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import type { ParsedSession } from './jsonl-parser.js';
 import type { TaskStatus } from './store.js';
 import { debugLLM } from './debug.js';
@@ -19,6 +21,7 @@ export interface ExtractedReasoning {
 }
 
 let client: OpenAI | null = null;
+let anthropicClient: Anthropic | null = null;
 
 /**
  * Initialize the OpenAI client
@@ -35,10 +38,38 @@ function getClient(): OpenAI {
 }
 
 /**
- * Check if LLM extraction is available (API key set)
+ * Initialize the Anthropic client
+ */
+function getAnthropicClient(): Anthropic {
+  if (!anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is required for drift detection');
+    }
+    anthropicClient = new Anthropic({ apiKey });
+  }
+  return anthropicClient;
+}
+
+/**
+ * Check if LLM extraction is available (OpenAI API key set)
  */
 export function isLLMAvailable(): boolean {
   return !!process.env.OPENAI_API_KEY;
+}
+
+/**
+ * Check if Anthropic API is available (for drift detection)
+ */
+export function isAnthropicAvailable(): boolean {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
+/**
+ * Get the drift model to use (from env or default)
+ */
+export function getDriftModel(): string {
+  return process.env.GROV_DRIFT_MODEL || 'claude-haiku-4-5';
 }
 
 /**
@@ -271,4 +302,148 @@ function validateStatus(status: string | undefined): TaskStatus {
     return normalized;
   }
   return 'partial'; // Default
+}
+
+// ============================================
+// INTENT EXTRACTION (for drift detection)
+// ============================================
+
+/**
+ * Extracted intent from first prompt
+ */
+export interface ExtractedIntent {
+  goal: string;
+  expected_scope: string[];
+  constraints: string[];
+  success_criteria: string[];
+  keywords: string[];
+}
+
+/**
+ * Extract intent from a prompt using Claude Haiku
+ * Falls back to basic extraction if API unavailable
+ */
+export async function extractIntent(prompt: string): Promise<ExtractedIntent> {
+  // Try LLM extraction if available
+  if (isAnthropicAvailable()) {
+    try {
+      return await extractIntentWithLLM(prompt);
+    } catch (error) {
+      debugLLM('extractIntent LLM failed, using fallback: %O', error);
+      return extractIntentBasic(prompt);
+    }
+  }
+
+  // Fallback to basic extraction
+  return extractIntentBasic(prompt);
+}
+
+/**
+ * Extract intent using Claude Haiku
+ */
+async function extractIntentWithLLM(prompt: string): Promise<ExtractedIntent> {
+  const anthropic = getAnthropicClient();
+  const model = getDriftModel();
+
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: 1024,
+    messages: [
+      {
+        role: 'user',
+        content: `Analyze this user prompt and extract the task intent. Return ONLY valid JSON, no explanation.
+
+USER PROMPT:
+${prompt}
+
+Extract as JSON:
+{
+  "goal": "The main objective the user wants to achieve (1 sentence)",
+  "expected_scope": ["List of files, directories, or components that should be touched"],
+  "constraints": ["Any constraints or requirements mentioned"],
+  "success_criteria": ["How to know when the task is complete"],
+  "keywords": ["Important technical terms from the prompt"]
+}
+
+Return ONLY valid JSON.`
+      }
+    ]
+  });
+
+  // Extract text content from response
+  const content = response.content[0];
+  if (content.type !== 'text') {
+    throw new Error('Unexpected response type from Anthropic');
+  }
+
+  const parsed = JSON.parse(content.text) as Partial<ExtractedIntent>;
+
+  return {
+    goal: parsed.goal || prompt.substring(0, 100),
+    expected_scope: parsed.expected_scope || [],
+    constraints: parsed.constraints || [],
+    success_criteria: parsed.success_criteria || [],
+    keywords: parsed.keywords || extractKeywordsBasic(prompt)
+  };
+}
+
+/**
+ * Basic intent extraction without LLM
+ */
+function extractIntentBasic(prompt: string): ExtractedIntent {
+  return {
+    goal: prompt.substring(0, 200),
+    expected_scope: extractFilesFromPrompt(prompt),
+    constraints: [],
+    success_criteria: [],
+    keywords: extractKeywordsBasic(prompt)
+  };
+}
+
+/**
+ * Extract file paths from prompt text
+ */
+function extractFilesFromPrompt(prompt: string): string[] {
+  const patterns = [
+    /(?:^|\s)(\/[\w\-\.\/]+\.\w+)/g,
+    /(?:^|\s)(\.\/[\w\-\.\/]+\.\w+)/g,
+    /(?:^|\s)([\w\-]+\/[\w\-\.\/]+\.\w+)/g,
+    /(?:^|\s|['"`])([\w\-]+\.\w{1,5})(?:\s|$|,|:|['"`])/g,
+  ];
+
+  const files = new Set<string>();
+  for (const pattern of patterns) {
+    const matches = prompt.matchAll(pattern);
+    for (const match of matches) {
+      const file = match[1].trim();
+      if (file && !file.match(/^(http|https|ftp|mailto)/) && !file.match(/^\d+\.\d+/)) {
+        files.add(file);
+      }
+    }
+  }
+
+  return [...files];
+}
+
+/**
+ * Extract keywords from prompt (basic)
+ */
+function extractKeywordsBasic(prompt: string): string[] {
+  const stopWords = new Set([
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+    'to', 'for', 'and', 'or', 'in', 'on', 'at', 'of', 'with',
+    'this', 'that', 'it', 'i', 'you', 'we', 'they', 'my', 'your',
+    'can', 'could', 'would', 'should', 'will', 'do', 'does', 'did',
+    'have', 'has', 'had', 'not', 'but', 'if', 'then', 'when', 'where',
+    'how', 'what', 'why', 'which', 'who', 'all', 'some', 'any', 'no',
+    'from', 'by', 'as', 'so', 'too', 'also', 'just', 'only', 'now',
+    'please', 'help', 'me', 'make', 'get', 'add', 'fix', 'update', 'change'
+  ]);
+
+  const words = prompt.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !stopWords.has(w));
+
+  return [...new Set(words)].slice(0, 15);
 }

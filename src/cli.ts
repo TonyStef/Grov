@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import { Command } from 'commander';
 
 const program = new Command();
@@ -64,6 +65,19 @@ program
   .action(async () => {
     const { unregister } = await import('./commands/unregister.js');
     await unregister();
+  });
+
+// grov drift-test - Test drift detection on a prompt
+program
+  .command('drift-test')
+  .description('Test drift detection on a prompt (debug command)')
+  .argument('<prompt>', 'The prompt to test for drift')
+  .option('--session <id>', 'Session ID to use for context')
+  .option('--goal <text>', 'Original goal (if no session provided)')
+  .option('-v, --verbose', 'Show verbose output')
+  .action(async (prompt, options) => {
+    const { driftTest } = await import('./commands/drift-test.js');
+    await driftTest(prompt, options);
   });
 
 program.parse();

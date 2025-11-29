@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="landing/public/images/logos/logo-header.png" alt="Grov Logo" width="200"/>
-</p>
-
 <h1 align="center">grov</h1>
 
 <p align="center"><strong>Collective AI memory for engineering teams.</strong></p>

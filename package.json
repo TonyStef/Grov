@@ -1,6 +1,6 @@
 {
   "name": "grov",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Collective AI memory for Claude Code - captures reasoning from sessions and injects context into future sessions",
   "type": "module",
   "main": "dist/cli.js",
@@ -43,7 +43,8 @@
     "url": "git+https://github.com/TonyStef/Grov.git"
   },
   "bugs": {
-    "url": "https://github.com/TonyStef/Grov/issues"
+    "url": "https://github.com/TonyStef/Grov/issues",
+    "email": "stefvirgil2006@gmail.com"
   },
   "homepage": "https://grov.dev",
   "dependencies": {

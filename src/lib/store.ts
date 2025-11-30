@@ -20,20 +20,26 @@ const DB_PATH = join(GROV_DIR, 'memory.db');
 // Task status types
 export type TaskStatus = 'complete' | 'question' | 'partial' | 'abandoned';
 
-// Task data structure
+// Task trigger reasons (when saving to team memory)
+export type TriggerReason = 'complete' | 'threshold' | 'abandoned';
+
+// Task data structure (team memory)
 export interface Task {
   id: string;
   project_path: string;
   user?: string;
   original_query: string;
   goal?: string;
-  reasoning_trace: string[];      // JSON array
-  files_touched: string[];        // JSON array
+  reasoning_trace: string[];
+  files_touched: string[];
+  decisions: Array<{ choice: string; reason: string }>;
+  constraints: string[];
   status: TaskStatus;
+  trigger_reason?: TriggerReason;
   linked_commit?: string;
   parent_task_id?: string;
   turn_number?: number;
-  tags: string[];                 // JSON array
+  tags: string[];
   created_at: string;
 }
 
@@ -45,7 +51,10 @@ export interface CreateTaskInput {
   goal?: string;
   reasoning_trace?: string[];
   files_touched?: string[];
+  decisions?: Array<{ choice: string; reason: string }>;
+  constraints?: string[];
   status: TaskStatus;
+  trigger_reason?: TriggerReason;
   linked_commit?: string;
   parent_task_id?: string;
   turn_number?: number;
@@ -55,19 +64,34 @@ export interface CreateTaskInput {
 // Session state status types
 export type SessionStatus = 'active' | 'completed' | 'abandoned';
 
+// Session mode for drift state machine
+export type SessionMode = 'normal' | 'drifted' | 'forced';
+
+// Task type for session hierarchy
+export type TaskType = 'main' | 'subtask' | 'parallel';
+
 // Session state for per-session tracking (temporary)
 export interface SessionState {
   session_id: string;
   user_id?: string;
   project_path: string;
   original_goal?: string;
-  actions_taken: string[];
-  files_explored: string[];
-  current_intent?: string;
-  drift_warnings: string[];
+  expected_scope: string[];
+  constraints: string[];
+  keywords: string[];
+  token_count: number;
+  escalation_count: number;
+  session_mode: SessionMode;
+  waiting_for_recovery: boolean;
+  last_checked_at: number;
+  last_clear_at?: number;
   start_time: string;
   last_update: string;
   status: SessionStatus;
+  completed_at?: string;  // Timestamp when marked completed (for cleanup)
+  // Task hierarchy fields
+  parent_session_id?: string;
+  task_type: TaskType;
 }
 
 // Input for creating a new session state
@@ -76,6 +100,81 @@ export interface CreateSessionStateInput {
   user_id?: string;
   project_path: string;
   original_goal?: string;
+  expected_scope?: string[];
+  constraints?: string[];
+  keywords?: string[];
+  // Task hierarchy fields
+  parent_session_id?: string;
+  task_type?: TaskType;
+}
+
+// Step action types
+export type StepActionType = 'edit' | 'write' | 'bash' | 'read' | 'glob' | 'grep' | 'task' | 'other';
+
+// Drift type classification
+export type DriftType = 'none' | 'minor' | 'major' | 'critical';
+
+// Correction level
+export type CorrectionLevel = 'nudge' | 'correct' | 'intervene' | 'halt';
+
+// Step record (action log for current session)
+export interface StepRecord {
+  id: string;
+  session_id: string;
+  action_type: StepActionType;
+  files: string[];
+  folders: string[];
+  command?: string;
+  reasoning?: string;  // Claude's explanation for this action
+  drift_score?: number;
+  drift_type?: DriftType;
+  is_key_decision: boolean;
+  is_validated: boolean;
+  correction_given?: string;
+  correction_level?: CorrectionLevel;
+  keywords: string[];
+  timestamp: number;
+}
+
+// Input for creating a step
+export interface CreateStepInput {
+  session_id: string;
+  action_type: StepActionType;
+  files?: string[];
+  folders?: string[];
+  command?: string;
+  reasoning?: string;  // Claude's explanation for this action
+  drift_score?: number;
+  drift_type?: DriftType;
+  is_key_decision?: boolean;
+  is_validated?: boolean;
+  correction_given?: string;
+  correction_level?: CorrectionLevel;
+  keywords?: string[];
+}
+
+// Drift log entry (for rejected actions)
+export interface DriftLogEntry {
+  id: string;
+  session_id: string;
+  timestamp: number;
+  action_type?: string;
+  files: string[];
+  drift_score: number;
+  drift_reason?: string;
+  correction_given?: string;
+  recovery_plan?: Record<string, unknown>;
+}
+
+// Input for creating drift log entry
+export interface CreateDriftLogInput {
+  session_id: string;
+  action_type?: string;
+  files?: string[];
+  drift_score: number;
+  drift_reason?: string;
+  correction_given?: string;
+  recovery_plan?: Record<string, unknown>;
 }
 
 // File reasoning change types
@@ -161,7 +260,10 @@ export function initDatabase(): Database.Database {
       goal TEXT,
       reasoning_trace JSON DEFAULT '[]',
       files_touched JSON DEFAULT '[]',
+      decisions JSON DEFAULT '[]',
+      constraints JSON DEFAULT '[]',
       status TEXT NOT NULL CHECK(status IN ('complete', 'question', 'partial', 'abandoned')),
+      trigger_reason TEXT CHECK(trigger_reason IN ('complete', 'threshold', 'abandoned')),
       linked_commit TEXT,
       parent_task_id TEXT,
       turn_number INTEGER,
@@ -175,6 +277,17 @@ export function initDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_created ON tasks(created_at);
   `);
 
+  // Migration: add new columns to existing tasks table
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN decisions JSON DEFAULT '[]'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN constraints JSON DEFAULT '[]'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN trigger_reason TEXT`);
+  } catch { /* column exists */ }
+
   // Create session_states table (temporary per-session tracking)
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_states (
@@ -182,18 +295,72 @@ export function initDatabase(): Database.Database {
       user_id TEXT,
       project_path TEXT NOT NULL,
       original_goal TEXT,
-      actions_taken JSON DEFAULT '[]',
-      files_explored JSON DEFAULT '[]',
-      current_intent TEXT,
-      drift_warnings JSON DEFAULT '[]',
+      expected_scope JSON DEFAULT '[]',
+      constraints JSON DEFAULT '[]',
+      keywords JSON DEFAULT '[]',
+      token_count INTEGER DEFAULT 0,
+      escalation_count INTEGER DEFAULT 0,
+      session_mode TEXT DEFAULT 'normal' CHECK(session_mode IN ('normal', 'drifted', 'forced')),
+      waiting_for_recovery INTEGER DEFAULT 0,
+      last_checked_at INTEGER DEFAULT 0,
+      last_clear_at INTEGER,
       start_time TEXT NOT NULL,
       last_update TEXT NOT NULL,
-      status TEXT DEFAULT 'active' CHECK(status IN ('active', 'completed', 'abandoned'))
+      status TEXT DEFAULT 'active' CHECK(status IN ('active', 'completed', 'abandoned')),
+      completed_at TEXT,
+      parent_session_id TEXT,
+      task_type TEXT DEFAULT 'main' CHECK(task_type IN ('main', 'subtask', 'parallel')),
+      FOREIGN KEY (parent_session_id) REFERENCES session_states(session_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_session_project ON session_states(project_path);
     CREATE INDEX IF NOT EXISTS idx_session_status ON session_states(status);
+    CREATE INDEX IF NOT EXISTS idx_session_parent ON session_states(parent_session_id);
   `);
+
+  // Migration: add new columns to existing session_states table
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN expected_scope JSON DEFAULT '[]'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN constraints JSON DEFAULT '[]'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN keywords JSON DEFAULT '[]'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN token_count INTEGER DEFAULT 0`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN escalation_count INTEGER DEFAULT 0`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN session_mode TEXT DEFAULT 'normal'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN waiting_for_recovery INTEGER DEFAULT 0`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN last_checked_at INTEGER DEFAULT 0`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN last_clear_at INTEGER`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN parent_session_id TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN task_type TEXT DEFAULT 'main'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN completed_at TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_session_parent ON session_states(parent_session_id)`);
+  } catch { /* index exists */ }
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_session_completed ON session_states(completed_at)`);
+  } catch { /* index exists */ }
 
   // Create file_reasoning table (file-level reasoning with anchoring)
   db.exec(`
@@ -215,6 +382,72 @@ export function initDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_file_path ON file_reasoning(file_path);
     -- PERFORMANCE: Composite index for common query pattern (file_path + ORDER BY created_at)
     CREATE INDEX IF NOT EXISTS idx_file_path_created ON file_reasoning(file_path, created_at DESC);
+  `);
+
+  // Create steps table (action log for current session)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS steps (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      action_type TEXT NOT NULL CHECK(action_type IN ('edit', 'write', 'bash', 'read', 'glob', 'grep', 'task', 'other')),
+      files JSON DEFAULT '[]',
+      folders JSON DEFAULT '[]',
+      command TEXT,
+      drift_score INTEGER,
+      drift_type TEXT CHECK(drift_type IN ('none', 'minor', 'major', 'critical')),
+      is_key_decision INTEGER DEFAULT 0,
+      is_validated INTEGER DEFAULT 1,
+      correction_given TEXT,
+      correction_level TEXT CHECK(correction_level IN ('nudge', 'correct', 'intervene', 'halt')),
+      keywords JSON DEFAULT '[]',
+      timestamp INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES session_states(session_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_steps_session ON steps(session_id);
+    CREATE INDEX IF NOT EXISTS idx_steps_timestamp ON steps(timestamp);
+  `);
+
+  // Migration: add new columns to existing steps table
+  try {
+    db.exec(`ALTER TABLE steps ADD COLUMN drift_type TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE steps ADD COLUMN is_key_decision INTEGER DEFAULT 0`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE steps ADD COLUMN is_validated INTEGER DEFAULT 1`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE steps ADD COLUMN correction_given TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE steps ADD COLUMN correction_level TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE steps ADD COLUMN keywords JSON DEFAULT '[]'`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE steps ADD COLUMN reasoning TEXT`);
+  } catch { /* column exists */ }
+
+  // Create drift_log table (rejected actions for audit)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS drift_log (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      action_type TEXT,
+      files JSON DEFAULT '[]',
+      drift_score INTEGER NOT NULL,
+      drift_reason TEXT,
+      correction_given TEXT,
+      recovery_plan JSON,
+      FOREIGN KEY (session_id) REFERENCES session_states(session_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_drift_log_session ON drift_log(session_id);
+    CREATE INDEX IF NOT EXISTS idx_drift_log_timestamp ON drift_log(timestamp);
   `);
 
   return db;
@@ -246,7 +479,10 @@ export function createTask(input: CreateTaskInput): Task {
     goal: input.goal,
     reasoning_trace: input.reasoning_trace || [],
     files_touched: input.files_touched || [],
+    decisions: input.decisions || [],
+    constraints: input.constraints || [],
     status: input.status,
+    trigger_reason: input.trigger_reason,
     linked_commit: input.linked_commit,
     parent_task_id: input.parent_task_id,
     turn_number: input.turn_number,
@@ -257,11 +493,13 @@ export function createTask(input: CreateTaskInput): Task {
   const stmt = database.prepare(`
     INSERT INTO tasks (
       id, project_path, user, original_query, goal,
-      reasoning_trace, files_touched, status, linked_commit,
+      reasoning_trace, files_touched, decisions, constraints,
+      status, trigger_reason, linked_commit,
       parent_task_id, turn_number, tags, created_at
     ) VALUES (
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
+      ?, ?, ?,
       ?, ?, ?, ?
     )
   `);
@@ -274,7 +512,10 @@ export function createTask(input: CreateTaskInput): Task {
     task.goal || null,
     JSON.stringify(task.reasoning_trace),
     JSON.stringify(task.files_touched),
+    JSON.stringify(task.decisions),
+    JSON.stringify(task.constraints),
     task.status,
+    task.trigger_reason || null,
     task.linked_commit || null,
     task.parent_task_id || null,
     task.turn_number || null,
@@ -428,7 +669,10 @@ function rowToTask(row: Record<string, unknown>): Task {
     goal: row.goal as string | undefined,
     reasoning_trace: safeJsonParse<string[]>(row.reasoning_trace, []),
     files_touched: safeJsonParse<string[]>(row.files_touched, []),
+    decisions: safeJsonParse<Array<{ choice: string; reason: string }>>(row.decisions, []),
+    constraints: safeJsonParse<string[]>(row.constraints, []),
     status: row.status as TaskStatus,
+    trigger_reason: row.trigger_reason as TriggerReason | undefined,
     linked_commit: row.linked_commit as string | undefined,
     parent_task_id: row.parent_task_id as string | undefined,
     turn_number: row.turn_number as number | undefined,
@@ -454,23 +698,31 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     user_id: input.user_id,
     project_path: input.project_path,
     original_goal: input.original_goal,
-    actions_taken: [],
-    files_explored: [],
-    current_intent: undefined,
-    drift_warnings: [],
+    expected_scope: input.expected_scope || [],
+    constraints: input.constraints || [],
+    keywords: input.keywords || [],
+    token_count: 0,
+    escalation_count: 0,
+    session_mode: 'normal',
+    waiting_for_recovery: false,
+    last_checked_at: 0,
+    last_clear_at: undefined,
     start_time: now,
     last_update: now,
-    status: 'active'
+    status: 'active',
+    parent_session_id: input.parent_session_id,
+    task_type: input.task_type || 'main',
   };
 
-  // Use INSERT OR IGNORE to safely handle race conditions where
-  // multiple processes might try to create the same session
   const stmt = database.prepare(`
     INSERT OR IGNORE INTO session_states (
       session_id, user_id, project_path, original_goal,
-      actions_taken, files_explored, current_intent, drift_warnings,
-      start_time, last_update, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      expected_scope, constraints, keywords,
+      token_count, escalation_count, session_mode,
+      waiting_for_recovery, last_checked_at, last_clear_at,
+      start_time, last_update, status,
+      parent_session_id, task_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -478,13 +730,20 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     sessionState.user_id || null,
     sessionState.project_path,
     sessionState.original_goal || null,
-    JSON.stringify(sessionState.actions_taken),
-    JSON.stringify(sessionState.files_explored),
-    sessionState.current_intent || null,
-    JSON.stringify(sessionState.drift_warnings),
+    JSON.stringify(sessionState.expected_scope),
+    JSON.stringify(sessionState.constraints),
+    JSON.stringify(sessionState.keywords),
+    sessionState.token_count,
+    sessionState.escalation_count,
+    sessionState.session_mode,
+    sessionState.waiting_for_recovery ? 1 : 0,
+    sessionState.last_checked_at,
+    sessionState.last_clear_at || null,
     sessionState.start_time,
     sessionState.last_update,
-    sessionState.status
+    sessionState.status,
+    sessionState.parent_session_id || null,
+    sessionState.task_type
   );
 
   return sessionState;
@@ -527,21 +786,41 @@ export function updateSessionState(
     setClauses.push('original_goal = ?');
     params.push(updates.original_goal || null);
   }
-  if (updates.actions_taken !== undefined) {
-    setClauses.push('actions_taken = ?');
-    params.push(JSON.stringify(updates.actions_taken));
+  if (updates.expected_scope !== undefined) {
+    setClauses.push('expected_scope = ?');
+    params.push(JSON.stringify(updates.expected_scope));
   }
-  if (updates.files_explored !== undefined) {
-    setClauses.push('files_explored = ?');
-    params.push(JSON.stringify(updates.files_explored));
+  if (updates.constraints !== undefined) {
+    setClauses.push('constraints = ?');
+    params.push(JSON.stringify(updates.constraints));
   }
-  if (updates.current_intent !== undefined) {
-    setClauses.push('current_intent = ?');
-    params.push(updates.current_intent || null);
+  if (updates.keywords !== undefined) {
+    setClauses.push('keywords = ?');
+    params.push(JSON.stringify(updates.keywords));
   }
-  if (updates.drift_warnings !== undefined) {
-    setClauses.push('drift_warnings = ?');
-    params.push(JSON.stringify(updates.drift_warnings));
+  if (updates.token_count !== undefined) {
+    setClauses.push('token_count = ?');
+    params.push(updates.token_count);
+  }
+  if (updates.escalation_count !== undefined) {
+    setClauses.push('escalation_count = ?');
+    params.push(updates.escalation_count);
+  }
+  if (updates.session_mode !== undefined) {
+    setClauses.push('session_mode = ?');
+    params.push(updates.session_mode);
+  }
+  if (updates.waiting_for_recovery !== undefined) {
+    setClauses.push('waiting_for_recovery = ?');
+    params.push(updates.waiting_for_recovery ? 1 : 0);
+  }
+  if (updates.last_checked_at !== undefined) {
+    setClauses.push('last_checked_at = ?');
+    params.push(updates.last_checked_at);
+  }
+  if (updates.last_clear_at !== undefined) {
+    setClauses.push('last_clear_at = ?');
+    params.push(updates.last_clear_at);
   }
   if (updates.status !== undefined) {
     setClauses.push('status = ?');
@@ -587,6 +866,41 @@ export function getActiveSessionsForProject(projectPath: string): SessionState[]
 }
 
 /**
+ * Get child sessions (subtasks and parallel tasks) for a parent session
+ */
+export function getChildSessions(parentSessionId: string): SessionState[] {
+  const database = initDatabase();
+
+  const stmt = database.prepare(
+    'SELECT * FROM session_states WHERE parent_session_id = ? ORDER BY start_time DESC'
+  );
+  const rows = stmt.all(parentSessionId) as Record<string, unknown>[];
+
+  return rows.map(rowToSessionState);
+}
+
+/**
+ * Get active session for a specific user in a project
+ */
+export function getActiveSessionForUser(projectPath: string, userId?: string): SessionState | null {
+  const database = initDatabase();
+
+  if (userId) {
+    const stmt = database.prepare(
+      "SELECT * FROM session_states WHERE project_path = ? AND user_id = ? AND status = 'active' ORDER BY last_update DESC LIMIT 1"
+    );
+    const row = stmt.get(projectPath, userId) as Record<string, unknown> | undefined;
+    return row ? rowToSessionState(row) : null;
+  } else {
+    const stmt = database.prepare(
+      "SELECT * FROM session_states WHERE project_path = ? AND status = 'active' ORDER BY last_update DESC LIMIT 1"
+    );
+    const row = stmt.get(projectPath) as Record<string, unknown> | undefined;
+    return row ? rowToSessionState(row) : null;
+  }
+}
+
+/**
  * Convert database row to SessionState object
  */
 function rowToSessionState(row: Record<string, unknown>): SessionState {
@@ -595,13 +909,21 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
     user_id: row.user_id as string | undefined,
     project_path: row.project_path as string,
     original_goal: row.original_goal as string | undefined,
-    actions_taken: safeJsonParse<string[]>(row.actions_taken, []),
-    files_explored: safeJsonParse<string[]>(row.files_explored, []),
-    current_intent: row.current_intent as string | undefined,
-    drift_warnings: safeJsonParse<string[]>(row.drift_warnings, []),
+    expected_scope: safeJsonParse<string[]>(row.expected_scope, []),
+    constraints: safeJsonParse<string[]>(row.constraints, []),
+    keywords: safeJsonParse<string[]>(row.keywords, []),
+    token_count: (row.token_count as number) || 0,
+    escalation_count: (row.escalation_count as number) || 0,
+    session_mode: (row.session_mode as SessionMode) || 'normal',
+    waiting_for_recovery: Boolean(row.waiting_for_recovery),
+    last_checked_at: (row.last_checked_at as number) || 0,
+    last_clear_at: row.last_clear_at as number | undefined,
     start_time: row.start_time as string,
     last_update: row.last_update as string,
-    status: row.status as SessionStatus
+    status: row.status as SessionStatus,
+    completed_at: row.completed_at as string | undefined,
+    parent_session_id: row.parent_session_id as string | undefined,
+    task_type: (row.task_type as TaskType) || 'main',
   };
 }
 
@@ -722,4 +1044,363 @@ function rowToFileReasoning(row: Record<string, unknown>): FileReasoning {
  */
 export function getDatabasePath(): string {
   return DB_PATH;
+}
+
+// ============================================
+// STEPS CRUD OPERATIONS
+// ============================================
+
+/**
+ * Create a new step record
+ */
+export function createStep(input: CreateStepInput): StepRecord {
+  const database = initDatabase();
+
+  const step: StepRecord = {
+    id: randomUUID(),
+    session_id: input.session_id,
+    action_type: input.action_type,
+    files: input.files || [],
+    folders: input.folders || [],
+    command: input.command,
+    reasoning: input.reasoning,
+    drift_score: input.drift_score,
+    drift_type: input.drift_type,
+    is_key_decision: input.is_key_decision || false,
+    is_validated: input.is_validated !== false,
+    correction_given: input.correction_given,
+    correction_level: input.correction_level,
+    keywords: input.keywords || [],
+    timestamp: Date.now()
+  };
+
+  const stmt = database.prepare(`
+    INSERT INTO steps (
+      id, session_id, action_type, files, folders, command, reasoning,
+      drift_score, drift_type, is_key_decision, is_validated,
+      correction_given, correction_level, keywords, timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    step.id,
+    step.session_id,
+    step.action_type,
+    JSON.stringify(step.files),
+    JSON.stringify(step.folders),
+    step.command || null,
+    step.reasoning || null,
+    step.drift_score || null,
+    step.drift_type || null,
+    step.is_key_decision ? 1 : 0,
+    step.is_validated ? 1 : 0,
+    step.correction_given || null,
+    step.correction_level || null,
+    JSON.stringify(step.keywords),
+    step.timestamp
+  );
+
+  return step;
+}
+
+/**
+ * Get steps for a session
+ */
+export function getStepsForSession(sessionId: string, limit?: number): StepRecord[] {
+  const database = initDatabase();
+
+  let sql = 'SELECT * FROM steps WHERE session_id = ? ORDER BY timestamp DESC';
+  const params: (string | number)[] = [sessionId];
+
+  if (limit) {
+    sql += ' LIMIT ?';
+    params.push(limit);
+  }
+
+  const stmt = database.prepare(sql);
+  const rows = stmt.all(...params) as Record<string, unknown>[];
+
+  return rows.map(rowToStep);
+}
+
+/**
+ * Get recent steps for a session (most recent N)
+ */
+export function getRecentSteps(sessionId: string, count = 10): StepRecord[] {
+  return getStepsForSession(sessionId, count);
+}
+
+/**
+ * Get validated steps only (for summary generation)
+ */
+export function getValidatedSteps(sessionId: string): StepRecord[] {
+  const database = initDatabase();
+
+  const stmt = database.prepare(
+    'SELECT * FROM steps WHERE session_id = ? AND is_validated = 1 ORDER BY timestamp ASC'
+  );
+  const rows = stmt.all(sessionId) as Record<string, unknown>[];
+
+  return rows.map(rowToStep);
+}
+
+/**
+ * Delete steps for a session
+ */
+export function deleteStepsForSession(sessionId: string): void {
+  const database = initDatabase();
+  database.prepare('DELETE FROM steps WHERE session_id = ?').run(sessionId);
+}
+
+/**
+ * Update reasoning for recent steps that don't have reasoning yet
+ * Called at end_turn to backfill reasoning from Claude's text response
+ */
+export function updateRecentStepsReasoning(sessionId: string, reasoning: string, limit = 10): number {
+  const database = initDatabase();
+
+  // Update steps that don't have reasoning yet (NULL or empty)
+  const stmt = database.prepare(`
+    UPDATE steps
+    SET reasoning = ?
+    WHERE session_id = ?
+    AND (reasoning IS NULL OR reasoning = '')
+    AND id IN (
+      SELECT id FROM steps
+      WHERE session_id = ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    )
+  `);
+
+  const result = stmt.run(reasoning, sessionId, sessionId, limit);
+  return result.changes;
+}
+
+/**
+ * Get relevant steps (key decisions and write/edit actions)
+ * Reference: plan_proxy_local.md Section 2.2
+ */
+export function getRelevantSteps(sessionId: string, limit = 20): StepRecord[] {
+  const database = initDatabase();
+
+  const stmt = database.prepare(`
+    SELECT * FROM steps
+    WHERE session_id = ?
+    AND (is_key_decision = 1 OR action_type IN ('edit', 'write', 'bash'))
+    AND is_validated = 1
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `);
+  const rows = stmt.all(sessionId, limit) as Record<string, unknown>[];
+
+  return rows.map(rowToStep);
+}
+
+/**
+ * Convert database row to StepRecord object
+ */
+function rowToStep(row: Record<string, unknown>): StepRecord {
+  return {
+    id: row.id as string,
+    session_id: row.session_id as string,
+    action_type: row.action_type as StepActionType,
+    files: safeJsonParse<string[]>(row.files, []),
+    folders: safeJsonParse<string[]>(row.folders, []),
+    command: row.command as string | undefined,
+    reasoning: row.reasoning as string | undefined,
+    drift_score: row.drift_score as number | undefined,
+    drift_type: row.drift_type as DriftType | undefined,
+    is_key_decision: Boolean(row.is_key_decision),
+    is_validated: Boolean(row.is_validated),
+    correction_given: row.correction_given as string | undefined,
+    correction_level: row.correction_level as CorrectionLevel | undefined,
+    keywords: safeJsonParse<string[]>(row.keywords, []),
+    timestamp: row.timestamp as number
+  };
+}
+
+// ============================================
+// DRIFT LOG CRUD OPERATIONS
+// ============================================
+
+/**
+ * Log a drift event (for rejected actions)
+ */
+export function logDriftEvent(input: CreateDriftLogInput): DriftLogEntry {
+  const database = initDatabase();
+
+  const entry: DriftLogEntry = {
+    id: randomUUID(),
+    session_id: input.session_id,
+    timestamp: Date.now(),
+    action_type: input.action_type,
+    files: input.files || [],
+    drift_score: input.drift_score,
+    drift_reason: input.drift_reason,
+    correction_given: input.correction_given,
+    recovery_plan: input.recovery_plan
+  };
+
+  const stmt = database.prepare(`
+    INSERT INTO drift_log (
+      id, session_id, timestamp, action_type, files,
+      drift_score, drift_reason, correction_given, recovery_plan
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    entry.id,
+    entry.session_id,
+    entry.timestamp,
+    entry.action_type || null,
+    JSON.stringify(entry.files),
+    entry.drift_score,
+    entry.drift_reason || null,
+    entry.correction_given || null,
+    entry.recovery_plan ? JSON.stringify(entry.recovery_plan) : null
+  );
+
+  return entry;
+}
+
+/**
+ * Get drift log for a session
+ */
+export function getDriftLog(sessionId: string, limit = 50): DriftLogEntry[] {
+  const database = initDatabase();
+
+  const stmt = database.prepare(
+    'SELECT * FROM drift_log WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?'
+  );
+  const rows = stmt.all(sessionId, limit) as Record<string, unknown>[];
+
+  return rows.map(rowToDriftLogEntry);
+}
+
+/**
+ * Convert database row to DriftLogEntry object
+ */
+function rowToDriftLogEntry(row: Record<string, unknown>): DriftLogEntry {
+  return {
+    id: row.id as string,
+    session_id: row.session_id as string,
+    timestamp: row.timestamp as number,
+    action_type: row.action_type as string | undefined,
+    files: safeJsonParse<string[]>(row.files, []),
+    drift_score: row.drift_score as number,
+    drift_reason: row.drift_reason as string | undefined,
+    correction_given: row.correction_given as string | undefined,
+    recovery_plan: row.recovery_plan ? safeJsonParse<Record<string, unknown>>(row.recovery_plan, {}) : undefined
+  };
+}
+
+// ============================================
+// CONVENIENCE FUNCTIONS FOR PROXY
+// ============================================
+
+/**
+ * Update token count for a session
+ */
+export function updateTokenCount(sessionId: string, tokenCount: number): void {
+  updateSessionState(sessionId, { token_count: tokenCount });
+}
+
+/**
+ * Update session mode
+ */
+export function updateSessionMode(sessionId: string, mode: SessionMode): void {
+  updateSessionState(sessionId, { session_mode: mode });
+}
+
+/**
+ * Mark session as waiting for recovery
+ */
+export function markWaitingForRecovery(sessionId: string, waiting: boolean): void {
+  updateSessionState(sessionId, { waiting_for_recovery: waiting });
+}
+
+/**
+ * Increment escalation count
+ */
+export function incrementEscalation(sessionId: string): void {
+  const session = getSessionState(sessionId);
+  if (session) {
+    updateSessionState(sessionId, { escalation_count: session.escalation_count + 1 });
+  }
+}
+
+/**
+ * Update last checked timestamp
+ */
+export function updateLastChecked(sessionId: string): void {
+  updateSessionState(sessionId, { last_checked_at: Date.now() });
+}
+
+/**
+ * Update last clear timestamp and reset token count
+ */
+export function markCleared(sessionId: string): void {
+  updateSessionState(sessionId, {
+    last_clear_at: Date.now(),
+    token_count: 0
+  });
+}
+
+/**
+ * Mark session as completed (instead of deleting)
+ * Session will be cleaned up after 1 hour
+ */
+export function markSessionCompleted(sessionId: string): void {
+  const database = initDatabase();
+  const now = new Date().toISOString();
+  database.prepare(`
+    UPDATE session_states
+    SET status = 'completed', completed_at = ?, last_update = ?
+    WHERE session_id = ?
+  `).run(now, now, sessionId);
+}
+
+/**
+ * Cleanup sessions completed more than 1 hour ago
+ * Also deletes associated steps
+ * Returns number of sessions cleaned up
+ */
+export function cleanupOldCompletedSessions(maxAgeMs: number = 3600000): number {
+  const database = initDatabase();
+  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+
+  // Get sessions to cleanup
+  const oldSessions = database.prepare(`
+    SELECT session_id FROM session_states
+    WHERE status = 'completed' AND completed_at < ?
+  `).all(cutoff) as Array<{ session_id: string }>;
+
+  if (oldSessions.length === 0) {
+    return 0;
+  }
+
+  // Delete steps for each session
+  for (const session of oldSessions) {
+    database.prepare('DELETE FROM steps WHERE session_id = ?').run(session.session_id);
+    database.prepare('DELETE FROM session_states WHERE session_id = ?').run(session.session_id);
+  }
+
+  return oldSessions.length;
+}
+
+/**
+ * Get completed session for project (for new_task detection)
+ * Returns most recent completed session if exists
+ */
+export function getCompletedSessionForProject(projectPath: string): SessionState | null {
+  const database = initDatabase();
+  const row = database.prepare(`
+    SELECT * FROM session_states
+    WHERE project_path = ? AND status = 'completed'
+    ORDER BY completed_at DESC
+    LIMIT 1
+  `).get(projectPath) as Record<string, unknown> | undefined;
+
+  return row ? rowToSessionState(row) : null;
 }

@@ -42,6 +42,142 @@ export function isLLMAvailable(): boolean {
   return !!process.env.OPENAI_API_KEY;
 }
 
+// ============================================
+// INTENT EXTRACTION (First prompt analysis)
+// Reference: plan_proxy_local.md Section 3.1
+// ============================================
+
+export interface ExtractedIntent {
+  goal: string;
+  expected_scope: string[];
+  constraints: string[];
+  keywords: string[];
+}
+
+/**
+ * Extract intent from first user prompt using Haiku
+ * Called once at session start to populate session_states
+ */
+export async function extractIntent(firstPrompt: string): Promise<ExtractedIntent> {
+  // Use Anthropic for this (consistent with other proxy LLM calls)
+  const client = getAnthropicClient();
+
+  const prompt = `Analyze this user request and extract structured intent for a coding assistant session.
+
+USER REQUEST:
+${firstPrompt.substring(0, 2000)}
+
+Extract as JSON:
+{
+  "goal": "The main objective in 1-2 sentences",
+  "expected_scope": ["list", "of", "files/folders", "likely", "to", "be", "modified"],
+  "constraints": ["EXPLICIT restrictions from the user - see examples below"],
+  "keywords": ["relevant", "technical", "terms"]
+}
+
+═══════════════════════════════════════════════════════════════
+CONSTRAINTS EXTRACTION - BE VERY THOROUGH
+═══════════════════════════════════════════════════════════════
+
+Look for NEGATIVE constraints (things NOT to do):
+- "NU modifica" / "DON'T modify" / "NEVER change" / "don't touch"
+- "NU rula" / "DON'T run" / "NO commands" / "don't execute"
+- "fără X" / "without X" / "except X" / "not including"
+- "nu scrie cod" / "don't write code" / "just plan"
+
+Look for POSITIVE constraints (things MUST do / ONLY do):
+- "ONLY modify X" / "DOAR în X" / "only in folder Y"
+- "must use Y" / "trebuie să folosești Y"
+- "keep it simple" / "no external dependencies"
+- "use TypeScript" / "must be async"
+
+EXAMPLES:
+Input: "Fix bug in auth. NU modifica nimic in afara de sandbox/, NU rula comenzi."
+Output constraints: ["DO NOT modify files outside sandbox/", "DO NOT run commands"]
+
+Input: "Add feature X. Only use standard library, keep backward compatible."
+Output constraints: ["ONLY use standard library", "Keep backward compatible"]
+
+Input: "Analyze code and create plan. Nu scrie cod inca, doar planifica."
+Output constraints: ["DO NOT write code yet", "Only create plan/analysis"]
+
+For expected_scope:
+- Include file patterns (e.g., "src/auth/", "*.test.ts", "sandbox/")
+- Include component/module names mentioned
+- Be conservative - only include clearly relevant areas
+
+RESPONSE RULES:
+- English only (translate Romanian/other languages to English)
+- No emojis
+- Valid JSON only
+- If no constraints found, return empty array []`;
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 500,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const content = response.content?.[0];
+  if (!content || content.type !== 'text') {
+    return createFallbackIntent(firstPrompt);
+  }
+
+  try {
+    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return createFallbackIntent(firstPrompt);
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+
+    return {
+      goal: typeof parsed.goal === 'string' ? parsed.goal : firstPrompt.substring(0, 200),
+      expected_scope: Array.isArray(parsed.expected_scope)
+        ? parsed.expected_scope.filter((s): s is string => typeof s === 'string')
+        : [],
+      constraints: Array.isArray(parsed.constraints)
+        ? parsed.constraints.filter((c): c is string => typeof c === 'string')
+        : [],
+      keywords: Array.isArray(parsed.keywords)
+        ? parsed.keywords.filter((k): k is string => typeof k === 'string')
+        : [],
+    };
+  } catch {
+    return createFallbackIntent(firstPrompt);
+  }
+}
+
+/**
+ * Fallback intent extraction without LLM
+ */
+function createFallbackIntent(prompt: string): ExtractedIntent {
+  // Basic keyword extraction
+  const words = prompt.toLowerCase().split(/\s+/);
+  const techKeywords = words.filter(w =>
+    w.length > 3 &&
+    /^[a-z]+$/.test(w) &&
+    !['this', 'that', 'with', 'from', 'have', 'will', 'would', 'could', 'should'].includes(w)
+  );
+
+  // Extract file patterns
+  const filePatterns = prompt.match(/[\w\/.-]+\.(ts|js|tsx|jsx|py|go|rs|java|css|html|md)/g) || [];
+
+  return {
+    goal: prompt.substring(0, 200),
+    expected_scope: [...new Set(filePatterns)].slice(0, 5),
+    constraints: [],
+    keywords: [...new Set(techKeywords)].slice(0, 10),
+  };
+}
+
+/**
+ * Check if intent extraction is available
+ */
+export function isIntentExtractionAvailable(): boolean {
+  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
+}
+
 /**
  * Extract structured reasoning from a parsed session using GPT-3.5-turbo
  */
@@ -68,14 +204,26 @@ ${sessionSummary}
 
 Extract the following as JSON:
 {
-  "task": "Brief description of what the user was trying to do (1 sentence)",
-  "goal": "The underlying goal or problem being solved",
-  "reasoning_trace": ["Key reasoning steps taken", "Decisions made and why", "What was investigated"],
-  "decisions": [{"choice": "What was decided", "reason": "Why this choice was made"}],
-  "constraints": ["Any constraints or requirements discovered"],
+  "task": "Brief description (1 sentence)",
+  "goal": "The underlying problem being solved",
+  "reasoning_trace": [
+    "Be SPECIFIC: include file names, function names, line numbers when relevant",
+    "Format: '[Action] [target] to/for [purpose]'",
+    "Example: 'Read auth.ts:47 to understand token refresh logic'",
+    "Example: 'Fixed null check in validateToken() - was causing silent failures'",
+    "NOT: 'Investigated auth' or 'Fixed bug'"
+  ],
+  "decisions": [{"choice": "What was decided", "reason": "Why this over alternatives"}],
+  "constraints": ["Discovered limitations, rate limits, incompatibilities"],
   "status": "complete|partial|question|abandoned",
   "tags": ["relevant", "domain", "tags"]
 }
+
+IMPORTANT for reasoning_trace:
+- Each entry should be ACTIONABLE information for future developers
+- Include specific file:line references when possible
+- Explain WHY not just WHAT (e.g., "Chose JWT over sessions because stateless scales better")
+- Bad: "Fixed the bug" / Good: "Fixed race condition in UserService.save() - was missing await"
 
 Status definitions:
 - "complete": Task was finished, implementation done
@@ -83,7 +231,10 @@ Status definitions:
 - "question": Claude asked a question and is waiting for user response
 - "abandoned": User interrupted or moved to different topic
 
-Return ONLY valid JSON, no explanation.`
+RESPONSE RULES:
+- English only (translate if input is in other language)
+- No emojis
+- Valid JSON only`
       }
     ]
   });
@@ -301,4 +452,377 @@ function validateStatus(status: string | undefined): TaskStatus {
     return normalized;
   }
   return 'partial'; // Default
+}
+
+// ============================================
+// SESSION SUMMARY FOR CLEAR OPERATION
+// Uses Anthropic Haiku (separate from OpenAI extraction)
+// ============================================
+
+import Anthropic from '@anthropic-ai/sdk';
+import type { SessionState, StepRecord } from './store.js';
+
+let anthropicClient: Anthropic | null = null;
+
+function getAnthropicClient(): Anthropic {
+  if (!anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY;
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY or GROV_API_KEY required for session summary');
+    }
+    anthropicClient = new Anthropic({ apiKey });
+  }
+  return anthropicClient;
+}
+
+/**
+ * Check if session summary generation is available
+ */
+export function isSummaryAvailable(): boolean {
+  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
+}
+
+/**
+ * Generate session summary for CLEAR operation
+ * Reference: plan_proxy_local.md Section 2.3, 4.5
+ */
+export async function generateSessionSummary(
+  sessionState: SessionState,
+  steps: StepRecord[]
+): Promise<string> {
+  const client = getAnthropicClient();
+
+  const stepsText = steps
+    .filter(s => s.is_validated)
+    .slice(-20)
+    .map(step => {
+      let desc = `- ${step.action_type}`;
+      if (step.files.length > 0) {
+        desc += `: ${step.files.join(', ')}`;
+      }
+      if (step.command) {
+        desc += ` (${step.command.substring(0, 50)})`;
+      }
+      return desc;
+    })
+    .join('\n');
+
+  const prompt = `Create a concise summary of this coding session for context continuation.
+
+ORIGINAL GOAL: ${sessionState.original_goal || 'Not specified'}
+
+EXPECTED SCOPE: ${sessionState.expected_scope.join(', ') || 'Not specified'}
+
+CONSTRAINTS: ${sessionState.constraints.join(', ') || 'None'}
+
+ACTIONS TAKEN:
+${stepsText || 'No actions recorded'}
+
+Create a summary with these sections (keep total under 500 words):
+1. ORIGINAL GOAL: (1 sentence)
+2. PROGRESS: (2-3 bullet points of what was accomplished)
+3. KEY DECISIONS: (any important choices made)
+4. FILES MODIFIED: (list of files)
+5. CURRENT STATE: (where the work left off)
+6. NEXT STEPS: (recommended next actions)
+
+Format as plain text, not JSON.`;
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 800,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const content = response.content?.[0];
+  if (!content || content.type !== 'text') {
+    return createFallbackSummary(sessionState, steps);
+  }
+
+  return `PREVIOUS SESSION CONTEXT (auto-generated after context limit):
+
+${content.text}`;
+}
+
+/**
+ * Create fallback summary without LLM
+ */
+function createFallbackSummary(sessionState: SessionState, steps: StepRecord[]): string {
+  const files = [...new Set(steps.flatMap(s => s.files))];
+
+  return `PREVIOUS SESSION CONTEXT (auto-generated after context limit):
+
+ORIGINAL GOAL: ${sessionState.original_goal || 'Not specified'}
+
+PROGRESS: ${steps.length} actions taken
+
+FILES MODIFIED:
+${files.slice(0, 10).map(f => `- ${f}`).join('\n') || '- None recorded'}
+
+Please continue from where you left off.`;
+}
+
+// ============================================
+// TASK ORCHESTRATION (Task identification)
+// Reference: plan_proxy_local.md Part 8
+// ============================================
+
+/**
+ * Task analysis result from Haiku
+ */
+export interface TaskAnalysis {
+  action: 'continue' | 'new_task' | 'subtask' | 'parallel_task' | 'task_complete' | 'subtask_complete';
+  topic_match?: 'YES' | 'NO';  // Whether user message matches current goal topic
+  task_id: string;
+  current_goal: string;
+  parent_task_id?: string;
+  reasoning: string;
+  step_reasoning?: string;  // Compressed reasoning for steps (if assistantResponse > 1000 chars)
+}
+
+/**
+ * Check if task analysis is available
+ */
+export function isTaskAnalysisAvailable(): boolean {
+  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
+}
+
+/**
+ * Analyze task context to determine task status
+ * Called after each main model response to orchestrate sessions
+ * Also compresses reasoning for steps if assistantResponse > 1000 chars
+ */
+export async function analyzeTaskContext(
+  currentSession: SessionState | null,
+  latestUserMessage: string,
+  recentSteps: StepRecord[],
+  assistantResponse: string
+): Promise<TaskAnalysis> {
+  const client = getAnthropicClient();
+
+  const stepsText = recentSteps.slice(0, 5).map(s => {
+    let desc = `- ${s.action_type}`;
+    if (s.files.length > 0) {
+      desc += `: ${s.files.slice(0, 3).join(', ')}`;
+    }
+    return desc;
+  }).join('\n') || 'None';
+
+  // Check if we need to compress reasoning
+  const needsCompression = assistantResponse.length > 1000;
+  const compressionInstruction = needsCompression
+    ? `\n  "step_reasoning": "compressed summary of assistant's actions and reasoning (max 800 chars)"`
+    : '';
+  const compressionRule = needsCompression
+    ? '\n- step_reasoning: Summarize what the assistant did and WHY in a concise way (max 800 chars)'
+    : '';
+
+  // Extract topic keywords from goal for comparison
+  const currentGoalKeywords = currentSession?.original_goal
+    ? currentSession.original_goal.toLowerCase().match(/\b\w{4,}\b/g)?.slice(0, 10).join(', ') || ''
+    : '';
+
+  const prompt = `You are a task orchestrator. Your PRIMARY job is to detect when the user starts a NEW, DIFFERENT task.
+
+CURRENT SESSION:
+- Current Goal: "${currentSession?.original_goal || 'No active task'}"
+- Goal Keywords: [${currentGoalKeywords}]
+
+LATEST USER MESSAGE:
+"${latestUserMessage.substring(0, 500)}"
+
+RECENT ACTIONS (last 5):
+${stepsText}
+
+ASSISTANT RESPONSE (truncated):
+"${assistantResponse.substring(0, 1500)}${assistantResponse.length > 1500 ? '...' : ''}"
+
+═══════════════════════════════════════════════════════════════
+CRITICAL: Compare the TOPIC of "Current Goal" vs "Latest User Message"
+═══════════════════════════════════════════════════════════════
+
+Ask yourself:
+1. Is the user message about the SAME subject/feature/file as the current goal?
+2. Or is it about something COMPLETELY DIFFERENT?
+
+EXAMPLES of NEW_TASK (different topic):
+- Goal: "implement authentication" → User: "fix the database migration" → NEW_TASK
+- Goal: "analyze security layer" → User: "create hello.ts script" → NEW_TASK
+- Goal: "refactor user service" → User: "add dark mode to UI" → NEW_TASK
+- Goal: "fix login bug" → User: "write unit tests for payments" → NEW_TASK
+
+EXAMPLES of CONTINUE (same topic):
+- Goal: "implement authentication" → User: "now add the logout button" → CONTINUE
+- Goal: "fix login bug" → User: "also check the session timeout" → CONTINUE
+- Goal: "analyze security" → User: "what about rate limiting?" → CONTINUE
+
+Return JSON:
+{
+  "action": "continue|new_task|subtask|parallel_task|task_complete|subtask_complete",
+  "topic_match": "YES if same topic, NO if different topic",
+  "task_id": "existing session_id or 'NEW' for new task",
+  "current_goal": "the goal based on LATEST user message",
+  "reasoning": "1 sentence explaining topic comparison"${compressionInstruction}
+}
+
+DECISION RULES:
+1. NO current session → "new_task"
+2. topic_match=NO (different subject) → "new_task"
+3. topic_match=YES + user following up → "continue"
+4. Claude said "done/complete/finished" → "task_complete"
+5. Prerequisite work identified → "subtask"${compressionRule}
+
+RESPONSE RULES:
+- English only (translate if input is in other language)
+- No emojis
+- Valid JSON only`;
+
+  debugLLM('analyzeTaskContext', `Calling Haiku for task analysis (needsCompression=${needsCompression})`);
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: needsCompression ? 600 : 300,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+
+  try {
+    // Try to parse JSON from response (may have extra text)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found in response');
+    }
+    const analysis = JSON.parse(jsonMatch[0]) as TaskAnalysis;
+
+    // If we didn't need compression but have short response, use it directly
+    if (!needsCompression && assistantResponse.length > 0) {
+      analysis.step_reasoning = assistantResponse.substring(0, 1000);
+    }
+
+    debugLLM('analyzeTaskContext', `Result: action=${analysis.action}, topic_match=${analysis.topic_match}, goal=${analysis.current_goal.substring(0, 50)}`);
+
+    return analysis;
+  } catch (parseError) {
+    debugLLM('analyzeTaskContext', `Parse error: ${String(parseError)}, using fallback`);
+
+    // Fallback: continue existing session or create new
+    return {
+      action: currentSession ? 'continue' : 'new_task',
+      task_id: currentSession?.session_id || 'NEW',
+      current_goal: latestUserMessage.substring(0, 200),
+      reasoning: 'Fallback due to parse error',
+      step_reasoning: assistantResponse.substring(0, 1000),
+    };
+  }
+}
+
+// ============================================
+// REASONING & DECISIONS EXTRACTION (at task_complete)
+// Reference: conversation fixes - extract from steps
+// ============================================
+
+export interface ExtractedReasoningAndDecisions {
+  reasoning_trace: string[];
+  decisions: Array<{ choice: string; reason: string }>;
+}
+
+/**
+ * Check if reasoning extraction is available
+ */
+export function isReasoningExtractionAvailable(): boolean {
+  return !!process.env.ANTHROPIC_API_KEY || !!process.env.GROV_API_KEY;
+}
+
+/**
+ * Extract reasoning trace and decisions from steps
+ * Called at task_complete to populate team memory with rich context
+ */
+export async function extractReasoningAndDecisions(
+  stepsReasoning: string[],
+  originalGoal: string
+): Promise<ExtractedReasoningAndDecisions> {
+  const client = getAnthropicClient();
+
+  // Combine all steps reasoning into one text
+  const combinedReasoning = stepsReasoning
+    .filter(r => r && r.length > 10)
+    .join('\n\n---\n\n')
+    .substring(0, 8000);
+
+  if (combinedReasoning.length < 50) {
+    return { reasoning_trace: [], decisions: [] };
+  }
+
+  const prompt = `Analyze Claude's work session and extract structured reasoning and decisions.
+
+ORIGINAL GOAL:
+${originalGoal || 'Not specified'}
+
+CLAUDE'S WORK (reasoning from each step):
+${combinedReasoning}
+
+═══════════════════════════════════════════════════════════════
+EXTRACT TWO THINGS:
+═══════════════════════════════════════════════════════════════
+
+1. REASONING TRACE (what was done and WHY):
+   - Each entry: "[ACTION] [target] because/to [reason]"
+   - Include specific file names, function names when mentioned
+   - Focus on WHY decisions were made, not just what
+   - Max 10 entries, most important first
+
+2. DECISIONS (choices made between alternatives):
+   - Only include actual choices/tradeoffs
+   - Each must have: what was chosen, why it was chosen
+   - Examples: "Chose X over Y because Z"
+   - Max 5 decisions
+
+Return JSON:
+{
+  "reasoning_trace": [
+    "Created auth/token-store.ts to separate storage logic from validation",
+    "Used Map instead of Object for O(1) lookup performance",
+    "Added expiry check in validateToken to prevent stale token usage"
+  ],
+  "decisions": [
+    {"choice": "Used SHA256 for token hashing", "reason": "Fast, secure enough for this use case, no external deps"},
+    {"choice": "Split into separate files", "reason": "Better testability and single responsibility"}
+  ]
+}
+
+RESPONSE RULES:
+- English only
+- No emojis
+- Valid JSON only
+- Be specific, not vague (bad: "Fixed bug", good: "Fixed null check in validateToken")`;
+
+  debugLLM('extractReasoningAndDecisions', `Analyzing ${stepsReasoning.length} steps, ${combinedReasoning.length} chars`);
+
+  try {
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+    if (!jsonMatch) {
+      debugLLM('extractReasoningAndDecisions', 'No JSON found in response');
+      return { reasoning_trace: [], decisions: [] };
+    }
+
+    const result = JSON.parse(jsonMatch[0]) as ExtractedReasoningAndDecisions;
+    debugLLM('extractReasoningAndDecisions', `Extracted ${result.reasoning_trace?.length || 0} traces, ${result.decisions?.length || 0} decisions`);
+
+    return {
+      reasoning_trace: result.reasoning_trace || [],
+      decisions: result.decisions || [],
+    };
+  } catch (error) {
+    debugLLM('extractReasoningAndDecisions', `Error: ${String(error)}`);
+    return { reasoning_trace: [], decisions: [] };
+  }
 }

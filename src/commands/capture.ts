@@ -111,7 +111,6 @@ export async function capture(options: CaptureOptions): Promise<void> {
       if (sessionState) {
         updateSessionState(sessionId, {
           status: status === 'complete' ? 'completed' : 'abandoned',
-          files_explored: [...new Set([...sessionState.files_explored, ...filesTouched])],
           original_goal: goal,
         });
         debugCapture('Updated session state: %s...', sessionId.substring(0, 8));

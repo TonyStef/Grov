@@ -115,4 +115,22 @@ program
     await driftTest(prompt, options);
   });
 
+// grov proxy - Start the proxy server
+program
+  .command('proxy')
+  .description('Start the Grov proxy server (intercepts Claude API calls)')
+  .action(async () => {
+    const { startServer } = await import('./proxy/server.js');
+    await startServer();
+  });
+
+// grov proxy-status - Show active proxy sessions
+program
+  .command('proxy-status')
+  .description('Show active proxy sessions')
+  .action(safeAction(async () => {
+    const { proxyStatus } = await import('./commands/proxy-status.js');
+    await proxyStatus();
+  }));
+
 program.parse();

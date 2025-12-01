@@ -4,7 +4,7 @@
 import {
   getTasksForProject,
   getTasksByFiles,
-  getFileReasoningByPathPattern,
+  getStepsReasoningByPath,
   type Task,
 } from '../lib/store.js';
 import { truncate } from '../lib/utils.js';
@@ -28,9 +28,9 @@ export function buildTeamMemoryContext(
     ? getTasksByFiles(projectPath, mentionedFiles, { status: 'complete', limit: 5 })
     : [];
 
-  // Get file-level reasoning
+  // Get file-level reasoning from steps table (proxy version)
   const fileReasonings = mentionedFiles.length > 0
-    ? mentionedFiles.flatMap(f => getFileReasoningByPathPattern(f, 3))
+    ? mentionedFiles.flatMap(f => getStepsReasoningByPath(f, 3))
     : [];
 
   // Combine unique tasks

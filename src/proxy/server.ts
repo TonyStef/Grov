@@ -2,24 +2,6 @@
 // Intercepts Claude Code <-> Anthropic API traffic for drift detection and context injection
 
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { writeFileSync, appendFileSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
-
-// Log file path - cleared on each startup
-const LOG_FILE = join(homedir(), '.grov', 'proxy.log');
-
-// Clear log file on startup
-try {
-  writeFileSync(LOG_FILE, `=== Grov Proxy Started: ${new Date().toISOString()} ===\n`);
-} catch { /* ignore */ }
-
-// Helper to log to file
-function logToFile(msg: string): void {
-  try {
-    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
-  } catch { /* ignore */ }
-}
 import { config, maskSensitiveValue } from './config.js';
 import { forwardToAnthropic, isForwardError } from './forwarder.js';
 import { parseToolUseBlocks, extractTokenUsage, getAllFiles, getAllFolders } from './action-parser.js';
@@ -56,8 +38,8 @@ import {
   checkRecoveryAlignment,
   generateForcedRecovery,
   type DriftCheckResult,
-} from '../lib/drift-checker.js';
-import { buildCorrection, formatCorrectionForInjection } from '../lib/correction-builder.js';
+} from '../lib/drift-checker-proxy.js';
+import { buildCorrection, formatCorrectionForInjection } from '../lib/correction-builder-proxy.js';
 import {
   generateSessionSummary,
   isSummaryAvailable,
@@ -173,7 +155,6 @@ async function handleMessages(
   // All reasoning and decisions happen in the main model (Opus/Sonnet)
   if (model.includes('haiku')) {
     logger.info({ msg: 'Skipping Haiku subagent', model });
-    logToFile(`SKIP HAIKU: model=${model}`);
 
     try {
       const result = await forwardToAnthropic(
@@ -183,7 +164,6 @@ async function handleMessages(
       );
 
       const latency = Date.now() - startTime;
-      logToFile(`HAIKU RESPONSE: status=${result.statusCode} latency=${latency}ms`);
 
       return reply
         .status(result.statusCode)
@@ -218,7 +198,6 @@ async function handleMessages(
     model: request.body.model,
     messageCount: request.body.messages?.length || 0,
   });
-  logToFile(`REQUEST: session=${sessionInfo.sessionId.substring(0, 8)} prompt=${sessionInfo.promptCount} model=${request.body.model}`);
 
   // === PRE-HANDLER: Modify request if needed ===
   const modifiedBody = await preProcessRequest(request.body, sessionInfo, logger);
@@ -243,7 +222,6 @@ async function handleMessages(
       statusCode: result.statusCode,
       latencyMs: latency,
     });
-    logToFile(`RESPONSE: status=${result.statusCode} latency=${latency}ms`);
 
     return reply
       .status(result.statusCode)
@@ -258,7 +236,6 @@ async function handleMessages(
         type: error.type,
         message: error.message,
       });
-      logToFile(`ERROR: type=${error.type} message=${error.message}`);
 
       return reply
         .status(error.statusCode || 502)
@@ -275,7 +252,6 @@ async function handleMessages(
       msg: 'Unexpected error',
       error: String(error),
     });
-    logToFile(`UNEXPECTED ERROR: ${String(error)}`);
 
     return reply
       .status(500)
@@ -328,7 +304,6 @@ async function getOrCreateSession(
   // No active session - check for recently completed session (for new_task detection)
   const completedSession = getCompletedSessionForProject(projectPath);
   if (completedSession) {
-    logToFile(`FOUND COMPLETED SESSION: ${completedSession.session_id.slice(0, 8)} goal="${completedSession.original_goal?.slice(0, 50)}"`);
   }
 
   // No existing session - create placeholder, real session will be created in postProcessResponse
@@ -366,7 +341,7 @@ async function preProcessRequest(
   const latestUserMessage = extractGoalFromMessages(body.messages) || '';
 
   // CLEAR operation if token threshold exceeded
-  if (sessionState.token_count > config.TOKEN_CLEAR_THRESHOLD) {
+  if ((sessionState.token_count || 0) > config.TOKEN_CLEAR_THRESHOLD) {
     logger.info({
       msg: 'Token threshold exceeded, initiating CLEAR',
       tokenCount: sessionState.token_count,
@@ -401,7 +376,6 @@ Please continue from where you left off.`;
 
   // Check if session is in drifted or forced mode
   if (sessionState.session_mode === 'drifted' || sessionState.session_mode === 'forced') {
-    logToFile(`DRIFT RECOVERY: session_mode=${sessionState.session_mode} escalation=${sessionState.escalation_count}`);
     const recentSteps = getRecentSteps(sessionInfo.sessionId, 5);
 
     // FORCED MODE: escalation >= 3 -> Haiku generates recovery prompt
@@ -422,7 +396,6 @@ Please continue from where you left off.`;
 
       appendToSystemPrompt(modified, forcedRecovery.injectionText);
 
-      logToFile(`DRIFT FORCED: Injected recovery prompt, mandatory="${forcedRecovery.mandatoryAction.substring(0, 80)}"`);
       logger.info({
         msg: 'FORCED MODE - Injected Haiku recovery prompt',
         escalation: sessionState.escalation_count,
@@ -439,7 +412,6 @@ Please continue from where you left off.`;
 
         appendToSystemPrompt(modified, correctionText);
 
-        logToFile(`DRIFT CORRECT: level=${correctionLevel} score=${driftResult.score} injected ${correctionText.length} chars`);
         logger.info({
           msg: 'Injected correction',
           level: correctionLevel,
@@ -455,18 +427,15 @@ Please continue from where you left off.`;
 
   if (teamContext) {
     appendToSystemPrompt(modified, '\n\n' + teamContext);
-    logToFile(`INJECT TEAM: ${teamContext.length} chars for ${mentionedFiles.length} files`);
     logger.info({
       msg: 'Injected team memory context',
       filesMatched: mentionedFiles.length,
     });
   } else {
-    logToFile(`INJECT TEAM: none (no matching tasks/reasoning)`);
   }
 
   // Log final system prompt size
   const finalSystemSize = getSystemPromptText(modified).length;
-  logToFile(`INJECT TOTAL: system prompt = ${finalSystemSize} chars`);
 
   return modified;
 }
@@ -512,11 +481,9 @@ async function postProcessResponse(
   // Skip Warmup messages (Claude Code internal initialization)
   const isWarmup = latestUserMessage.toLowerCase().trim() === 'warmup';
   if (isWarmup) {
-    logToFile(`TASK ORCH: Skipping Warmup message`);
     return;
   }
 
-  logToFile(`TASK ORCH: stop_reason=${response.stop_reason}, isEndTurn=${isEndTurn}`);
 
   // If not end_turn (tool_use in progress), skip task orchestration but keep session
   if (!isEndTurn) {
@@ -539,12 +506,10 @@ async function postProcessResponse(
         promptCount: 1,
         projectPath: sessionInfo.projectPath,
       });
-      logToFile(`TASK ORCH: Created session without analysis (tool_use in progress)`);
     }
   } else if (isTaskAnalysisAvailable()) {
     // Use completed session for comparison if no active session
     const sessionForComparison = sessionInfo.currentSession || sessionInfo.completedSession;
-    logToFile(`TASK ORCH: calling analyzeTaskContext() with ${sessionForComparison ? 'session' : 'no session'} (completed: ${!!sessionInfo.completedSession})`);
     try {
       const taskAnalysis = await analyzeTaskContext(
         sessionForComparison,
@@ -560,12 +525,10 @@ async function postProcessResponse(
         goal: taskAnalysis.current_goal?.substring(0, 50),
         reasoning: taskAnalysis.reasoning,
       });
-      logToFile(`TASK: action=${taskAnalysis.action} topic=${taskAnalysis.topic_match} goal="${taskAnalysis.current_goal?.substring(0, 50)}" reason="${taskAnalysis.reasoning}"`);
 
       // Update recent steps with reasoning (backfill from end_turn response)
       if (taskAnalysis.step_reasoning && activeSessionId) {
         const updatedCount = updateRecentStepsReasoning(activeSessionId, taskAnalysis.step_reasoning);
-        logToFile(`REASONING: Updated ${updatedCount} steps with reasoning (${taskAnalysis.step_reasoning.length} chars)`);
       }
 
       // Handle task orchestration based on analysis
@@ -585,7 +548,6 @@ async function postProcessResponse(
                 original_goal: taskAnalysis.current_goal,
               });
               activeSession.original_goal = taskAnalysis.current_goal;
-              logToFile(`GOAL UPDATED: "${taskAnalysis.current_goal.substring(0, 80)}"`);
             }
           } else if (sessionInfo.completedSession) {
             // Reactivate completed session (user wants to continue/add to it)
@@ -601,7 +563,6 @@ async function postProcessResponse(
               promptCount: 1,
               projectPath: sessionInfo.projectPath,
             });
-            logToFile(`REACTIVATED SESSION: ${activeSessionId.slice(0, 8)} (user continuing completed task)`);
           }
           break;
 
@@ -610,7 +571,6 @@ async function postProcessResponse(
           if (sessionInfo.completedSession) {
             deleteStepsForSession(sessionInfo.completedSession.session_id);
             deleteSessionState(sessionInfo.completedSession.session_id);
-            logToFile(`NEW TASK: Cleaned up old completed session ${sessionInfo.completedSession.session_id.slice(0, 8)}`);
           }
 
           // Extract full intent for new task (goal, scope, constraints, keywords)
@@ -620,15 +580,11 @@ async function postProcessResponse(
             constraints: [] as string[],
             keywords: [] as string[],
           };
-          logToFile(`INTENT: checking isIntentExtractionAvailable()=${isIntentExtractionAvailable()}, msgLen=${latestUserMessage.length}`);
-          logToFile(`INTENT: latestUserMessage="${latestUserMessage.substring(0, 100)}..."`);
           if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
             try {
               intentData = await extractIntent(latestUserMessage);
-              logToFile(`INTENT: extracted goal="${intentData.goal?.substring(0, 80)}"`);
               logger.info({ msg: 'Intent extracted for new task', scopeCount: intentData.expected_scope.length });
             } catch (err) {
-              logToFile(`INTENT ERROR: ${String(err)}`);
               logger.info({ msg: 'Intent extraction failed, using basic goal', error: String(err) });
             }
           }
@@ -733,7 +689,6 @@ async function postProcessResponse(
               markSessionCompleted(sessionInfo.currentSession.session_id);
               activeSessions.delete(sessionInfo.currentSession.session_id);
               lastDriftResults.delete(sessionInfo.currentSession.session_id);
-              logToFile(`TASK COMPLETE: marked session ${sessionInfo.currentSession.session_id.slice(0, 8)} as completed (kept for 1h)`);
               logger.info({ msg: 'Task complete - saved to team memory, marked completed' });
             } catch (err) {
               logger.info({ msg: 'Failed to save completed task', error: String(err) });
@@ -758,7 +713,6 @@ async function postProcessResponse(
                 if (parentSession) {
                   activeSessionId = parentId;
                   activeSession = parentSession;
-                  logToFile(`SUBTASK COMPLETE: returning to parent ${parentId.slice(0, 8)}`);
                   logger.info({ msg: 'Subtask complete - returning to parent', parent: parentId.substring(0, 8) });
                 }
               }
@@ -771,7 +725,6 @@ async function postProcessResponse(
       }
     } catch (error) {
       logger.info({ msg: 'Task analysis failed, using existing session', error: String(error) });
-      logToFile(`TASK ERROR: ${String(error)}`);
       // Fall back to existing session or create new with intent extraction
       if (!sessionInfo.currentSession) {
         let intentData = {
@@ -801,7 +754,6 @@ async function postProcessResponse(
     }
   } else {
     // No task analysis available - fallback with intent extraction
-    logToFile(`TASK SKIP: isTaskAnalysisAvailable()=false, ANTHROPIC_API_KEY=${!!process.env.ANTHROPIC_API_KEY}, GROV_API_KEY=${!!process.env.GROV_API_KEY}`);
     if (!sessionInfo.currentSession) {
       let intentData = {
         goal: latestUserMessage.substring(0, 500),
@@ -899,7 +851,6 @@ async function postProcessResponse(
   const promptCount = memSessionInfo?.promptCount || sessionInfo.promptCount;
 
   if (promptCount % config.DRIFT_CHECK_INTERVAL === 0 && isDriftCheckAvailable()) {
-    logToFile(`DRIFT CHECK: prompt=${promptCount} interval=${config.DRIFT_CHECK_INTERVAL}`);
     if (activeSession) {
       const stepsForDrift = getRecentSteps(activeSessionId, 10);
       const driftResult = await checkDrift({ sessionState: activeSession, recentSteps: stepsForDrift, latestUserMessage });
@@ -909,7 +860,6 @@ async function postProcessResponse(
       driftScore = driftResult.score;
       skipSteps = shouldSkipSteps(driftScore);
 
-      logToFile(`DRIFT RESULT: score=${driftResult.score} type=${driftResult.driftType} diagnostic="${driftResult.diagnostic.substring(0, 80)}"`);
       logger.info({
         msg: 'Drift check',
         score: driftResult.score,
@@ -928,7 +878,7 @@ async function postProcessResponse(
         lastDriftResults.delete(activeSessionId);
       }
 
-      updateLastChecked(activeSessionId);
+      updateLastChecked(activeSessionId, Date.now());
 
       if (skipSteps) {
         for (const action of actions) {
@@ -1136,7 +1086,6 @@ export async function startServer(): Promise<FastifyInstance> {
   // Cleanup old completed sessions (older than 1 hour)
   const cleanedUp = cleanupOldCompletedSessions();
   if (cleanedUp > 0) {
-    logToFile(`STARTUP: Cleaned up ${cleanedUp} old completed sessions`);
   }
 
   try {
@@ -1146,7 +1095,6 @@ export async function startServer(): Promise<FastifyInstance> {
     });
 
     console.log(`✓ Grov Proxy: http://${config.HOST}:${config.PORT} → ${config.ANTHROPIC_BASE_URL}`);
-    console.log(`  Logs: ~/.grov/proxy.log`);
 
     return server;
   } catch (err) {

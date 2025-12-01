@@ -86,7 +86,7 @@ export async function driftTest(prompt: string, options: DriftTestOptions): Prom
     console.log(`Using existing session: ${options.session}`);
     console.log(`Original goal: ${sessionState.original_goal}`);
     console.log(`Escalation count: ${sessionState.escalation_count}`);
-    console.log(`Drift history: ${sessionState.drift_history.length} events`);
+    console.log(`Drift history: ${(sessionState.drift_history || []).length} events`);
     console.log('');
   }
 

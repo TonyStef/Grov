@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
+import type { ClaudeAction } from './session-parser.js';
 
 /**
  * Escape LIKE pattern special characters to prevent SQL injection.
@@ -70,8 +71,29 @@ export type SessionMode = 'normal' | 'drifted' | 'forced';
 // Task type for session hierarchy
 export type TaskType = 'main' | 'subtask' | 'parallel';
 
-// Session state for per-session tracking (temporary)
-export interface SessionState {
+// Recovery plan for drift correction (hook uses)
+export interface RecoveryPlan {
+  steps: Array<{
+    file?: string;
+    action: string;
+  }>;
+}
+
+// Drift event tracked per prompt (hook uses)
+export interface DriftEvent {
+  timestamp: string;
+  score: number;
+  level: string;
+  prompt_summary: string;
+}
+
+// ============================================
+// SESSION STATE - Composition Pattern
+// Base + HookFields + ProxyFields
+// ============================================
+
+// Base fields (used by both hook and proxy)
+interface SessionStateBase {
   session_id: string;
   user_id?: string;
   project_path: string;
@@ -79,20 +101,39 @@ export interface SessionState {
   expected_scope: string[];
   constraints: string[];
   keywords: string[];
-  token_count: number;
   escalation_count: number;
-  session_mode: SessionMode;
-  waiting_for_recovery: boolean;
   last_checked_at: number;
-  last_clear_at?: number;
   start_time: string;
   last_update: string;
   status: SessionStatus;
-  completed_at?: string;  // Timestamp when marked completed (for cleanup)
-  // Task hierarchy fields
-  parent_session_id?: string;
-  task_type: TaskType;
 }
+
+// Hook-specific fields (drift detection)
+interface HookFields {
+  success_criteria?: string[];
+  last_drift_score?: number;
+  pending_recovery_plan?: RecoveryPlan;
+  drift_history?: DriftEvent[];
+  // Additional hook fields
+  actions_taken?: string[];
+  files_explored?: string[];
+  current_intent?: string;
+  drift_warnings?: string[];
+}
+
+// Proxy-specific fields (session management)
+interface ProxyFields {
+  token_count?: number;
+  session_mode?: SessionMode;
+  waiting_for_recovery?: boolean;
+  last_clear_at?: number;
+  completed_at?: string;
+  parent_session_id?: string;
+  task_type?: TaskType;
+}
+
+// Full SessionState type (union of all)
+export interface SessionState extends SessionStateBase, HookFields, ProxyFields {}
 
 // Input for creating a new session state
 export interface CreateSessionStateInput {
@@ -100,10 +141,13 @@ export interface CreateSessionStateInput {
   user_id?: string;
   project_path: string;
   original_goal?: string;
+  // Shared fields
   expected_scope?: string[];
   constraints?: string[];
   keywords?: string[];
-  // Task hierarchy fields
+  // Hook-specific
+  success_criteria?: string[];
+  // Proxy-specific
   parent_session_id?: string;
   task_type?: TaskType;
 }
@@ -384,6 +428,75 @@ export function initDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_file_path_created ON file_reasoning(file_path, created_at DESC);
   `);
 
+  // Migration: Add drift detection columns to session_states (safe to run multiple times)
+  const columns = db.pragma('table_info(session_states)') as Array<{ name: string }>;
+  const existingColumns = new Set(columns.map(c => c.name));
+
+  // Shared columns
+  if (!existingColumns.has('expected_scope')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN expected_scope JSON DEFAULT '[]'`);
+  }
+  if (!existingColumns.has('constraints')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN constraints JSON DEFAULT '[]'`);
+  }
+  if (!existingColumns.has('keywords')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN keywords JSON DEFAULT '[]'`);
+  }
+  if (!existingColumns.has('escalation_count')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN escalation_count INTEGER DEFAULT 0`);
+  }
+  if (!existingColumns.has('last_checked_at')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN last_checked_at INTEGER DEFAULT 0`);
+  }
+  // Hook-specific columns
+  if (!existingColumns.has('success_criteria')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN success_criteria JSON DEFAULT '[]'`);
+  }
+  if (!existingColumns.has('last_drift_score')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN last_drift_score INTEGER`);
+  }
+  if (!existingColumns.has('pending_recovery_plan')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN pending_recovery_plan JSON`);
+  }
+  if (!existingColumns.has('drift_history')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN drift_history JSON DEFAULT '[]'`);
+  }
+  // Proxy-specific columns
+  if (!existingColumns.has('token_count')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN token_count INTEGER DEFAULT 0`);
+  }
+  if (!existingColumns.has('session_mode')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN session_mode TEXT DEFAULT 'normal'`);
+  }
+  if (!existingColumns.has('waiting_for_recovery')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN waiting_for_recovery INTEGER DEFAULT 0`);
+  }
+  if (!existingColumns.has('last_clear_at')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN last_clear_at INTEGER`);
+  }
+  if (!existingColumns.has('completed_at')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN completed_at TEXT`);
+  }
+  if (!existingColumns.has('parent_session_id')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN parent_session_id TEXT`);
+  }
+  if (!existingColumns.has('task_type')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN task_type TEXT DEFAULT 'main'`);
+  }
+  // Additional hook fields
+  if (!existingColumns.has('actions_taken')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN actions_taken JSON DEFAULT '[]'`);
+  }
+  if (!existingColumns.has('files_explored')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN files_explored JSON DEFAULT '[]'`);
+  }
+  if (!existingColumns.has('current_intent')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN current_intent TEXT`);
+  }
+  if (!existingColumns.has('drift_warnings')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN drift_warnings JSON DEFAULT '[]'`);
+  }
+
   // Create steps table (action log for current session)
   db.exec(`
     CREATE TABLE IF NOT EXISTS steps (
@@ -393,6 +506,7 @@ export function initDatabase(): Database.Database {
       files JSON DEFAULT '[]',
       folders JSON DEFAULT '[]',
       command TEXT,
+      reasoning TEXT,
       drift_score INTEGER,
       drift_type TEXT CHECK(drift_type IN ('none', 'minor', 'major', 'critical')),
       is_key_decision INTEGER DEFAULT 0,
@@ -403,7 +517,6 @@ export function initDatabase(): Database.Database {
       timestamp INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES session_states(session_id)
     );
-
     CREATE INDEX IF NOT EXISTS idx_steps_session ON steps(session_id);
     CREATE INDEX IF NOT EXISTS idx_steps_timestamp ON steps(timestamp);
   `);
@@ -694,6 +807,7 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
   const now = new Date().toISOString();
 
   const sessionState: SessionState = {
+    // Base fields
     session_id: input.session_id,
     user_id: input.user_id,
     project_path: input.project_path,
@@ -701,15 +815,26 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     expected_scope: input.expected_scope || [],
     constraints: input.constraints || [],
     keywords: input.keywords || [],
-    token_count: 0,
     escalation_count: 0,
-    session_mode: 'normal',
-    waiting_for_recovery: false,
     last_checked_at: 0,
-    last_clear_at: undefined,
     start_time: now,
     last_update: now,
     status: 'active',
+    // Hook-specific fields
+    success_criteria: input.success_criteria || [],
+    last_drift_score: undefined,
+    pending_recovery_plan: undefined,
+    drift_history: [],
+    actions_taken: [],
+    files_explored: [],
+    current_intent: undefined,
+    drift_warnings: [],
+    // Proxy-specific fields
+    token_count: 0,
+    session_mode: 'normal' as SessionMode,
+    waiting_for_recovery: false,
+    last_clear_at: undefined,
+    completed_at: undefined,
     parent_session_id: input.parent_session_id,
     task_type: input.task_type || 'main',
   };
@@ -721,8 +846,10 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
       token_count, escalation_count, session_mode,
       waiting_for_recovery, last_checked_at, last_clear_at,
       start_time, last_update, status,
-      parent_session_id, task_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      parent_session_id, task_type,
+      success_criteria, last_drift_score, pending_recovery_plan, drift_history,
+      completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -743,7 +870,12 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     sessionState.last_update,
     sessionState.status,
     sessionState.parent_session_id || null,
-    sessionState.task_type
+    sessionState.task_type,
+    JSON.stringify(sessionState.success_criteria || []),
+    sessionState.last_drift_score || null,
+    sessionState.pending_recovery_plan ? JSON.stringify(sessionState.pending_recovery_plan) : null,
+    JSON.stringify(sessionState.drift_history || []),
+    sessionState.completed_at || null
   );
 
   return sessionState;
@@ -901,10 +1033,25 @@ export function getActiveSessionForUser(projectPath: string, userId?: string): S
 }
 
 /**
+ * Get all active sessions (for proxy-status command)
+ */
+export function getActiveSessionsForStatus(): SessionState[] {
+  const database = initDatabase();
+
+  const stmt = database.prepare(
+    "SELECT * FROM session_states WHERE status = 'active' ORDER BY last_update DESC LIMIT 20"
+  );
+  const rows = stmt.all() as Record<string, unknown>[];
+
+  return rows.map(rowToSessionState);
+}
+
+/**
  * Convert database row to SessionState object
  */
 function rowToSessionState(row: Record<string, unknown>): SessionState {
   return {
+    // Base fields
     session_id: row.session_id as string,
     user_id: row.user_id as string | undefined,
     project_path: row.project_path as string,
@@ -912,18 +1059,156 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
     expected_scope: safeJsonParse<string[]>(row.expected_scope, []),
     constraints: safeJsonParse<string[]>(row.constraints, []),
     keywords: safeJsonParse<string[]>(row.keywords, []),
-    token_count: (row.token_count as number) || 0,
     escalation_count: (row.escalation_count as number) || 0,
-    session_mode: (row.session_mode as SessionMode) || 'normal',
-    waiting_for_recovery: Boolean(row.waiting_for_recovery),
     last_checked_at: (row.last_checked_at as number) || 0,
-    last_clear_at: row.last_clear_at as number | undefined,
     start_time: row.start_time as string,
     last_update: row.last_update as string,
     status: row.status as SessionStatus,
+    // Hook-specific fields
+    success_criteria: safeJsonParse<string[]>(row.success_criteria, []),
+    last_drift_score: row.last_drift_score as number | undefined,
+    pending_recovery_plan: safeJsonParse<RecoveryPlan | undefined>(row.pending_recovery_plan, undefined),
+    drift_history: safeJsonParse<DriftEvent[]>(row.drift_history, []),
+    actions_taken: safeJsonParse<string[]>(row.actions_taken, []),
+    files_explored: safeJsonParse<string[]>(row.files_explored, []),
+    current_intent: row.current_intent as string | undefined,
+    drift_warnings: safeJsonParse<string[]>(row.drift_warnings, []),
+    // Proxy-specific fields
+    token_count: (row.token_count as number) || 0,
+    session_mode: (row.session_mode as SessionMode) || 'normal',
+    waiting_for_recovery: Boolean(row.waiting_for_recovery),
+    last_clear_at: row.last_clear_at as number | undefined,
     completed_at: row.completed_at as string | undefined,
     parent_session_id: row.parent_session_id as string | undefined,
     task_type: (row.task_type as TaskType) || 'main',
+  };
+}
+
+// ============================================
+// DRIFT DETECTION OPERATIONS (hook uses these)
+// ============================================
+
+/**
+ * Update session drift metrics after a prompt check
+ */
+export function updateSessionDrift(
+  sessionId: string,
+  driftScore: number,
+  correctionLevel: CorrectionLevel | null,
+  promptSummary: string,
+  recoveryPlan?: RecoveryPlan
+): void {
+  const database = initDatabase();
+  const session = getSessionState(sessionId);
+  if (!session) return;
+
+  const now = new Date().toISOString();
+
+  // Calculate new escalation count
+  let newEscalation = session.escalation_count;
+  if (driftScore >= 8) {
+    // Recovery - decrease escalation
+    newEscalation = Math.max(0, newEscalation - 1);
+  } else if (correctionLevel && correctionLevel !== 'nudge') {
+    // Significant drift - increase escalation
+    newEscalation = Math.min(3, newEscalation + 1);
+  }
+
+  // Add to drift history
+  const driftEvent: DriftEvent = {
+    timestamp: now,
+    score: driftScore,
+    level: correctionLevel || 'none',
+    prompt_summary: promptSummary.substring(0, 100)
+  };
+  const newHistory = [...(session.drift_history || []), driftEvent];
+
+  // Add to drift_warnings if correction was given
+  const currentWarnings = session.drift_warnings || [];
+  const newWarnings = correctionLevel
+    ? [...currentWarnings, `[${now}] ${correctionLevel}: score ${driftScore}`]
+    : currentWarnings;
+
+  const stmt = database.prepare(`
+    UPDATE session_states SET
+      last_drift_score = ?,
+      escalation_count = ?,
+      pending_recovery_plan = ?,
+      drift_history = ?,
+      drift_warnings = ?,
+      last_update = ?
+    WHERE session_id = ?
+  `);
+
+  stmt.run(
+    driftScore,
+    newEscalation,
+    recoveryPlan ? JSON.stringify(recoveryPlan) : null,
+    JSON.stringify(newHistory),
+    JSON.stringify(newWarnings),
+    now,
+    sessionId
+  );
+}
+
+/**
+ * Check if a session should be flagged for review
+ * Returns true if: status=drifted OR warnings>=3 OR avg_score<6
+ */
+export function shouldFlagForReview(sessionId: string): boolean {
+  const session = getSessionState(sessionId);
+  if (!session) return false;
+
+  // Check number of warnings
+  const warnings = session.drift_warnings || [];
+  if (warnings.length >= 3) {
+    return true;
+  }
+
+  // Check drift history for average score
+  const history = session.drift_history || [];
+  if (history.length >= 2) {
+    const totalScore = history.reduce((sum, e) => sum + e.score, 0);
+    const avgScore = totalScore / history.length;
+    if (avgScore < 6) {
+      return true;
+    }
+  }
+
+  // Check if any HALT level drift occurred
+  if (history.some(e => e.level === 'halt')) {
+    return true;
+  }
+
+  // Check current escalation level
+  if (session.escalation_count >= 2) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Get drift summary for a session (used by capture)
+ */
+export function getDriftSummary(sessionId: string): {
+  totalEvents: number;
+  resolved: boolean;
+  finalScore: number | null;
+  hadHalt: boolean;
+} {
+  const session = getSessionState(sessionId);
+  const history = session?.drift_history || [];
+  if (!session || history.length === 0) {
+    return { totalEvents: 0, resolved: true, finalScore: null, hadHalt: false };
+  }
+
+  const lastEvent = history[history.length - 1];
+  return {
+    totalEvents: history.length,
+    resolved: lastEvent.score >= 8,
+    finalScore: lastEvent.score,
+    hadHalt: history.some(e => e.level === 'halt')
   };
 }
 
@@ -1047,11 +1332,11 @@ export function getDatabasePath(): string {
 }
 
 // ============================================
-// STEPS CRUD OPERATIONS
+// STEPS CRUD OPERATIONS (Proxy uses these)
 // ============================================
 
 /**
- * Create a new step record
+ * Create a new step record (proxy version)
  */
 export function createStep(input: CreateStepInput): StepRecord {
   const database = initDatabase();
@@ -1159,7 +1444,6 @@ export function deleteStepsForSession(sessionId: string): void {
 export function updateRecentStepsReasoning(sessionId: string, reasoning: string, limit = 10): number {
   const database = initDatabase();
 
-  // Update steps that don't have reasoning yet (NULL or empty)
   const stmt = database.prepare(`
     UPDATE steps
     SET reasoning = ?
@@ -1178,10 +1462,10 @@ export function updateRecentStepsReasoning(sessionId: string, reasoning: string,
 }
 
 /**
- * Get relevant steps (key decisions and write/edit actions)
+ * Get relevant steps (key decisions and write/edit actions) - proxy version
  * Reference: plan_proxy_local.md Section 2.2
  */
-export function getRelevantSteps(sessionId: string, limit = 20): StepRecord[] {
+export function getRelevantStepsSimple(sessionId: string, limit = 20): StepRecord[] {
   const database = initDatabase();
 
   const stmt = database.prepare(`
@@ -1198,7 +1482,7 @@ export function getRelevantSteps(sessionId: string, limit = 20): StepRecord[] {
 }
 
 /**
- * Convert database row to StepRecord object
+ * Convert database row to StepRecord object (proxy version - all fields)
  */
 function rowToStep(row: Record<string, unknown>): StepRecord {
   return {
@@ -1221,7 +1505,218 @@ function rowToStep(row: Record<string, unknown>): StepRecord {
 }
 
 // ============================================
-// DRIFT LOG CRUD OPERATIONS
+// STEPS CRUD (Hook uses these)
+// ============================================
+
+/**
+ * Save a Claude action as a step (hook version - uses ClaudeAction)
+ */
+export function saveStep(
+  sessionId: string,
+  action: ClaudeAction,
+  driftScore: number,
+  isKeyDecision: boolean = false,
+  keywords: string[] = []
+): void {
+  const database = initDatabase();
+
+  // Extract folders from files
+  const folders = [...new Set(
+    action.files
+      .map(f => f.split('/').slice(0, -1).join('/'))
+      .filter(f => f.length > 0)
+  )];
+
+  database.prepare(`
+    INSERT INTO steps (id, session_id, action_type, files, folders, command, drift_score, is_key_decision, keywords, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    randomUUID(),
+    sessionId,
+    action.type,
+    JSON.stringify(action.files),
+    JSON.stringify(folders),
+    action.command || null,
+    driftScore,
+    isKeyDecision ? 1 : 0,
+    JSON.stringify(keywords),
+    action.timestamp
+  );
+}
+
+/**
+ * Update last_checked_at timestamp for a session
+ */
+export function updateLastChecked(sessionId: string, timestamp: number): void {
+  const database = initDatabase();
+  database.prepare(`
+    UPDATE session_states SET last_checked_at = ? WHERE session_id = ?
+  `).run(timestamp, sessionId);
+}
+
+// ============================================
+// 4-QUERY RETRIEVAL (Hook uses these - from deep_dive.md)
+// ============================================
+
+/**
+ * Get steps that touched specific files
+ */
+export function getStepsByFiles(sessionId: string, files: string[], limit: number = 5): StepRecord[] {
+  if (files.length === 0) return [];
+
+  const database = initDatabase();
+  const placeholders = files.map(() => `files LIKE ?`).join(' OR ');
+  const patterns = files.map(f => `%"${escapeLikePattern(f)}"%`);
+
+  const rows = database.prepare(`
+    SELECT * FROM steps
+    WHERE session_id = ? AND drift_score >= 5 AND (${placeholders})
+    ORDER BY timestamp DESC LIMIT ?
+  `).all(sessionId, ...patterns, limit) as Record<string, unknown>[];
+
+  return rows.map(rowToStepRecord);
+}
+
+/**
+ * Get steps that touched specific folders
+ */
+export function getStepsByFolders(sessionId: string, folders: string[], limit: number = 5): StepRecord[] {
+  if (folders.length === 0) return [];
+
+  const database = initDatabase();
+  const placeholders = folders.map(() => `folders LIKE ?`).join(' OR ');
+  const patterns = folders.map(f => `%"${escapeLikePattern(f)}"%`);
+
+  const rows = database.prepare(`
+    SELECT * FROM steps
+    WHERE session_id = ? AND drift_score >= 5 AND (${placeholders})
+    ORDER BY timestamp DESC LIMIT ?
+  `).all(sessionId, ...patterns, limit) as Record<string, unknown>[];
+
+  return rows.map(rowToStepRecord);
+}
+
+/**
+ * Get steps matching keywords
+ */
+export function getStepsByKeywords(sessionId: string, keywords: string[], limit: number = 5): StepRecord[] {
+  if (keywords.length === 0) return [];
+
+  const database = initDatabase();
+  const conditions = keywords.map(() => `keywords LIKE ?`).join(' OR ');
+  const patterns = keywords.map(k => `%"${escapeLikePattern(k)}"%`);
+
+  const rows = database.prepare(`
+    SELECT * FROM steps
+    WHERE session_id = ? AND drift_score >= 5 AND (${conditions})
+    ORDER BY timestamp DESC LIMIT ?
+  `).all(sessionId, ...patterns, limit) as Record<string, unknown>[];
+
+  return rows.map(rowToStepRecord);
+}
+
+/**
+ * Get key decision steps
+ */
+export function getKeyDecisionSteps(sessionId: string, limit: number = 5): StepRecord[] {
+  const database = initDatabase();
+  const rows = database.prepare(`
+    SELECT * FROM steps
+    WHERE session_id = ? AND is_key_decision = 1
+    ORDER BY timestamp DESC LIMIT ?
+  `).all(sessionId, limit) as Record<string, unknown>[];
+
+  return rows.map(rowToStepRecord);
+}
+
+/**
+ * Get steps reasoning by file path (for proxy team memory injection)
+ * Searches across ALL sessions, returns file-level reasoning from steps table
+ */
+export function getStepsReasoningByPath(
+  filePath: string,
+  limit = 5
+): Array<{ file_path: string; reasoning: string; anchor?: string }> {
+  const database = initDatabase();
+
+  // Search steps where files JSON contains this path and reasoning exists
+  const pattern = `%"${escapeLikePattern(filePath)}"%`;
+
+  const rows = database.prepare(`
+    SELECT files, reasoning
+    FROM steps
+    WHERE files LIKE ? AND reasoning IS NOT NULL AND reasoning != ''
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `).all(pattern, limit) as Array<{ files: string; reasoning: string }>;
+
+  return rows.map(row => {
+    const files = safeJsonParse<string[]>(row.files, []);
+    // Find the matching file path from the files array
+    const matchedFile = files.find(f => f.includes(filePath)) || filePath;
+    return {
+      file_path: matchedFile,
+      reasoning: row.reasoning,
+    };
+  });
+}
+
+/**
+ * Combined retrieval: runs all 4 queries and deduplicates (hook version)
+ * Priority: key decisions > files > folders > keywords
+ */
+export function getRelevantSteps(
+  sessionId: string,
+  currentFiles: string[],
+  currentFolders: string[],
+  keywords: string[],
+  limit: number = 10
+): StepRecord[] {
+  const byFiles = getStepsByFiles(sessionId, currentFiles, 5);
+  const byFolders = getStepsByFolders(sessionId, currentFolders, 5);
+  const byKeywords = getStepsByKeywords(sessionId, keywords, 5);
+  const keyDecisions = getKeyDecisionSteps(sessionId, 5);
+
+  const seen = new Set<string>();
+  const results: StepRecord[] = [];
+
+  // Priority order: key decisions > files > folders > keywords
+  for (const step of [...keyDecisions, ...byFiles, ...byFolders, ...byKeywords]) {
+    if (!seen.has(step.id)) {
+      seen.add(step.id);
+      results.push(step);
+      if (results.length >= limit) break;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Convert database row to StepRecord (hook version - basic fields)
+ */
+function rowToStepRecord(row: Record<string, unknown>): StepRecord {
+  return {
+    id: row.id as string,
+    session_id: row.session_id as string,
+    action_type: row.action_type as StepActionType,
+    files: safeJsonParse<string[]>(row.files, []),
+    folders: safeJsonParse<string[]>(row.folders, []),
+    command: row.command as string | undefined,
+    reasoning: row.reasoning as string | undefined,
+    drift_score: (row.drift_score as number) || 0,
+    drift_type: row.drift_type as DriftType | undefined,
+    is_key_decision: Boolean(row.is_key_decision),
+    is_validated: Boolean(row.is_validated),
+    correction_given: row.correction_given as string | undefined,
+    correction_level: row.correction_level as CorrectionLevel | undefined,
+    keywords: safeJsonParse<string[]>(row.keywords, []),
+    timestamp: row.timestamp as number
+  };
+}
+
+// ============================================
+// DRIFT LOG CRUD OPERATIONS (Proxy uses these)
 // ============================================
 
 /**
@@ -1328,13 +1823,6 @@ export function incrementEscalation(sessionId: string): void {
   if (session) {
     updateSessionState(sessionId, { escalation_count: session.escalation_count + 1 });
   }
-}
-
-/**
- * Update last checked timestamp
- */
-export function updateLastChecked(sessionId: string): void {
-  updateSessionState(sessionId, { last_checked_at: Date.now() });
 }
 
 /**

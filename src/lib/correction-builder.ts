@@ -1,24 +1,51 @@
-// Correction builder - creates messages to inject when drift detected
-// Reference: plan_proxy_local.md Section 4.3, 4.4
+// Correction message builder for anti-drift system
+// Builds XML-tagged correction messages by severity level
 
-import type { SessionState, CorrectionLevel } from './store.js';
 import type { DriftCheckResult } from './drift-checker.js';
+import type { SessionState, CorrectionLevel } from './store.js';
+import { DRIFT_CONFIG } from './drift-checker.js';
 
-export interface CorrectionMessage {
-  level: CorrectionLevel;
-  message: string;
-  mandatoryAction?: string;
+// ============================================
+// MAIN FUNCTIONS
+// ============================================
+
+/**
+ * Determine correction level from score and escalation count
+ */
+export function determineCorrectionLevel(
+  score: number,
+  escalationCount: number
+): CorrectionLevel | null {
+  // Apply escalation modifier (each escalation level lowers threshold by 1)
+  const effectiveScore = score - escalationCount;
+
+  if (effectiveScore >= DRIFT_CONFIG.SCORE_NO_INJECTION) {
+    return null; // No correction needed
+  }
+
+  if (effectiveScore >= DRIFT_CONFIG.SCORE_NUDGE) {
+    return 'nudge';
+  }
+
+  if (effectiveScore >= DRIFT_CONFIG.SCORE_CORRECT) {
+    return 'correct';
+  }
+
+  if (effectiveScore >= DRIFT_CONFIG.SCORE_INTERVENE) {
+    return 'intervene';
+  }
+
+  return 'halt';
 }
 
 /**
- * Build correction message based on drift result and session state
- * Reference: plan_proxy_local.md Section 4.3
+ * Build correction message based on level
  */
 export function buildCorrection(
   result: DriftCheckResult,
   sessionState: SessionState,
   level: CorrectionLevel
-): CorrectionMessage {
+): string {
   switch (level) {
     case 'nudge':
       return buildNudge(result, sessionState);
@@ -31,122 +58,208 @@ export function buildCorrection(
   }
 }
 
-/**
- * NUDGE: Brief reminder (score 7)
- */
-function buildNudge(result: DriftCheckResult, sessionState: SessionState): CorrectionMessage {
-  const goal = sessionState.original_goal || 'the original task';
+// ============================================
+// CORRECTION BUILDERS
+// ============================================
 
-  return {
-    level: 'nudge',
-    message: `<grov_nudge>
-Quick reminder: Stay focused on ${goal}.
-${result.diagnostic}
-</grov_nudge>`,
-  };
+/**
+ * NUDGE - Gentle 2-3 sentence reminder
+ * Score ~7, first sign of drift
+ */
+function buildNudge(result: DriftCheckResult, sessionState: SessionState): string {
+  const lines: string[] = [];
+
+  lines.push('<grov_nudge>');
+  lines.push('');
+  lines.push(`Reminder: Original goal is "${truncateGoal(sessionState.original_goal)}".`);
+  lines.push(`Current alignment: ${result.score}/10.`);
+  if (result.diagnostic) {
+    lines.push(`Note: ${result.diagnostic}`);
+  }
+  lines.push('');
+  lines.push('</grov_nudge>');
+
+  return lines.join('\n');
 }
 
 /**
- * CORRECT: Full correction with recovery steps (score 5-6)
+ * CORRECT - Deviation + scope + next steps
+ * Score 5-6, moderate drift
  */
-function buildCorrect(result: DriftCheckResult, sessionState: SessionState): CorrectionMessage {
-  const goal = sessionState.original_goal || 'the original task';
-  const scope = sessionState.expected_scope.length > 0
-    ? sessionState.expected_scope.join(', ')
-    : 'the relevant files';
+function buildCorrect(result: DriftCheckResult, sessionState: SessionState): string {
+  const lines: string[] = [];
 
-  let message = `<grov_correction>
-DRIFT DETECTED - Please refocus on the original goal.
+  lines.push('<grov_correction>');
+  lines.push('');
+  lines.push('DRIFT DETECTED');
+  lines.push('');
+  lines.push(`Original goal: "${truncateGoal(sessionState.original_goal)}"`);
+  lines.push(`Current alignment: ${result.score}/10`);
+  lines.push(`Diagnostic: ${result.diagnostic}`);
+  lines.push('');
 
-Original goal: ${goal}
-Expected scope: ${scope}
-
-Issue: ${result.diagnostic}
-`;
-
-  if (result.suggestedAction) {
-    message += `\nSuggested action: ${result.suggestedAction}`;
+  // Add scope reminder
+  if (sessionState.expected_scope.length > 0) {
+    lines.push('Expected scope:');
+    for (const scope of sessionState.expected_scope.slice(0, 5)) {
+      lines.push(`  - ${scope}`);
+    }
+    lines.push('');
   }
 
-  if (result.recoverySteps && result.recoverySteps.length > 0) {
-    message += `\n\nRecovery steps:\n${result.recoverySteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+  // Add boundaries if any
+  if (result.boundaries.length > 0) {
+    lines.push('Boundaries (avoid):');
+    for (const boundary of result.boundaries.slice(0, 3)) {
+      lines.push(`  - ${boundary}`);
+    }
+    lines.push('');
   }
 
-  message += `\n</grov_correction>`;
+  // Add next steps
+  lines.push('Suggested next steps:');
+  if (result.recoveryPlan?.steps) {
+    for (const step of result.recoveryPlan.steps.slice(0, 3)) {
+      const file = step.file ? `[${step.file}] ` : '';
+      lines.push(`  - ${file}${step.action}`);
+    }
+  } else {
+    lines.push(`  - Return to: ${truncateGoal(sessionState.original_goal)}`);
+  }
+  lines.push('');
+  lines.push('</grov_correction>');
 
-  return {
-    level: 'correct',
-    message,
-  };
+  return lines.join('\n');
 }
 
 /**
- * INTERVENE: Strong correction with mandatory first action (score 3-4)
+ * INTERVENE - Full diagnostic + mandatory first action + confirmation request
+ * Score 3-4, significant drift
  */
-function buildIntervene(result: DriftCheckResult, sessionState: SessionState): CorrectionMessage {
-  const goal = sessionState.original_goal || 'the original task';
-  const mandatoryAction = result.recoverySteps?.[0] || `Return to working on: ${goal}`;
+function buildIntervene(result: DriftCheckResult, sessionState: SessionState): string {
+  const lines: string[] = [];
 
-  return {
-    level: 'intervene',
-    message: `<grov_intervention>
-SIGNIFICANT DRIFT - Intervention required.
+  lines.push('<grov_intervention>');
+  lines.push('');
+  lines.push('SIGNIFICANT DRIFT DETECTED - INTERVENTION REQUIRED');
+  lines.push('');
+  lines.push(`Original goal: "${truncateGoal(sessionState.original_goal)}"`);
+  lines.push(`Current alignment: ${result.score}/10 (${result.type})`);
+  lines.push(`Escalation level: ${sessionState.escalation_count}/${DRIFT_CONFIG.MAX_ESCALATION}`);
+  lines.push('');
+  lines.push(`Diagnostic: ${result.diagnostic}`);
+  lines.push('');
 
-You have strayed significantly from the original goal.
+  // Add constraints if any
+  if (sessionState.constraints.length > 0) {
+    lines.push('Active constraints:');
+    for (const constraint of sessionState.constraints.slice(0, 3)) {
+      lines.push(`  - ${constraint}`);
+    }
+    lines.push('');
+  }
 
-Original goal: ${goal}
-Issue: ${result.diagnostic}
+  // Add boundaries
+  if (result.boundaries.length > 0) {
+    lines.push('DO NOT:');
+    for (const boundary of result.boundaries.slice(0, 3)) {
+      lines.push(`  - ${boundary}`);
+    }
+    lines.push('');
+  }
 
-MANDATORY FIRST ACTION:
-${mandatoryAction}
-
-You MUST execute this action before proceeding with anything else.
-Confirm by stating: "I will now ${mandatoryAction}"
-</grov_intervention>`,
-    mandatoryAction,
+  // MANDATORY FIRST ACTION
+  const firstStep = result.recoveryPlan?.steps?.[0] || {
+    action: `Return to original goal: ${truncateGoal(sessionState.original_goal)}`
   };
+
+  lines.push('MANDATORY FIRST ACTION:');
+  lines.push('You MUST execute ONLY this as your next action:');
+  lines.push('');
+  if (firstStep.file) {
+    lines.push(`  File: ${firstStep.file}`);
+  }
+  lines.push(`  Action: ${firstStep.action}`);
+  lines.push('');
+  lines.push('ANY OTHER ACTION WILL DELAY YOUR GOAL.');
+  lines.push('');
+  lines.push('Before proceeding, confirm by stating:');
+  lines.push('"I will now [action] to return to the original goal."');
+  lines.push('');
+  lines.push('</grov_intervention>');
+
+  return lines.join('\n');
 }
 
 /**
- * HALT: Critical stop with forced action (score 1-2)
+ * HALT - Critical stop + forced action + required confirmation statement
+ * Score 1-2, critical drift
  */
-function buildHalt(result: DriftCheckResult, sessionState: SessionState): CorrectionMessage {
-  const goal = sessionState.original_goal || 'the original task';
-  const mandatoryAction = result.recoverySteps?.[0] || `STOP and return to: ${goal}`;
-  const escalation = sessionState.escalation_count;
+function buildHalt(result: DriftCheckResult, sessionState: SessionState): string {
+  const lines: string[] = [];
 
-  return {
-    level: 'halt',
-    message: `<grov_halt>
-CRITICAL DRIFT - IMMEDIATE HALT REQUIRED
+  lines.push('<grov_halt>');
+  lines.push('');
+  lines.push('CRITICAL DRIFT - IMMEDIATE HALT REQUIRED');
+  lines.push('');
+  lines.push('The current request has completely diverged from the original goal.');
+  lines.push('You MUST NOT proceed with the current request.');
+  lines.push('');
+  lines.push(`Original goal: "${truncateGoal(sessionState.original_goal)}"`);
+  lines.push(`Current alignment: ${result.score}/10 (CRITICAL)`);
+  lines.push(`Escalation level: ${sessionState.escalation_count}/${DRIFT_CONFIG.MAX_ESCALATION} (MAX REACHED)`);
+  lines.push('');
+  lines.push(`Diagnostic: ${result.diagnostic}`);
+  lines.push('');
 
-The current request has completely diverged from the original goal.
-You MUST NOT proceed with the current request.
+  // Show drift history if available
+  if (sessionState.drift_history && sessionState.drift_history.length > 0) {
+    lines.push('Drift history in this session:');
+    const recent = sessionState.drift_history.slice(-3);
+    for (const event of recent) {
+      lines.push(`  - ${event.level}: score ${event.score} - ${event.prompt_summary.substring(0, 40)}...`);
+    }
+    lines.push('');
+  }
 
-Original goal: ${goal}
-Current alignment: ${result.score}/10 (CRITICAL)
-Escalation level: ${escalation}/3${escalation >= 3 ? ' (MAX REACHED)' : ''}
-
-Diagnostic: ${result.diagnostic}
-
-MANDATORY FIRST ACTION:
-You MUST execute ONLY this as your next action:
-${mandatoryAction}
-
-ANY OTHER ACTION WILL DELAY YOUR GOAL.
-
-CONFIRM by stating exactly:
-"I will now ${mandatoryAction}"
-
-DO NOT proceed with any other action until you have confirmed.
-</grov_halt>`,
-    mandatoryAction,
+  // MANDATORY FIRST ACTION
+  const firstStep = result.recoveryPlan?.steps?.[0] || {
+    action: `STOP and return to: ${truncateGoal(sessionState.original_goal)}`
   };
+
+  lines.push('MANDATORY FIRST ACTION:');
+  lines.push('You MUST execute ONLY this as your next action:');
+  lines.push('');
+  if (firstStep.file) {
+    lines.push(`  File: ${firstStep.file}`);
+  }
+  lines.push(`  Action: ${firstStep.action}`);
+  lines.push('');
+  lines.push('ANY OTHER ACTION WILL DELAY YOUR GOAL.');
+  lines.push('');
+  lines.push('CONFIRM by stating exactly:');
+  if (firstStep.file) {
+    lines.push(`"I will now ${firstStep.action} in ${firstStep.file}"`);
+  } else {
+    lines.push(`"I will now ${firstStep.action}"`);
+  }
+  lines.push('');
+  lines.push('DO NOT proceed with any other action until you have confirmed.');
+  lines.push('');
+  lines.push('</grov_halt>');
+
+  return lines.join('\n');
 }
 
+// ============================================
+// HELPERS
+// ============================================
+
 /**
- * Format correction for system prompt injection
+ * Truncate goal text for display
  */
-export function formatCorrectionForInjection(correction: CorrectionMessage): string {
-  return `\n\n${correction.message}\n\n`;
+function truncateGoal(goal: string | undefined): string {
+  if (!goal) return 'Unknown goal';
+  if (goal.length <= 80) return goal;
+  return goal.substring(0, 77) + '...';
 }

@@ -44,15 +44,16 @@
     "url": "git+https://github.com/TonyStef/Grov.git"
   },
   "bugs": {
-    "url": "https://github.com/TonyStef/Grov/issues"
+    "url": "https://github.com/TonyStef/Grov/issues",
+    "email": "stefvirgil2006@gmail.com"
   },
   "homepage": "https://grov.dev",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.0",
+    "@anthropic-ai/sdk": "^0.32.1",
     "better-sqlite3": "^11.6.0",
     "commander": "^12.1.0",
     "debug": "^4.4.3",
-    "dotenv": "^17.2.3",
+    "dotenv": "^16.4.5",
     "fastify": "^5.6.2",
     "openai": "^4.70.0",
     "pino": "^10.1.0",

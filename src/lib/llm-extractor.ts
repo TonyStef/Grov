@@ -1,8 +1,10 @@
 // LLM-based extraction using OpenAI GPT-3.5-turbo for reasoning summaries
+// and Anthropic Claude Haiku for drift detection
 
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import type { ParsedSession } from './jsonl-parser.js';
-import type { TaskStatus } from './store.js';
+import type { TaskStatus, SessionState, StepRecord } from './store.js';
 import { debugLLM } from './debug.js';
 import { truncate } from './utils.js';
 
@@ -19,6 +21,7 @@ export interface ExtractedReasoning {
 }
 
 let client: OpenAI | null = null;
+let anthropicClient: Anthropic | null = null;
 
 /**
  * Initialize the OpenAI client
@@ -36,7 +39,21 @@ function getClient(): OpenAI {
 }
 
 /**
- * Check if LLM extraction is available (API key set)
+ * Initialize the Anthropic client
+ */
+function getAnthropicClient(): Anthropic {
+  if (!anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is required for drift detection');
+    }
+    anthropicClient = new Anthropic({ apiKey });
+  }
+  return anthropicClient;
+}
+
+/**
+ * Check if LLM extraction is available (OpenAI API key set)
  */
 export function isLLMAvailable(): boolean {
   return !!process.env.OPENAI_API_KEY;
@@ -51,18 +68,25 @@ export interface ExtractedIntent {
   goal: string;
   expected_scope: string[];
   constraints: string[];
+  success_criteria?: string[];  // Optional - hook uses, proxy ignores
   keywords: string[];
 }
 
 /**
  * Extract intent from first user prompt using Haiku
  * Called once at session start to populate session_states
+ * Falls back to basic extraction if API unavailable (for hook compatibility)
  */
 export async function extractIntent(firstPrompt: string): Promise<ExtractedIntent> {
-  // Use Anthropic for this (consistent with other proxy LLM calls)
-  const client = getAnthropicClient();
+  // Check availability first - allows hook to work without API key
+  if (!isIntentExtractionAvailable()) {
+    return createFallbackIntent(firstPrompt);
+  }
 
-  const prompt = `Analyze this user request and extract structured intent for a coding assistant session.
+  try {
+    const client = getAnthropicClient();
+
+    const prompt = `Analyze this user request and extract structured intent for a coding assistant session.
 
 USER REQUEST:
 ${firstPrompt.substring(0, 2000)}
@@ -72,6 +96,7 @@ Extract as JSON:
   "goal": "The main objective in 1-2 sentences",
   "expected_scope": ["list", "of", "files/folders", "likely", "to", "be", "modified"],
   "constraints": ["EXPLICIT restrictions from the user - see examples below"],
+  "success_criteria": ["How to know when the task is complete"],
   "keywords": ["relevant", "technical", "terms"]
 }
 
@@ -139,11 +164,18 @@ RESPONSE RULES:
       constraints: Array.isArray(parsed.constraints)
         ? parsed.constraints.filter((c): c is string => typeof c === 'string')
         : [],
+      success_criteria: Array.isArray(parsed.success_criteria)
+        ? parsed.success_criteria.filter((s): s is string => typeof s === 'string')
+        : [],
       keywords: Array.isArray(parsed.keywords)
         ? parsed.keywords.filter((k): k is string => typeof k === 'string')
         : [],
     };
   } catch {
+    return createFallbackIntent(firstPrompt);
+  }
+  } catch {
+    // Outer catch - API errors, network issues, etc.
     return createFallbackIntent(firstPrompt);
   }
 }
@@ -167,6 +199,7 @@ function createFallbackIntent(prompt: string): ExtractedIntent {
     goal: prompt.substring(0, 200),
     expected_scope: [...new Set(filePatterns)].slice(0, 5),
     constraints: [],
+    success_criteria: [],
     keywords: [...new Set(techKeywords)].slice(0, 10),
   };
 }
@@ -176,6 +209,20 @@ function createFallbackIntent(prompt: string): ExtractedIntent {
  */
 export function isIntentExtractionAvailable(): boolean {
   return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
+}
+
+/**
+ * Check if Anthropic API is available (for drift detection)
+ */
+export function isAnthropicAvailable(): boolean {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
+/**
+ * Get the drift model to use (from env or default)
+ */
+export function getDriftModel(): string {
+  return process.env.GROV_DRIFT_MODEL || 'claude-haiku-4-5';
 }
 
 /**
@@ -456,24 +503,8 @@ function validateStatus(status: string | undefined): TaskStatus {
 
 // ============================================
 // SESSION SUMMARY FOR CLEAR OPERATION
-// Uses Anthropic Haiku (separate from OpenAI extraction)
+// Reference: plan_proxy_local.md Section 2.3, 4.5
 // ============================================
-
-import Anthropic from '@anthropic-ai/sdk';
-import type { SessionState, StepRecord } from './store.js';
-
-let anthropicClient: Anthropic | null = null;
-
-function getAnthropicClient(): Anthropic {
-  if (!anthropicClient) {
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY;
-    if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY or GROV_API_KEY required for session summary');
-    }
-    anthropicClient = new Anthropic({ apiKey });
-  }
-  return anthropicClient;
-}
 
 /**
  * Check if session summary generation is available

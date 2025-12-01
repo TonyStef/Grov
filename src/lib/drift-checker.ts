@@ -1,451 +1,417 @@
-// Drift checker for proxy - scores Claude's actions vs original goal
-// Reference: plan_proxy_local.md Section 4.2, 4.3
+// Drift detection logic for anti-drift system
+// Uses Claude Haiku 4.5 for LLM-based drift scoring
+//
+// CRITICAL: We check Claude's ACTIONS, NOT user prompts.
+// User can explore freely. We monitor what CLAUDE DOES.
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { SessionState, StepRecord, DriftType, CorrectionLevel } from './store.js';
+import { isAnthropicAvailable, getDriftModel } from './llm-extractor.js';
+import type { SessionState, RecoveryPlan, StepRecord } from './store.js';
+import { getRelevantSteps, getRecentSteps } from './store.js';
+import type { ClaudeAction } from './session-parser.js';
+import { extractFilesFromActions, extractFoldersFromActions } from './session-parser.js';
+import { debugInject } from './debug.js';
 
-export interface DriftCheckInput {
-  sessionState: SessionState;
-  recentSteps: StepRecord[];
-  latestUserMessage?: string;  // Current user instruction (takes priority over original_goal)
-}
+// ============================================
+// CONFIGURATION
+// ============================================
 
-export interface DriftCheckResult {
-  score: number;
-  driftType: DriftType;
-  diagnostic: string;
-  suggestedAction?: string;
-  recoverySteps?: string[];
-}
+export const DRIFT_CONFIG = {
+  SCORE_NO_INJECTION: 8,     // >= 8: no correction
+  SCORE_NUDGE: 7,            // 7: nudge
+  SCORE_CORRECT: 5,          // 5-6: correct
+  SCORE_INTERVENE: 3,        // 3-4: intervene
+  SCORE_HALT: 1,             // 1-2: halt
+  MAX_WARNINGS_BEFORE_FLAG: 3,
+  AVG_SCORE_THRESHOLD: 6,
+  MAX_ESCALATION: 3,
+};
 
-let anthropicClient: Anthropic | null = null;
-
-function getAnthropicClient(): Anthropic {
-  if (!anthropicClient) {
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY;
-    if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY or GROV_API_KEY required for drift checking');
-    }
-    anthropicClient = new Anthropic({ apiKey });
-  }
-  return anthropicClient;
-}
+// ============================================
+// INTERFACES
+// ============================================
 
 /**
- * Check if drift checking is available
+ * Input for drift check
+ *
+ * CRITICAL: We check Claude's ACTIONS, not user prompts.
+ * The user can ask whatever they want - we monitor what CLAUDE DOES.
  */
-export function isDriftCheckAvailable(): boolean {
-  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
+export interface DriftCheckInput {
+  // Original intent from first prompt
+  originalGoal: string;
+  expectedScope: string[];
+  constraints: string[];
+  keywords: string[];
+  // Session context
+  driftHistory: Array<{ score: number; level: string }>;
+  escalationCount: number;
+  // Claude's ACTIONS (NOT user prompt!)
+  claudeActions: ClaudeAction[];
+  retrievedSteps: StepRecord[];  // From 4-query retrieval
+  lastNSteps: StepRecord[];       // Recent steps for pattern detection
 }
 
 /**
- * Main drift check - uses LLM if available, fallback to basic
+ * Result from drift check
+ */
+export interface DriftCheckResult {
+  score: number;                    // 1-10 alignment score
+  type: 'aligned' | 'minor' | 'moderate' | 'severe' | 'critical';
+  diagnostic: string;               // What's wrong
+  recoveryPlan?: RecoveryPlan;      // Steps to get back on track
+  boundaries: string[];             // What should NOT be done
+  verification: string;             // How to confirm alignment
+}
+
+// ============================================
+// MAIN FUNCTIONS
+// ============================================
+
+/**
+ * Build input for drift check from Claude's ACTIONS and session state.
+ *
+ * CRITICAL: We check ACTIONS, not user prompts.
+ */
+export function buildDriftCheckInput(
+  claudeActions: ClaudeAction[],
+  sessionId: string,
+  sessionState: SessionState
+): DriftCheckInput {
+  // Extract files/folders from current actions for retrieval
+  const currentFiles = extractFilesFromActions(claudeActions);
+  const currentFolders = extractFoldersFromActions(claudeActions);
+
+  return {
+    originalGoal: sessionState.original_goal || '',
+    expectedScope: sessionState.expected_scope,
+    constraints: sessionState.constraints,
+    keywords: sessionState.keywords,
+    driftHistory: (sessionState.drift_history || []).map(h => ({
+      score: h.score,
+      level: h.level
+    })),
+    escalationCount: sessionState.escalation_count,
+    // Claude's ACTIONS
+    claudeActions,
+    // 4-query retrieval for context
+    retrievedSteps: getRelevantSteps(sessionId, currentFiles, currentFolders, sessionState.keywords, 10),
+    lastNSteps: getRecentSteps(sessionId, 5)
+  };
+}
+
+/**
+ * Check drift using LLM or fallback
  */
 export async function checkDrift(input: DriftCheckInput): Promise<DriftCheckResult> {
-  if (isDriftCheckAvailable()) {
+  // Try LLM if available
+  if (isAnthropicAvailable()) {
     try {
       return await checkDriftWithLLM(input);
     } catch (error) {
-      console.error('LLM drift check failed, using basic:', error);
+      debugInject('checkDrift LLM failed, using fallback: %O', error);
       return checkDriftBasic(input);
     }
   }
+
+  // Fallback to basic detection
   return checkDriftBasic(input);
 }
 
 /**
- * LLM-based drift check using Haiku
- * Reference: plan_proxy_local.md Section 3.1
+ * LLM-based drift detection using Claude Haiku 4.5.
+ *
+ * CRITICAL: Analyzes Claude's ACTIONS, not user prompts.
  */
 async function checkDriftWithLLM(input: DriftCheckInput): Promise<DriftCheckResult> {
-  const client = getAnthropicClient();
+  const anthropic = new Anthropic();
+  const model = getDriftModel();
 
-  const actionsText = input.recentSteps
-    .slice(-10)
-    .map(step => {
-      if (step.action_type === 'bash' && step.command) {
-        return `- ${step.action_type}: ${step.command.substring(0, 100)}`;
-      }
-      if (step.files.length > 0) {
-        return `- ${step.action_type}: ${step.files.join(', ')}`;
-      }
-      return `- ${step.action_type}`;
-    })
-    .join('\n');
+  // Format Claude's actions for the prompt
+  const actionsText = input.claudeActions.length > 0
+    ? input.claudeActions.map(a => {
+        if (a.type === 'bash') return `- ${a.type}: ${a.command?.substring(0, 100) || 'no command'}`;
+        return `- ${a.type}: ${a.files.join(', ') || 'no files'}`;
+      }).join('\n')
+    : 'No actions yet';
 
-  // If we have a latest user message, that's the CURRENT instruction
-  const currentInstruction = input.latestUserMessage?.substring(0, 500) || '';
-  const hasCurrentInstruction = currentInstruction.length > 20;
+  // Format recent steps for context
+  const recentStepsText = input.lastNSteps.length > 0
+    ? input.lastNSteps.map(s => `- ${s.action_type}: ${s.files.slice(0, 2).join(', ')} (score: ${s.drift_score})`).join('\n')
+    : 'No previous steps';
 
-  const prompt = `You are a drift detection system. Check if Claude is following the user's CURRENT instructions.
+  const driftContext = input.driftHistory.length > 0
+    ? `Previous drift events: ${input.driftHistory.map(h => `score=${h.score}`).join(', ')}`
+    : 'No previous drift events';
 
-${hasCurrentInstruction ? `CURRENT USER INSTRUCTION (PRIMARY - check against this!):
-"${currentInstruction}"
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: 1024,
+    messages: [
+      {
+        role: 'user',
+        content: `You are a drift detection system. Analyze if Claude's ACTIONS align with the original goal.
 
-ORIGINAL SESSION GOAL (secondary context):
-${input.sessionState.original_goal || 'Not specified'}` : `ORIGINAL GOAL:
-${input.sessionState.original_goal || 'Not specified'}`}
+IMPORTANT: We monitor Claude's ACTIONS, not user prompts. Users can ask anything - we check what Claude DOES.
 
-EXPECTED SCOPE: ${input.sessionState.expected_scope.length > 0 ? input.sessionState.expected_scope.join(', ') : 'Not specified'}
+ORIGINAL GOAL:
+${input.originalGoal}
 
-CONSTRAINTS FROM USER: ${input.sessionState.constraints.length > 0 ? input.sessionState.constraints.join(', ') : 'None'}
+EXPECTED SCOPE (files/components Claude should touch):
+${input.expectedScope.length > 0 ? input.expectedScope.join(', ') : 'Not specified'}
+
+CONSTRAINTS:
+${input.constraints.length > 0 ? input.constraints.join(', ') : 'None specified'}
+
+KEY TERMS:
+${input.keywords.join(', ')}
+
+${driftContext}
+Current escalation level: ${input.escalationCount}
 
 CLAUDE'S RECENT ACTIONS:
-${actionsText || 'No actions yet'}
+${actionsText}
 
-═══════════════════════════════════════════════════════════════
-CRITICAL: Compare Claude's actions against ${hasCurrentInstruction ? 'CURRENT USER INSTRUCTION' : 'ORIGINAL GOAL'}
-═══════════════════════════════════════════════════════════════
+PREVIOUS STEPS IN SESSION:
+${recentStepsText}
 
-DRIFT = Claude doing something the user did NOT ask for, or IGNORING what user said.
-NOT DRIFT = Claude following user's instructions, even if different from original goal.
+CHECK FOR:
+1. Files OUTSIDE expected scope (editing unrelated files)
+2. Repetition patterns (same file edited 3+ times without progress)
+3. Tangential work (styling when goal is auth)
+4. New features not requested
+5. "While I'm here" patterns (scope creep)
 
-Example:
-- Original goal: "analyze the code"
-- Current instruction: "now create the files"
-- Claude creates files → NOT DRIFT (following current instruction)
-
-CHECK FOR REAL DRIFT:
-1. Claude modifying files user said NOT to modify
-2. Claude ignoring explicit constraints ("don't run commands" but runs commands)
-3. Claude doing unrelated work (user asks about auth, Claude fixes CSS)
-4. Repetitive loops (editing same file 5+ times without progress)
+LEGITIMATE (NOT drift):
+- Editing utility files imported by main files
+- Fixing bugs discovered while working
+- Updating tests for modified code
+- Reading ANY file (exploration is OK)
 
 Rate 1-10:
-- 10: Perfect - following current instruction exactly
-- 8-9: Good - on track with minor deviations
-- 6-7: Moderate drift - needs nudge
-- 4-5: Significant drift - ignoring parts of instruction
-- 2-3: Major drift - doing opposite of what user asked
-- 1: Critical - completely off track
+- 10: Actions directly advance the goal
+- 8-9: Minor deviation but related (e.g., helper file)
+- 5-7: Moderate drift, tangentially related
+- 3-4: Significant drift, unrelated files
+- 1-2: Critical drift, completely off-track
 
-RESPONSE RULES:
-- English only
-- No emojis
-- Return JSON: {"score": N, "diagnostic": "brief reason", "suggestedAction": "what to do"}`;
+Return ONLY valid JSON:
+{
+  "score": <1-10>,
+  "type": "aligned|minor|moderate|severe|critical",
+  "diagnostic": "Brief explanation of drift based on ACTIONS (1 sentence)",
+  "recovery_steps": [{"file": "optional/path", "action": "what to do"}],
+  "boundaries": ["Things that should NOT be done"],
+  "verification": "How to confirm we're back on track"
+}
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    messages: [{ role: 'user', content: prompt }],
+Return ONLY valid JSON.`
+      }
+    ]
   });
 
-  const content = response.content?.[0];
-  if (!content || content.type !== 'text') {
-    return createDefaultResult(8, 'Could not parse LLM response');
+  // Extract text content
+  const content = response.content[0];
+  if (content.type !== 'text') {
+    throw new Error('Unexpected response type');
   }
 
-  return parseLLMResponse(content.text);
+  // Strip markdown code blocks if present
+  let jsonText = content.text.trim();
+  if (jsonText.startsWith('```')) {
+    jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+
+  debugInject('LLM raw response: %s', jsonText.substring(0, 200));
+
+  const parsed = JSON.parse(jsonText) as {
+    score?: number | string;
+    type?: string;
+    diagnostic?: string;
+    recovery_steps?: Array<{ file?: string; action: string }>;
+    boundaries?: string[];
+    verification?: string;
+  };
+
+  // Handle score as string or number
+  const rawScore = typeof parsed.score === 'string' ? parseInt(parsed.score, 10) : parsed.score;
+  const score = Math.min(10, Math.max(1, rawScore || 5));
+
+  debugInject('LLM parsed score: raw=%s, final=%d', parsed.score, score);
+
+  return {
+    score,
+    type: mapScoreToType(score),
+    diagnostic: parsed.diagnostic || 'Unable to determine drift status',
+    recoveryPlan: parsed.recovery_steps ? { steps: parsed.recovery_steps } : undefined,
+    boundaries: parsed.boundaries || [],
+    verification: parsed.verification || 'Complete the original task'
+  };
 }
 
 /**
- * Basic drift check without LLM (fallback)
+ * Basic drift detection without LLM.
+ *
+ * CRITICAL: Checks Claude's ACTIONS, not user prompts.
+ * - Read actions are ALWAYS OK (exploration is not drift)
+ * - Edit/Write actions outside scope = drift
+ * - Repetition patterns = drift
  */
 export function checkDriftBasic(input: DriftCheckInput): DriftCheckResult {
-  let score = 8;
-  const diagnostics: string[] = [];
+  const issues: string[] = [];
 
-  const { sessionState, recentSteps } = input;
-  const expectedScope = sessionState.expected_scope;
+  // Filter to modifying actions only (read is always OK)
+  const modifyingActions = input.claudeActions.filter(
+    a => a.type !== 'read' && a.type !== 'grep' && a.type !== 'glob'
+  );
 
-  // Check if actions touch files outside scope
-  for (const step of recentSteps) {
-    if (step.action_type === 'read') continue; // Read is OK
+  // No modifying actions = no drift possible
+  if (modifyingActions.length === 0) {
+    return {
+      score: 10,
+      type: 'aligned',
+      diagnostic: 'No modifying actions - exploration only',
+      boundaries: [],
+      verification: `Continue with: ${input.originalGoal.substring(0, 50)}`
+    };
+  }
 
-    for (const file of step.files) {
-      if (expectedScope.length > 0) {
-        const inScope = expectedScope.some(scope => file.includes(scope));
-        if (!inScope) {
-          score -= 2;
-          diagnostics.push(`File outside scope: ${file}`);
-        }
+  // Count files in-scope vs out-of-scope
+  let inScopeCount = 0;
+  let outOfScopeCount = 0;
+  const allFiles: string[] = [];
+
+  for (const action of modifyingActions) {
+    for (const file of action.files) {
+      if (!file) continue;
+      allFiles.push(file);
+
+      // If no scope defined, assume all files are OK
+      if (input.expectedScope.length === 0) {
+        inScopeCount++;
+        continue;
+      }
+
+      // Check if file is in scope
+      const inScope = input.expectedScope.some(scope => {
+        // file contains scope pattern (e.g., "src/auth/token.ts" contains "src/auth/")
+        if (file.includes(scope)) return true;
+        // scope contains the file name (e.g., "src/lib/token.ts" contains "token.ts")
+        const fileName = file.split('/').pop() || '';
+        if (scope.includes(fileName) && fileName.length > 0) return true;
+        return false;
+      });
+
+      if (inScope) {
+        inScopeCount++;
+      } else {
+        outOfScopeCount++;
+        issues.push(`File outside scope: ${file.split('/').pop()}`);
       }
     }
   }
 
-  // Check repetition (same file edited 3+ times recently)
-  const fileCounts = new Map<string, number>();
-  for (const step of recentSteps) {
-    if (step.action_type === 'edit' || step.action_type === 'write') {
-      for (const file of step.files) {
-        fileCounts.set(file, (fileCounts.get(file) || 0) + 1);
-      }
-    }
+  // Calculate score based on in-scope ratio
+  let score: number;
+  const totalFiles = inScopeCount + outOfScopeCount;
+
+  if (totalFiles === 0) {
+    score = 10;
+  } else if (outOfScopeCount === 0) {
+    // All files in scope = perfect
+    score = 10;
+  } else if (inScopeCount === 0) {
+    // All files out of scope = critical drift
+    score = Math.max(1, 4 - outOfScopeCount); // 1-4 depending on how many
+  } else {
+    // Mixed: some in, some out
+    const ratio = inScopeCount / totalFiles;
+    // ratio 1.0 = 10, ratio 0.5 = 6, ratio 0.0 = 2
+    score = Math.round(2 + ratio * 8);
+    // Additional penalty for each out-of-scope file
+    score = Math.max(1, score - outOfScopeCount);
   }
-  for (const [file, count] of fileCounts) {
-    if (count >= 3) {
-      score -= 1;
-      diagnostics.push(`Repeated edits to ${file} (${count}x)`);
+
+  // Check for repetition patterns (same file edited 3+ times)
+  // Use unique files to avoid double-counting
+  const recentFiles = input.lastNSteps.flatMap(s => s.files);
+  const uniqueCurrentFiles = [...new Set(allFiles)];
+
+  for (const file of uniqueCurrentFiles) {
+    const timesEdited = recentFiles.filter(f => f === file).length;
+    if (timesEdited >= 3) {
+      score = Math.max(1, score - 2);
+      issues.push(`Repetition: ${file.split('/').pop()} edited ${timesEdited}+ times`);
     }
   }
 
+  // Clamp score
   score = Math.max(1, Math.min(10, score));
 
-  return {
-    score,
-    driftType: scoreToDriftType(score),
-    diagnostic: diagnostics.length > 0 ? diagnostics.join('; ') : 'On track',
-  };
-}
-
-/**
- * Parse LLM response JSON
- */
-function parseLLMResponse(text: string): DriftCheckResult {
-  try {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return createDefaultResult(8, 'No JSON in response');
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-    const score = typeof parsed.score === 'number'
-      ? Math.min(10, Math.max(1, parsed.score))
-      : 8;
-
-    return {
-      score,
-      driftType: scoreToDriftType(score),
-      diagnostic: typeof parsed.diagnostic === 'string' ? parsed.diagnostic : 'Unknown',
-      suggestedAction: typeof parsed.suggestedAction === 'string' ? parsed.suggestedAction : undefined,
-      recoverySteps: Array.isArray(parsed.recoverySteps)
-        ? parsed.recoverySteps.filter((s): s is string => typeof s === 'string')
-        : undefined,
-    };
-  } catch {
-    return createDefaultResult(8, 'Failed to parse response');
+  // Determine diagnostic
+  let diagnostic: string;
+  if (score >= 8) {
+    diagnostic = 'Actions align with original goal';
+  } else if (score >= 5) {
+    diagnostic = issues.length > 0 ? issues[0] : 'Actions partially relate to goal';
+  } else if (score >= 3) {
+    diagnostic = issues.length > 0 ? issues.join('; ') : 'Actions deviate from goal';
+  } else {
+    diagnostic = issues.length > 0 ? issues.join('; ') : 'Actions do not relate to original goal';
   }
-}
 
-/**
- * Convert score to drift type
- */
-function scoreToDriftType(score: number): DriftType {
-  if (score >= 8) return 'none';
-  if (score >= 5) return 'minor';
-  if (score >= 3) return 'major';
-  return 'critical';
-}
-
-/**
- * Convert score to correction level
- * Reference: plan_proxy_local.md Section 4.3
- */
-export function scoreToCorrectionLevel(score: number): CorrectionLevel | null {
-  if (score >= 8) return null;
-  if (score === 7) return 'nudge';
-  if (score >= 5) return 'correct';
-  if (score >= 3) return 'intervene';
-  return 'halt';
-}
-
-/**
- * Check if score requires skipping steps table
- * Reference: plan_proxy_local.md Section 4.2
- */
-export function shouldSkipSteps(score: number): boolean {
-  return score < 5;
-}
-
-/**
- * Create default result
- */
-function createDefaultResult(score: number, diagnostic: string): DriftCheckResult {
   return {
     score,
-    driftType: scoreToDriftType(score),
+    type: mapScoreToType(score),
     diagnostic,
+    recoveryPlan: score < 5 ? { steps: [{ action: `Return to: ${input.originalGoal.substring(0, 50)}` }] } : undefined,
+    boundaries: [],
+    verification: `Continue with: ${input.originalGoal.substring(0, 50)}`
   };
 }
 
-// ============================================
-// RECOVERY ALIGNMENT CHECK
-// Reference: plan_proxy_local.md Section 4.4
-// ============================================
-
 /**
- * Check if Claude's action aligns with the recovery plan
- * Returns true if aligned, false if still drifting
+ * Infer action type from prompt
  */
-export function checkRecoveryAlignment(
-  proposedAction: { actionType: string; files: string[]; command?: string },
-  recoveryPlan: { steps: string[] } | undefined,
-  sessionState: SessionState
-): { aligned: boolean; reason: string } {
-  if (!recoveryPlan || recoveryPlan.steps.length === 0) {
-    // No recovery plan - check if action is within scope
-    if (sessionState.expected_scope.length === 0) {
-      return { aligned: true, reason: 'No recovery plan or scope defined' };
-    }
+export function inferAction(prompt: string): string {
+  const lower = prompt.toLowerCase();
 
-    // Check if files are in expected scope
-    const inScope = proposedAction.files.every(file =>
-      sessionState.expected_scope.some(scope => file.includes(scope))
-    );
-
-    return {
-      aligned: inScope,
-      reason: inScope ? 'Files within expected scope' : 'Files outside expected scope',
-    };
+  if (lower.includes('fix') || lower.includes('bug') || lower.includes('error')) {
+    return 'fix';
+  }
+  if (lower.includes('add') || lower.includes('create') || lower.includes('implement')) {
+    return 'add';
+  }
+  if (lower.includes('refactor') || lower.includes('improve') || lower.includes('clean')) {
+    return 'refactor';
+  }
+  if (lower.includes('test') || lower.includes('spec')) {
+    return 'test';
+  }
+  if (lower.includes('doc') || lower.includes('comment') || lower.includes('readme')) {
+    return 'document';
+  }
+  if (lower.includes('update') || lower.includes('change') || lower.includes('modify')) {
+    return 'update';
+  }
+  if (lower.includes('remove') || lower.includes('delete')) {
+    return 'remove';
   }
 
-  const firstStep = recoveryPlan.steps[0].toLowerCase();
-  const actionDesc = `${proposedAction.actionType} ${proposedAction.files.join(' ')}`.toLowerCase();
-
-  // Check for keyword matches
-  const keywords = firstStep.split(/\s+/).filter(w => w.length > 3);
-  const matches = keywords.filter(kw => actionDesc.includes(kw) || proposedAction.files.some(f => f.toLowerCase().includes(kw)));
-
-  if (matches.length >= 2 || (matches.length >= 1 && proposedAction.files.length > 0)) {
-    return { aligned: true, reason: `Action matches recovery step: ${firstStep}` };
-  }
-
-  return { aligned: false, reason: `Expected: ${firstStep}, Got: ${actionDesc}` };
+  return 'unknown';
 }
 
 // ============================================
-// FORCED MODE - Haiku generates recovery prompt
-// Reference: plan_proxy_local.md Section 4.4
+// HELPERS
 // ============================================
 
-export interface ForcedRecoveryResult {
-  recoveryPrompt: string;
-  mandatoryAction: string;
-  injectionText: string;
-}
-
 /**
- * Generate forced recovery prompt using Haiku
- * Called when escalation_count >= 3 (forced mode)
- * This STOPS Claude and injects a specific recovery message
+ * Map numeric score to drift type
  */
-export async function generateForcedRecovery(
-  sessionState: SessionState,
-  recentActions: Array<{ actionType: string; files: string[] }>,
-  lastDriftResult: DriftCheckResult
-): Promise<ForcedRecoveryResult> {
-  const client = getAnthropicClient();
-
-  const actionsText = recentActions
-    .slice(-5)
-    .map(a => `- ${a.actionType}: ${a.files.join(', ')}`)
-    .join('\n');
-
-  const prompt = `You are helping recover a coding assistant that has COMPLETELY DRIFTED from its goal.
-
-ORIGINAL GOAL: ${sessionState.original_goal || 'Not specified'}
-
-EXPECTED SCOPE: ${sessionState.expected_scope.join(', ') || 'Not specified'}
-
-CONSTRAINTS: ${sessionState.constraints.join(', ') || 'None'}
-
-RECENT ACTIONS (all off-track):
-${actionsText || 'None recorded'}
-
-DRIFT DIAGNOSTIC: ${lastDriftResult.diagnostic}
-
-ESCALATION COUNT: ${sessionState.escalation_count} (MAX REACHED)
-
-Generate a STRICT recovery message that will:
-1. STOP the assistant immediately
-2. FORCE it to acknowledge the drift
-3. Give ONE SPECIFIC, SIMPLE action to get back on track
-
-RESPONSE RULES:
-- English only
-- No emojis
-- Return JSON:
-{
-  "recoveryPrompt": "The full message to inject (be firm but constructive, ~200 words)",
-  "mandatoryAction": "ONE specific action (e.g., 'Read src/auth/login.ts to refocus on authentication')"
-}`;
-
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 600,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const content = response.content?.[0];
-  if (!content || content.type !== 'text') {
-    return createFallbackForcedRecovery(sessionState);
-  }
-
-  try {
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return createFallbackForcedRecovery(sessionState);
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-    const recoveryPrompt = typeof parsed.recoveryPrompt === 'string'
-      ? parsed.recoveryPrompt
-      : `STOP. Return to: ${sessionState.original_goal}`;
-    const mandatoryAction = typeof parsed.mandatoryAction === 'string'
-      ? parsed.mandatoryAction
-      : `Focus on ${sessionState.original_goal}`;
-
-    return {
-      recoveryPrompt,
-      mandatoryAction,
-      injectionText: formatForcedRecoveryInjection(recoveryPrompt, mandatoryAction, sessionState),
-    };
-  } catch {
-    return createFallbackForcedRecovery(sessionState);
-  }
-}
-
-/**
- * Format forced recovery for system prompt injection
- */
-function formatForcedRecoveryInjection(
-  recoveryPrompt: string,
-  mandatoryAction: string,
-  sessionState: SessionState
-): string {
-  return `
-
-<grov_forced_recovery>
-════════════════════════════════════════════════════════════
-⚠️  CRITICAL: FORCED RECOVERY MODE ACTIVATED  ⚠️
-════════════════════════════════════════════════════════════
-
-${recoveryPrompt}
-
-────────────────────────────────────────────────────────────
-MANDATORY FIRST ACTION (you MUST do this before ANYTHING else):
-${mandatoryAction}
-────────────────────────────────────────────────────────────
-
-Original goal: ${sessionState.original_goal || 'See above'}
-Escalation level: ${sessionState.escalation_count}/3 (MAXIMUM)
-
-YOUR NEXT MESSAGE MUST:
-1. Acknowledge: "I understand I have drifted from the goal"
-2. State: "I will now ${mandatoryAction}"
-3. Execute ONLY that action
-
-ANY OTHER RESPONSE WILL BE REJECTED.
-════════════════════════════════════════════════════════════
-</grov_forced_recovery>
-
-`;
-}
-
-/**
- * Fallback forced recovery without LLM
- */
-function createFallbackForcedRecovery(sessionState: SessionState): ForcedRecoveryResult {
-  const goal = sessionState.original_goal || 'the original task';
-  const mandatoryAction = `Stop current work and return to: ${goal}`;
-
-  return {
-    recoveryPrompt: `You have completely drifted from your goal. Stop what you're doing immediately and refocus on: ${goal}`,
-    mandatoryAction,
-    injectionText: formatForcedRecoveryInjection(
-      `You have completely drifted from your goal. Stop what you're doing immediately and refocus on: ${goal}`,
-      mandatoryAction,
-      sessionState
-    ),
-  };
+function mapScoreToType(score: number): DriftCheckResult['type'] {
+  if (score >= 8) return 'aligned';
+  if (score >= 6) return 'minor';
+  if (score >= 4) return 'moderate';
+  if (score >= 2) return 'severe';
+  return 'critical';
 }

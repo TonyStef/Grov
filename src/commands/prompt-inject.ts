@@ -1,14 +1,33 @@
 // grov prompt-inject - Called by UserPromptSubmit hook, outputs context JSON
 // This provides continuous context injection on every user prompt
+// Includes anti-drift detection and correction injection
+//
+// CRITICAL: We check Claude's ACTIONS, NOT user prompts.
+// User can explore freely. We monitor what CLAUDE DOES.
 
+import 'dotenv/config';
 import {
   getTasksForProject,
   getTasksByFiles,
   getFileReasoningByPathPattern,
+  getSessionState,
+  createSessionState,
+  updateSessionDrift,
+  saveStep,
+  updateLastChecked,
   type Task,
 } from '../lib/store.js';
+import { extractIntent } from '../lib/llm-extractor.js';
+import { buildDriftCheckInput, checkDrift } from '../lib/drift-checker.js';
+import { determineCorrectionLevel, buildCorrection } from '../lib/correction-builder.js';
 import { debugInject } from '../lib/debug.js';
 import { truncate } from '../lib/utils.js';
+import {
+  findSessionFile,
+  getNewActions,
+  getModifyingActions,
+  extractKeywordsFromAction,
+} from '../lib/session-parser.js';
 
 // Maximum stdin size to prevent memory exhaustion (1MB)
 const MAX_STDIN_SIZE = 1024 * 1024;
@@ -62,6 +81,22 @@ export async function promptInject(_options: PromptInjectOptions): Promise<void>
     }
 
     const projectPath = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    const sessionId = input.session_id;
+
+    // Check if we have a session state (determines if this is first prompt)
+    const sessionState = sessionId ? getSessionState(sessionId) : null;
+
+    let correctionText: string | null = null;
+
+    // === FIRST PROMPT: Create session state with extracted intent ===
+    if (!sessionState && sessionId) {
+      correctionText = await handleFirstPrompt(input.prompt, projectPath, sessionId);
+    }
+    // === SUBSEQUENT PROMPTS: Check Claude's ACTIONS for drift ===
+    else if (sessionState) {
+      // CRITICAL: We pass projectPath, not prompt. We check Claude's ACTIONS.
+      correctionText = await handleDriftCheck(projectPath, sessionState);
+    }
 
     // Get recent completed tasks for this project
     const tasks = getTasksForProject(projectPath, {
@@ -69,17 +104,15 @@ export async function promptInject(_options: PromptInjectOptions): Promise<void>
       limit: 20
     });
 
-    if (tasks.length === 0) {
-      return; // No past context to inject
-    }
-
     // Find relevant tasks via file paths and keywords
     const explicitFiles = extractFilePaths(input.prompt);
-    const fileTasks = explicitFiles.length > 0
+    const fileTasks = explicitFiles.length > 0 && tasks.length > 0
       ? getTasksByFiles(projectPath, explicitFiles, { status: 'complete', limit: 10 })
       : [];
 
-    const keywordTasks = findKeywordMatches(input.prompt, tasks);
+    const keywordTasks = tasks.length > 0
+      ? findKeywordMatches(input.prompt, tasks)
+      : [];
 
     // Also get file-level reasoning for mentioned files
     const fileReasonings = explicitFiles.length > 0
@@ -89,19 +122,20 @@ export async function promptInject(_options: PromptInjectOptions): Promise<void>
     // Combine and deduplicate tasks
     const relevantTasks = dedupeAndLimit([...fileTasks, ...keywordTasks], 5);
 
-    // Should we inject? Need at least some relevant context
-    if (relevantTasks.length === 0 && fileReasonings.length === 0) {
-      return; // No output = no injection
-    }
+    // Build context (past reasoning from team memory)
+    const memoryContext = (relevantTasks.length > 0 || fileReasonings.length > 0)
+      ? buildPromptContext(relevantTasks, explicitFiles, fileReasonings)
+      : null;
 
-    // Build and output context
-    const context = buildPromptContext(relevantTasks, explicitFiles, fileReasonings);
+    // Combine correction and memory context
+    const combinedContext = buildCombinedContext(correctionText, memoryContext);
 
-    if (context) {
+    // Output if we have anything to inject
+    if (combinedContext) {
       const output = {
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
-          additionalContext: context
+          additionalContext: combinedContext
         }
       };
       console.log(JSON.stringify(output));
@@ -111,6 +145,158 @@ export async function promptInject(_options: PromptInjectOptions): Promise<void>
     // Silent fail - don't break user workflow
     debugInject('prompt-inject error: %O', error);
   }
+}
+
+/**
+ * Handle first prompt: extract intent and create session state
+ */
+async function handleFirstPrompt(
+  prompt: string,
+  projectPath: string,
+  sessionId: string
+): Promise<string | null> {
+  try {
+    debugInject('First prompt detected, extracting intent...');
+
+    // Extract intent from prompt
+    const intent = await extractIntent(prompt);
+
+    // Create session state with intent
+    createSessionState({
+      session_id: sessionId,
+      project_path: projectPath,
+      original_goal: intent.goal,
+      expected_scope: intent.expected_scope,
+      constraints: intent.constraints,
+      success_criteria: intent.success_criteria,
+      keywords: intent.keywords
+    });
+
+    debugInject('Session state created: goal=%s', intent.goal.substring(0, 50));
+
+    // No correction needed for first prompt
+    return null;
+  } catch (error) {
+    debugInject('handleFirstPrompt error: %O', error);
+    return null;
+  }
+}
+
+/**
+ * Handle drift check for subsequent prompts.
+ *
+ * CRITICAL: We check Claude's ACTIONS, not user prompts.
+ * 1. Parse session JSONL to get Claude's recent actions
+ * 2. If no modifying actions, skip drift check (user just asked a question - OK!)
+ * 3. Build drift input from ACTIONS
+ * 4. Run drift check
+ * 5. Save steps and update last_checked_at
+ */
+async function handleDriftCheck(
+  projectPath: string,
+  sessionState: import('../lib/store.js').SessionState
+): Promise<string | null> {
+  try {
+    const sessionId = sessionState.session_id;
+    debugInject('Running drift check for session: %s', sessionId);
+
+    // 1. Find session JSONL file
+    const sessionPath = findSessionFile(sessionId, projectPath);
+    if (!sessionPath) {
+      debugInject('Session JSONL not found, skipping drift check');
+      return null;
+    }
+
+    // 2. Get Claude's actions since last check
+    const lastChecked = sessionState.last_checked_at || 0;
+    const claudeActions = getNewActions(sessionPath, lastChecked);
+
+    debugInject('Found %d new actions since last check', claudeActions.length);
+
+    // 3. If no new actions, user just asked a question - OK!
+    if (claudeActions.length === 0) {
+      debugInject('No new actions - user is exploring, not drift');
+      return null;
+    }
+
+    // 4. Filter to modifying actions only (read is always OK)
+    const modifyingActions = getModifyingActions(claudeActions);
+    if (modifyingActions.length === 0) {
+      debugInject('Only read actions - exploration, not drift');
+      // Still update last_checked to track progress
+      updateLastChecked(sessionId, Date.now());
+      return null;
+    }
+
+    // 5. Build drift input from ACTIONS (not prompt!)
+    const driftInput = buildDriftCheckInput(claudeActions, sessionId, sessionState);
+
+    // 6. Check drift
+    const driftResult = await checkDrift(driftInput);
+
+    debugInject('Drift check result: score=%d, type=%s', driftResult.score, driftResult.type);
+
+    // 7. Save steps to DB
+    for (const action of claudeActions) {
+      const isKeyDecision = driftResult.score >= 9 && action.type !== 'read';
+      const keywords = extractKeywordsFromAction(action);
+      saveStep(sessionId, action, driftResult.score, isKeyDecision, keywords);
+    }
+
+    // 8. Update last_checked timestamp
+    updateLastChecked(sessionId, Date.now());
+
+    // 9. Determine correction level
+    const level = determineCorrectionLevel(driftResult.score, sessionState.escalation_count);
+
+    debugInject('Correction level: %s', level || 'none');
+
+    // 10. Update session drift metrics
+    const actionsSummary = `${modifyingActions.length} modifying actions`;
+    updateSessionDrift(
+      sessionId,
+      driftResult.score,
+      level,
+      actionsSummary,
+      driftResult.recoveryPlan
+    );
+
+    // 11. Build correction if needed
+    if (level) {
+      return buildCorrection(driftResult, sessionState, level);
+    }
+
+    return null;
+  } catch (error) {
+    debugInject('handleDriftCheck error: %O', error);
+    return null;
+  }
+}
+
+/**
+ * Combine correction and memory context
+ */
+function buildCombinedContext(
+  correction: string | null,
+  memoryContext: string | null
+): string | null {
+  if (!correction && !memoryContext) {
+    return null;
+  }
+
+  const parts: string[] = [];
+
+  // Correction comes first (most important)
+  if (correction) {
+    parts.push(correction);
+  }
+
+  // Memory context second
+  if (memoryContext) {
+    parts.push(memoryContext);
+  }
+
+  return parts.join('\n\n');
 }
 
 /**

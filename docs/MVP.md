@@ -1,256 +1,226 @@
 # Grov MVP - Implementation Guide
 
-## Implementation Status: VALIDATED ✅✅
+## Implementation Status: v1.0 COMPLETE
 
-All core features implemented AND tested. **Context injection confirmed working.**
+All core features implemented including hooks AND local proxy with drift detection.
 
-### Key Validation (Nov 25, 2025)
-- SessionStart hook fires correctly
-- `additionalContext` is injected into Claude's context
-- Claude uses injected context and skips exploration
-- Zero-friction experience confirmed: user runs `claude` normally, grov works invisibly
+### Key Milestones
+- **Nov 25, 2025**: Hook-based capture/inject validated
+- **Dec 2, 2025**: v1 local proxy merged with drift detection
 
 | Component | Status | File |
 |-----------|--------|------|
-| CLI Entry Point | ✅ | `src/cli.ts` |
-| Init Command | ✅ | `src/commands/init.ts` |
-| Capture Command | ✅ | `src/commands/capture.ts` |
-| Inject Command | ✅ | `src/commands/inject.ts` |
-| Status Command | ✅ | `src/commands/status.ts` |
-| Unregister Command | ✅ | `src/commands/unregister.ts` |
-| Hooks Helper | ✅ | `src/lib/hooks.ts` |
-| JSONL Parser | ✅ | `src/lib/jsonl-parser.ts` |
-| SQLite Store | ✅ | `src/lib/store.ts` |
-| LLM Extractor | ✅ | `src/lib/llm-extractor.ts` |
+| CLI Entry Point | Done | `src/cli.ts` |
+| Init Command | Done | `src/commands/init.ts` |
+| Capture Command | Done | `src/commands/capture.ts` |
+| Inject Command | Done | `src/commands/inject.ts` |
+| Prompt Inject Command | Done | `src/commands/prompt-inject.ts` |
+| Status Command | Done | `src/commands/status.ts` |
+| Unregister Command | Done | `src/commands/unregister.ts` |
+| Drift Test Command | Done | `src/commands/drift-test.ts` |
+| Proxy Server | Done | `src/proxy/server.ts` |
+| Proxy Status Command | Done | `src/commands/proxy-status.ts` |
+| Hooks Helper | Done | `src/lib/hooks.ts` |
+| JSONL Parser | Done | `src/lib/jsonl-parser.ts` |
+| SQLite Store | Done | `src/lib/store.ts` |
+| LLM Extractor | Done | `src/lib/llm-extractor.ts` |
+| Drift Checker (Hook) | Done | `src/lib/drift-checker.ts` |
+| Drift Checker (Proxy) | Done | `src/lib/drift-checker-proxy.ts` |
+| Correction Builder | Done | `src/lib/correction-builder-proxy.ts` |
 
 ---
 
-## Quick Start (Testing)
+## Quick Start
 
+### Option 1: Hooks Only (Basic)
 ```bash
-# 1. Build the project
-cd /Users/tonyystef/qsav/grov
-npm install
-npm run build
-
-# 2. Test CLI works
-node dist/cli.js --help
-
-# 3. Register hooks (makes grov active)
-node dist/cli.js init
-
-# 4. Check status
-node dist/cli.js status
-
-# 5. Disable when done testing
-node dist/cli.js unregister
-```
-
-### With LLM Extraction (Optional)
-
-```bash
-# Set API key for smart extraction (uses GPT-3.5-turbo)
-export OPENAI_API_KEY=sk-...
-
-# Enable debug logging to see what's happening
-export GROV_DEBUG=true
-
-# Now capture will use LLM for intelligent extraction
-node dist/cli.js capture
-```
-
-### Global Install (Optional)
-
-```bash
-# Link globally so 'grov' works anywhere
-npm link
-
-# Now you can use:
-grov --help
+npm install -g grov
 grov init
-grov status
-grov unregister
+claude
 ```
 
----
-
-## What We're Building
-
-A CLI tool with **5 commands** that makes Claude Code remember reasoning across sessions.
-
-```
-grov init        → Registers hooks (user runs once)
-grov capture     → Runs automatically after each Claude response
-grov inject      → Runs automatically when Claude starts a session
-grov status      → Shows captured tasks for current project
-grov unregister  → Removes hooks (disables grov)
-```
-
-That's the entire product.
-
----
-
-## How It Works (User Perspective)
-
+### Option 2: With Proxy (Full Features + Drift Detection)
 ```bash
-# One-time setup
 npm install -g grov
 grov init
 
-# Done. User forgets grov exists.
-# They just use Claude Code normally:
-claude "fix the auth bug"
+# Terminal 1: Start proxy
+grov proxy
 
-# Behind the scenes:
-# - SessionStart hook fires → grov inject → Claude sees past reasoning
-# - User works normally
-# - Stop hook fires → grov capture → reasoning saved for next time
+# Terminal 2: Use Claude with proxy
+ANTHROPIC_BASE_URL=http://127.0.0.1:8080 claude
+```
+
+### Development
+```bash
+cd /path/to/grov
+npm install
+npm run build
+node dist/cli.js --help
 ```
 
 ---
 
-## The Three Commands
+## Commands
 
-### 1. `grov init`
-
-**What it does:**
 ```
-1. Read ~/.claude/settings.json (create if doesn't exist)
-2. Add hook entries (Claude Code 2.x format):
-   {
-     "hooks": {
-       "Stop": [
-         {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov capture"}]}
-       ],
-       "SessionStart": [
-         {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/grov inject"}]}
-       ]
-     }
-   }
-3. Save file
-4. Print "Done! Grov is now active."
+grov init           # Register hooks in Claude Code (run once)
+grov capture        # Stop hook - extract & store reasoning
+grov inject         # SessionStart hook - inject context
+grov prompt-inject  # UserPromptSubmit hook - per-prompt context
+grov status         # Show captured tasks for current project
+grov status -a      # Show all tasks (including partial/abandoned)
+grov unregister     # Remove hooks from Claude Code
+grov drift-test     # Test drift detection (debug)
+grov proxy          # Start local proxy server
+grov proxy-status   # Show active proxy sessions
 ```
-
-**CRITICAL:** Uses absolute path to grov binary (e.g., `/opt/homebrew/bin/grov`) because Claude Code hooks may not have the same PATH as user shell.
-
-**User runs this once, never again.**
 
 ---
 
-### 2. `grov capture`
+## Architecture Overview
 
-**Triggered by:** Stop hook (after every Claude response)
+### Two Modes of Operation
 
-**What it does:**
+**1. Hook Mode (Basic)**
 ```
-1. Find the current session's JSONL file
-   Location: ~/.claude/projects/<encoded-project-path>/<session-id>.jsonl
-
-2. Parse the JSONL file:
-   - Extract user messages
-   - Extract assistant responses
-   - Extract tool calls (Read, Write, Edit, etc.)
-   - Identify files touched
-
-3. Call Claude Haiku API with the parsed data:
-   "Extract from this session:
-    - Task description (what was the user trying to do?)
-    - Files touched
-    - Key decisions made
-    - Classify status: COMPLETE | QUESTION | PARTIAL | ABANDONED"
-
-4. Store the result in SQLite:
-   Location: ~/.grov/memory.db
-
-   INSERT INTO tasks (
-     id, project_path, original_query, goal,
-     reasoning_trace, files_touched, status, tags, created_at
-   ) VALUES (...)
+SessionStart hook → grov inject → context injected
+User works with Claude
+Stop hook → grov capture → reasoning saved
 ```
 
-**Runs automatically. User never sees this.**
+**2. Proxy Mode (Full Features)**
+```
+Claude Code → ANTHROPIC_BASE_URL=localhost:8080
+    ↓
+Local Proxy (Fastify)
+    ├── Inject team memory context
+    ├── Forward to Anthropic API
+    ├── Parse response (extract actions)
+    ├── Drift detection (every prompt)
+    ├── Inject corrections if drifting
+    └── Track tokens, trigger CLEAR at 180k
+    ↓
+Claude Code receives response
+```
 
 ---
 
-### 3. `grov inject`
+## Anti-Drift System
 
-**Triggered by:** SessionStart hook (when Claude starts)
+Monitors Claude's **actions** (not user prompts) and corrects when drifting from goal.
 
-**What it does:**
-```
-1. Get current working directory (project path)
+### Drift Scoring (1-10)
+| Score | Level | Action |
+|-------|-------|--------|
+| 8-10 | Aligned | No correction |
+| 7 | Nudge | Brief reminder (2-3 sentences) |
+| 5-6 | Correct | Full correction + recovery steps |
+| 3-4 | Intervene | Strong correction + mandatory first action |
+| 1-2 | Halt | Critical stop + forced action |
 
-2. Query SQLite for relevant past tasks:
-   SELECT * FROM tasks
-   WHERE project_path = ?
-   AND status = 'complete'
-   ORDER BY created_at DESC
-   LIMIT 5
+### Session Modes
+- `normal` - Working as expected
+- `drifted` - Drift detected, waiting for recovery
+- `forced` - After 3 failed recoveries, forces specific action
 
-3. Format the results as additionalContext:
-   {
-     "hookSpecificOutput": {
-       "hookEventName": "SessionStart",
-       "additionalContext": "VERIFIED CONTEXT FROM PREVIOUS SESSIONS:\n\n[Task: fix auth bug]\n- Files: auth/session.js, middleware/token.js\n- Decision: Extended token refresh window from 5min to 15min\n- Reason: Users were getting logged out during long forms\n\nYOU MAY SKIP EXPLORE AGENTS for these files. Read them directly if needed."
-     }
-   }
-
-   **CRITICAL:** Must include `hookEventName: "SessionStart"` - without this field, Claude Code reports an error.
-
-4. Print JSON to stdout (Claude Code reads this)
-```
-
-**Runs automatically. User never sees this.**
+### Recovery Flow
+1. Drift detected (score < 5)
+2. Inject correction into next request
+3. Check if Claude's next action aligns with recovery plan
+4. If yes → back to normal. If no → escalate.
 
 ---
 
-## Data Flow Diagram
+## Database Schema
 
+SQLite at `~/.grov/memory.db`:
+
+### tasks (Team Memory - Permanent)
+```sql
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  project_path TEXT NOT NULL,
+  user TEXT,
+  original_query TEXT,
+  goal TEXT,
+  reasoning_trace JSON,      -- ["investigated X", "decided Y"]
+  files_touched JSON,        -- ["src/auth.ts"]
+  decisions JSON,            -- [{"choice": "X", "reason": "Y"}]
+  constraints JSON,          -- ["rate limit 100/min"]
+  status TEXT NOT NULL,      -- complete|question|partial|abandoned
+  trigger_reason TEXT,       -- complete|threshold|abandoned
+  parent_task_id TEXT,
+  tags JSON,
+  created_at TEXT NOT NULL
+);
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         USER WORKFLOW                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   User runs: claude "add rate limiting"                          │
-│                           │                                      │
-│                           ▼                                      │
-│              ┌────────────────────────┐                          │
-│              │    SessionStart Hook   │                          │
-│              │    fires automatically │                          │
-│              └───────────┬────────────┘                          │
-│                          │                                       │
-│                          ▼                                       │
-│              ┌────────────────────────┐                          │
-│              │     grov inject        │                          │
-│              │  - Query SQLite        │                          │
-│              │  - Output context JSON │                          │
-│              └───────────┬────────────┘                          │
-│                          │                                       │
-│                          ▼                                       │
-│              ┌────────────────────────┐                          │
-│              │  Claude sees context,  │                          │
-│              │  skips explore agents, │                          │
-│              │  works on task         │                          │
-│              └───────────┬────────────┘                          │
-│                          │                                       │
-│                          ▼                                       │
-│              ┌────────────────────────┐                          │
-│              │      Stop Hook         │                          │
-│              │   fires automatically  │                          │
-│              └───────────┬────────────┘                          │
-│                          │                                       │
-│                          ▼                                       │
-│              ┌────────────────────────┐                          │
-│              │     grov capture       │                          │
-│              │  - Parse JSONL         │                          │
-│              │  - Call Claude API     │                          │
-│              │  - Store in SQLite     │                          │
-│              └────────────────────────┘                          │
-│                                                                  │
-│   Context compounds over time. Each session makes the next       │
-│   session smarter.                                               │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+
+### session_states (Active Sessions - Temporary)
+```sql
+CREATE TABLE session_states (
+  session_id TEXT PRIMARY KEY,
+  user_id TEXT,
+  project_path TEXT NOT NULL,
+  original_goal TEXT,
+  expected_scope JSON,
+  constraints JSON,
+  keywords JSON,
+  token_count INTEGER DEFAULT 0,
+  escalation_count INTEGER DEFAULT 0,
+  session_mode TEXT DEFAULT 'normal',  -- normal|drifted|forced
+  waiting_for_recovery BOOLEAN DEFAULT FALSE,
+  parent_session_id TEXT,
+  task_type TEXT DEFAULT 'main',       -- main|subtask|parallel
+  start_time TEXT NOT NULL,
+  last_update TEXT NOT NULL,
+  status TEXT DEFAULT 'active'
+);
+```
+
+### steps (Action Log - Proxy Uses)
+```sql
+CREATE TABLE steps (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  action_type TEXT NOT NULL,  -- edit|write|bash|read|glob|grep|task
+  files JSON,
+  command TEXT,
+  drift_score INTEGER,
+  drift_type TEXT,            -- none|minor|major|critical
+  is_key_decision BOOLEAN,
+  correction_given TEXT,
+  timestamp INTEGER NOT NULL
+);
+```
+
+### drift_log (Rejected Actions - Audit)
+```sql
+CREATE TABLE drift_log (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  action_type TEXT,
+  files JSON,
+  drift_score INTEGER,
+  drift_reason TEXT,
+  correction_given TEXT
+);
+```
+
+### file_reasoning (Location Anchors)
+```sql
+CREATE TABLE file_reasoning (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  anchor TEXT,              -- function/class name
+  line_start INTEGER,
+  line_end INTEGER,
+  change_type TEXT,         -- read|write|edit|create|delete
+  reasoning TEXT,
+  created_at TEXT NOT NULL
+);
 ```
 
 ---
@@ -259,66 +229,47 @@ claude "fix the auth bug"
 
 ```
 grov/
-├── package.json              # npm package config, bin entry
-├── tsconfig.json             # TypeScript config
-├── .gitignore                # Ignores node_modules, dist
-├── PROJECT_BRIEF.md          # Design decisions & rationale
-├── MVP.md                    # This file - implementation guide
-├── ROADMAP.md                # Phase 2, 3, 4+ plans
+├── package.json
+├── tsconfig.json
+├── docs/
+│   ├── MVP.md                    # This file
+│   ├── plan_proxy_local.md       # Detailed proxy architecture
+│   └── ROADMAP.md
 ├── src/
-│   ├── cli.ts                # Entry point - parses args, routes to commands
+│   ├── cli.ts                    # Entry point
 │   │
 │   ├── commands/
-│   │   ├── init.ts           # grov init - register hooks
-│   │   ├── capture.ts        # grov capture - extract & store reasoning
-│   │   ├── inject.ts         # grov inject - query & output context
-│   │   ├── status.ts         # grov status - show captured tasks
-│   │   └── unregister.ts     # grov unregister - remove hooks
+│   │   ├── init.ts               # Register hooks
+│   │   ├── capture.ts            # Stop hook - extract reasoning
+│   │   ├── inject.ts             # SessionStart hook - inject context
+│   │   ├── prompt-inject.ts      # UserPromptSubmit hook
+│   │   ├── status.ts             # Show tasks
+│   │   ├── unregister.ts         # Remove hooks
+│   │   ├── drift-test.ts         # Test drift detection
+│   │   └── proxy-status.ts       # Show proxy sessions
+│   │
+│   ├── proxy/
+│   │   ├── index.ts              # CLI entry for `grov proxy`
+│   │   ├── server.ts             # Fastify HTTP server
+│   │   ├── config.ts             # Proxy configuration
+│   │   ├── forwarder.ts          # Forward to Anthropic (undici)
+│   │   ├── action-parser.ts      # Parse tool_use from response
+│   │   ├── request-processor.ts  # Inject context into requests
+│   │   └── response-processor.ts # Save to team memory
 │   │
 │   └── lib/
-│       ├── hooks.ts          # Read/write ~/.claude/settings.json
-│       ├── jsonl-parser.ts   # Parse ~/.claude/projects/ JSONL files
-│       ├── llm-extractor.ts  # Call Claude Haiku API for extraction
-│       └── store.ts          # SQLite operations (better-sqlite3)
+│       ├── store.ts              # SQLite operations
+│       ├── hooks.ts              # Hook registration
+│       ├── jsonl-parser.ts       # Parse session JSONL
+│       ├── session-parser.ts     # Parse session data
+│       ├── llm-extractor.ts      # LLM calls (OpenAI + Claude)
+│       ├── drift-checker.ts      # Hook-side drift detection
+│       ├── drift-checker-proxy.ts    # Proxy-side drift detection
+│       ├── correction-builder.ts     # Hook-side corrections
+│       ├── correction-builder-proxy.ts # Proxy-side corrections
+│       └── anchor-extractor.ts   # Extract code anchors
 │
-└── dist/                     # Compiled JavaScript (git-ignored)
-```
-
----
-
-## Database Schema
-
-SQLite at `~/.grov/memory.db`:
-
-```sql
-CREATE TABLE tasks (
-  id TEXT PRIMARY KEY,
-  project_path TEXT NOT NULL,
-  user TEXT,
-  original_query TEXT,
-
-  -- What Claude extracted
-  goal TEXT,
-  reasoning_trace JSON,        -- ["investigated X", "decided Y because Z"]
-  files_touched JSON,          -- ["src/auth.ts", "src/middleware.ts"]
-
-  -- Status (LLM-classified)
-  status TEXT NOT NULL,        -- "complete" | "question" | "partial" | "abandoned"
-
-  -- For multi-turn tasks
-  parent_task_id TEXT,
-
-  -- Auto-generated
-  tags JSON,                   -- ["auth", "api"] - inferred from files/query
-  created_at TEXT NOT NULL,
-
-  FOREIGN KEY (parent_task_id) REFERENCES tasks(id)
-);
-
--- Indexes for fast queries
-CREATE INDEX idx_project ON tasks(project_path);
-CREATE INDEX idx_status ON tasks(status);
-CREATE INDEX idx_created ON tasks(created_at);
+└── dist/                         # Compiled JS (git-ignored)
 ```
 
 ---
@@ -327,76 +278,82 @@ CREATE INDEX idx_created ON tasks(created_at);
 
 | Component | Choice | Why |
 |-----------|--------|-----|
-| Runtime | Node.js 18+ | For npm/npx distribution |
-| Language | TypeScript | Type safety, better DX |
-| CLI Framework | Commander.js | Simple, well-documented |
-| Database | better-sqlite3 | Zero-config, fast, single file |
-| LLM | OpenAI GPT-3.5-turbo | Cheap (~$0.001/call), fast |
-
----
-
-## Build Order
-
-| Step | Files | What You Can Test |
-|------|-------|-------------------|
-| 1 | `package.json`, `tsconfig.json`, `src/cli.ts` | `npx . --help` works |
-| 2 | `src/commands/init.ts`, `src/lib/hooks.ts` | `grov init` registers hooks |
-| 3 | `src/lib/jsonl-parser.ts` | Can parse session files |
-| 4 | `src/lib/store.ts` | Can create DB, insert/query |
-| 5 | `src/commands/capture.ts` | Hook fires, data stored (without LLM) |
-| 6 | `src/lib/llm-extractor.ts` | Smart extraction via Claude API |
-| 7 | `src/commands/inject.ts` | Full loop working |
+| Runtime | Node.js 18+ | npm distribution |
+| Language | TypeScript | Type safety |
+| CLI | Commander.js | Simple, documented |
+| Database | better-sqlite3 | Zero-config, fast |
+| Proxy Server | Fastify v5.6 | Fast, hooks system |
+| HTTP Client | undici v7.16 | Node.js official, fast |
+| LLM (Extraction) | OpenAI GPT-3.5-turbo | Cheap reasoning extraction |
+| LLM (Drift) | Claude Haiku 4.5 | Intent, drift, orchestration |
+| Logging | pino v10 | Fast structured logging |
 
 ---
 
 ## Environment Variables
 
 ```bash
-# Required for LLM extraction (uses OpenAI GPT-3.5-turbo)
+# Required for reasoning extraction (capture command)
 OPENAI_API_KEY=sk-...
 
+# Required for drift detection and intent extraction
+ANTHROPIC_API_KEY=sk-ant-...
+
 # Optional
-GROV_DB_PATH=~/.grov/memory.db      # Default
+GROV_DB_PATH=~/.grov/memory.db      # Default database location
 GROV_DEBUG=true                      # Verbose logging
+
+# Proxy settings (optional)
+PROXY_HOST=127.0.0.1                 # Default
+PROXY_PORT=8080                      # Default
 ```
 
 ---
 
-## Example: What Gets Stored
+## Data Flow
 
-**User session:**
 ```
-User: "fix the auth bug where users get logged out randomly"
-Claude: *reads auth/session.ts, investigates, fixes token refresh*
-```
+┌─────────────────────────────────────────────────────────────────┐
+│                      HOOK MODE (Basic)                          │
+├─────────────────────────────────────────────────────────────────┤
+│  User: claude "fix auth bug"                                    │
+│           ↓                                                     │
+│  SessionStart hook → grov inject → context JSON to Claude       │
+│           ↓                                                     │
+│  Claude works (with past context)                               │
+│           ↓                                                     │
+│  Stop hook → grov capture → reasoning saved to SQLite           │
+└─────────────────────────────────────────────────────────────────┘
 
-**What grov capture stores:**
-```json
-{
-  "id": "task_abc123",
-  "project_path": "/Users/dev/myapp",
-  "original_query": "fix the auth bug where users get logged out randomly",
-  "goal": "Prevent random user logouts",
-  "reasoning_trace": [
-    "Investigated token refresh logic in auth/session.ts",
-    "Found refresh window was 5 minutes, too short for long forms",
-    "Extended to 15 minutes with graceful refresh"
-  ],
-  "files_touched": ["src/auth/session.ts", "src/middleware/token.ts"],
-  "status": "complete",
-  "tags": ["auth", "session", "token"],
-  "created_at": "2025-01-15T10:30:00Z"
-}
-```
-
-**What grov inject outputs (next session):**
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "SessionStart",
-    "additionalContext": "VERIFIED CONTEXT FROM PREVIOUS SESSIONS:\n\n[Task: fix auth logout bug]\n- Files: src/auth/session.ts, src/middleware/token.ts\n- Decision: Extended token refresh window from 5min to 15min\n- Reason: Users were getting logged out during long forms\n\nYOU MAY SKIP EXPLORE AGENTS for these files."
-  }
-}
+┌─────────────────────────────────────────────────────────────────┐
+│                    PROXY MODE (Full)                            │
+├─────────────────────────────────────────────────────────────────┤
+│  User: ANTHROPIC_BASE_URL=localhost:8080 claude "fix auth bug"  │
+│           ↓                                                     │
+│  Every API call intercepted by local proxy                      │
+│           ↓                                                     │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ REQUEST PROCESSING                                       │    │
+│  │ - Check token count (CLEAR if > 180k)                   │    │
+│  │ - Query team memory for relevant context                │    │
+│  │ - Inject context into system prompt                     │    │
+│  │ - Inject correction if session_mode == 'drifted'        │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│           ↓                                                     │
+│  Forward to Anthropic API                                       │
+│           ↓                                                     │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ RESPONSE PROCESSING                                      │    │
+│  │ - Parse tool_use blocks (files, commands)               │    │
+│  │ - Update token_count from response.usage                │    │
+│  │ - Drift check (score 1-10)                              │    │
+│  │ - Save to steps table (if score >= 5)                   │    │
+│  │ - Save to drift_log (if score < 5)                      │    │
+│  │ - Detect task completion → save to team memory          │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│           ↓                                                     │
+│  Response returned to Claude Code (unmodified)                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -406,10 +363,9 @@ Claude: *reads auth/session.ts, investigates, fixes token refresh*
 - Cloud sync / team features
 - Web dashboard
 - Semantic search / embeddings
-- Complex relevance scoring
 - Multiple projects management UI
 
-These come in Phase 2+. MVP is local-only, single-user, file-path matching.
+See `ROADMAP.md` for Phase 2+ plans.
 
 ---
 
@@ -420,31 +376,14 @@ MVP is successful if:
 1. `grov init` registers hooks without errors
 2. `grov capture` runs on Stop, stores data in SQLite
 3. `grov inject` runs on SessionStart, outputs valid JSON
-4. Claude Code actually reads the injected context
-5. Measurable reduction in explore agents on related tasks
+4. `grov proxy` starts and intercepts API calls
+5. Drift detection identifies off-track actions
+6. Corrections bring Claude back on track
+7. Measurable reduction in explore agents on related tasks
 
 ---
 
-## Next Steps
+## Detailed Architecture
 
-### Completed ✅
-1. ~~Initialize npm package~~
-2. ~~Build commands in order (init → capture → inject → status → unregister)~~
-3. ~~Add LLM extraction~~ (switched to OpenAI GPT-3.5-turbo)
-4. ~~Test on real Claude Code sessions~~ - **VALIDATED Nov 25, 2025**
-5. ~~Verify hook firing~~ - Hooks fire correctly
-6. ~~Test context injection~~ - Claude uses injected context and skips exploration
-
-### Still To Do
-1. **Edge cases** - Empty sessions, malformed JSONL, missing files
-2. **npm publish** - When ready to share publicly
-3. **More real-world testing** - Use grov across multiple projects
-
-### Critical Findings
-- **hookEventName is required** - Must include `"hookEventName": "SessionStart"` in JSON output
-- **Absolute paths required** - Hooks need full path like `/opt/homebrew/bin/grov` (not just `grov`)
-- **CLAUDE_PROJECT_DIR env var** - Claude Code passes this to hooks, use it for project path
-- **additionalContext works** - Claude reads and uses the injected context
-
-### Future (Phase 2+)
-See `ROADMAP.md` for team sync, cloud storage, semantic search, etc.
+For detailed proxy architecture, database schemas, and implementation details, see:
+- `docs/plan_proxy_local.md` - Complete proxy implementation plan

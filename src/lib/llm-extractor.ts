@@ -3,10 +3,21 @@
 
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
+import { config } from 'dotenv';
+import { join } from 'path';
+import { homedir } from 'os';
+import { existsSync } from 'fs';
 import type { ParsedSession } from './jsonl-parser.js';
 import type { TaskStatus, SessionState, StepRecord } from './store.js';
 import { debugLLM } from './debug.js';
 import { truncate } from './utils.js';
+
+// Load ~/.grov/.env as fallback for API key
+// This allows users to store their API key in a safe location outside any repo
+const grovEnvPath = join(homedir(), '.grov', '.env');
+if (existsSync(grovEnvPath)) {
+  config({ path: grovEnvPath });
+}
 
 // Extracted reasoning structure
 export interface ExtractedReasoning {

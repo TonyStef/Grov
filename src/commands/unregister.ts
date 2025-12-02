@@ -1,6 +1,6 @@
 // grov unregister - Remove hooks from Claude Code settings
 
-import { unregisterGrovHooks, getSettingsPath } from '../lib/hooks.js';
+import { unregisterGrovHooks, getSettingsPath, setProxyEnv } from '../lib/hooks.js';
 
 export async function unregister(): Promise<void> {
   console.log('Removing grov hooks from Claude Code...\n');
@@ -13,6 +13,13 @@ export async function unregister(): Promise<void> {
       removed.forEach(hook => console.log(`  - ${hook}`));
     } else {
       console.log('No grov hooks found to remove.');
+    }
+
+    // Remove proxy URL from settings
+    const proxyResult = setProxyEnv(false);
+    if (proxyResult.action === 'removed') {
+      console.log('\nProxy configuration:');
+      console.log('  - ANTHROPIC_BASE_URL removed');
     }
 
     console.log(`\nSettings file: ${getSettingsPath()}`);

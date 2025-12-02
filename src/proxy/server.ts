@@ -1083,7 +1083,7 @@ function isAnthropicResponse(body: unknown): body is AnthropicResponse {
 export async function startServer(): Promise<FastifyInstance> {
   const server = createServer();
 
-  // Cleanup old completed sessions (older than 1 hour)
+  // Cleanup old completed sessions (older than 24 hours)
   const cleanedUp = cleanupOldCompletedSessions();
   if (cleanedUp > 0) {
   }

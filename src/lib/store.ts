@@ -1850,27 +1850,40 @@ export function markSessionCompleted(sessionId: string): void {
 }
 
 /**
- * Cleanup sessions completed more than 1 hour ago
- * Also deletes associated steps
+ * Cleanup sessions completed more than 24 hours ago
+ * Also deletes associated steps and drift_log entries
+ * Skips sessions that have active children (RESTRICT approach)
  * Returns number of sessions cleaned up
  */
-export function cleanupOldCompletedSessions(maxAgeMs: number = 3600000): number {
+export function cleanupOldCompletedSessions(maxAgeMs: number = 86400000): number {
   const database = initDatabase();
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
 
-  // Get sessions to cleanup
+  // Get sessions to cleanup, excluding those with active children
+  // RESTRICT approach: don't delete parent if children still active
   const oldSessions = database.prepare(`
     SELECT session_id FROM session_states
-    WHERE status = 'completed' AND completed_at < ?
+    WHERE status = 'completed'
+      AND completed_at < ?
+      AND session_id NOT IN (
+        SELECT DISTINCT parent_session_id
+        FROM session_states
+        WHERE parent_session_id IS NOT NULL
+          AND status != 'completed'
+      )
   `).all(cutoff) as Array<{ session_id: string }>;
 
   if (oldSessions.length === 0) {
     return 0;
   }
 
-  // Delete steps for each session
+  // Delete in correct order to respect FK constraints
   for (const session of oldSessions) {
+    // 1. Delete from drift_log (FK to session_states)
+    database.prepare('DELETE FROM drift_log WHERE session_id = ?').run(session.session_id);
+    // 2. Delete from steps (FK to session_states)
     database.prepare('DELETE FROM steps WHERE session_id = ?').run(session.session_id);
+    // 3. Now safe to delete session_states
     database.prepare('DELETE FROM session_states WHERE session_id = ?').run(session.session_id);
   }
 

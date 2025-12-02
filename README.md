@@ -35,9 +35,15 @@ Every time you start a new Claude Code session:
 
 Grov captures what Claude learns and injects it back on the next session.
 
-**With grov:** Same task takes ~1-2 minutes, <2% tokens, 0 explore agents. Claude reads files directly because it already has context.
+![grov status](docs/grov-status.jpeg)
 
-<sub>*Based on controlled testing: Auth file modification task without grov launched 3+ subagents and read ~10 files for exploration. With grov (after initial memory capture), an adjacent task went directly to reading relevant files with full context.</sub>
+### What Gets Captured
+
+Real reasoning, not just file lists:
+
+![captured reasoning](docs/reasoning-output.jpeg)
+
+*Architectural decisions, patterns, and rationale - automatically extracted.*
 
 ## Quick Start
 

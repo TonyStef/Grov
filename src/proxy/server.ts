@@ -112,9 +112,7 @@ const activeSessions = new Map<string, {
  */
 export function createServer(): FastifyInstance {
   const fastify = Fastify({
-    logger: {
-      level: 'error',  // Only errors in console, details in file
-    },
+    logger: false,  // Disabled - all debug goes to ~/.grov/debug.log
     bodyLimit: config.BODY_LIMIT,
   });
 
@@ -432,14 +430,7 @@ Please continue from where you left off.`;
 
   if (teamContext) {
     appendToSystemPrompt(modified, '\n\n' + teamContext);
-    logger.info({
-      msg: 'Injected team memory context',
-      filesMatched: mentionedFiles.length,
-    });
   }
-
-  // Log final system prompt size
-  const finalSystemSize = getSystemPromptText(modified).length;
 
   return modified;
 }
@@ -1002,43 +993,41 @@ function extractProjectPath(body: MessagesRequestBody): string | null {
 }
 
 /**
- * Extract goal from LATEST user message (not first!)
- * Filters out system-reminder tags to get the actual user prompt
+ * Extract goal from FIRST user message with text content
+ * Skips tool_result blocks, filters out system-reminder tags
  */
 function extractGoalFromMessages(messages: Array<{ role: string; content: unknown }>): string | undefined {
-  // Find the LAST user message (most recent prompt)
   const userMessages = messages?.filter(m => m.role === 'user') || [];
-  const lastUser = userMessages[userMessages.length - 1];
 
-  if (!lastUser) return undefined;
+  for (const userMsg of userMessages) {
+    let rawContent = '';
 
-  let rawContent = '';
+    // Handle string content
+    if (typeof userMsg.content === 'string') {
+      rawContent = userMsg.content;
+    }
 
-  // Handle string content
-  if (typeof lastUser.content === 'string') {
-    rawContent = lastUser.content;
+    // Handle array content - look for text blocks (skip tool_result)
+    if (Array.isArray(userMsg.content)) {
+      const textBlocks = userMsg.content
+        .filter((block): block is { type: string; text: string } =>
+          block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string')
+        .map(block => block.text);
+      rawContent = textBlocks.join('\n');
+    }
+
+    // Remove <system-reminder>...</system-reminder> tags
+    const cleanContent = rawContent
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+
+    // If we found valid text content, return it
+    if (cleanContent && cleanContent.length >= 5) {
+      return cleanContent.substring(0, 500);
+    }
   }
 
-  // Handle array content (new API format)
-  if (Array.isArray(lastUser.content)) {
-    const textBlocks = lastUser.content
-      .filter((block): block is { type: string; text: string } =>
-        block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string')
-      .map(block => block.text);
-    rawContent = textBlocks.join('\n');
-  }
-
-  // Remove <system-reminder>...</system-reminder> tags
-  const cleanContent = rawContent
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-    .trim();
-
-  // If nothing left after removing reminders, return undefined
-  if (!cleanContent || cleanContent.length < 5) {
-    return undefined;
-  }
-
-  return cleanContent.substring(0, 500);
+  return undefined;
 }
 
 /**

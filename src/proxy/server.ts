@@ -36,7 +36,6 @@ import {
   shouldSkipSteps,
   isDriftCheckAvailable,
   checkRecoveryAlignment,
-  generateForcedRecovery,
   type DriftCheckResult,
 } from '../lib/drift-checker-proxy.js';
 import { buildCorrection, formatCorrectionForInjection } from '../lib/correction-builder-proxy.js';
@@ -209,11 +208,15 @@ async function handleMessages(
     );
 
     // === POST-HANDLER: Process response with task orchestration ===
+    // FIRE-AND-FORGET: Don't block response to Claude Code
+    // This prevents retry loops caused by Haiku calls adding latency
+    // See docs/RETRY_LOOP_BUG.md for details
     if (result.statusCode === 200 && isAnthropicResponse(result.body)) {
-      await postProcessResponse(result.body, sessionInfo, request.body, logger);
+      postProcessResponse(result.body, sessionInfo, request.body, logger)
+        .catch(err => console.error('[GROV] postProcess error:', err));
     }
 
-    // Return response to Claude Code (unmodified)
+    // Return response to Claude Code IMMEDIATELY (unmodified)
     const latency = Date.now() - startTime;
     logger.info({
       msg: 'Request complete',
@@ -395,51 +398,20 @@ Please continue from where you left off.`;
     });
   }
 
-  // Check if session is in drifted or forced mode
-  if (sessionState.session_mode === 'drifted' || sessionState.session_mode === 'forced') {
-    const recentSteps = getRecentSteps(sessionInfo.sessionId, 5);
+  // Inject pre-computed drift correction (if any)
+  // Corrections are computed in postProcessResponse and stored in pending_correction
+  // This avoids blocking Haiku calls - see docs/RETRY_LOOP_BUG.md
+  if (sessionState.pending_correction) {
+    appendToSystemPrompt(modified, sessionState.pending_correction);
 
-    // FORCED MODE: escalation >= 3 -> Haiku generates recovery prompt
-    if (sessionState.escalation_count >= 3 || sessionState.session_mode === 'forced') {
-      // Update mode to forced if not already
-      if (sessionState.session_mode !== 'forced') {
-        updateSessionMode(sessionInfo.sessionId, 'forced');
-      }
+    logger.info({
+      msg: 'Injected pre-computed correction',
+      mode: sessionState.session_mode,
+      correctionLength: sessionState.pending_correction.length,
+    });
 
-      const lastDrift = lastDriftResults.get(sessionInfo.sessionId);
-      const driftResult = lastDrift || await checkDrift({ sessionState, recentSteps, latestUserMessage });
-
-      const forcedRecovery = await generateForcedRecovery(
-        sessionState,
-        recentSteps.map(s => ({ actionType: s.action_type, files: s.files })),
-        driftResult
-      );
-
-      appendToSystemPrompt(modified, forcedRecovery.injectionText);
-
-      logger.info({
-        msg: 'FORCED MODE - Injected Haiku recovery prompt',
-        escalation: sessionState.escalation_count,
-        mandatoryAction: forcedRecovery.mandatoryAction.substring(0, 50),
-      });
-    } else {
-      // DRIFTED MODE: normal correction injection
-      const driftResult = await checkDrift({ sessionState, recentSteps, latestUserMessage });
-      const correctionLevel = scoreToCorrectionLevel(driftResult.score);
-
-      if (correctionLevel) {
-        const correction = buildCorrection(driftResult, sessionState, correctionLevel);
-        const correctionText = formatCorrectionForInjection(correction);
-
-        appendToSystemPrompt(modified, correctionText);
-
-        logger.info({
-          msg: 'Injected correction',
-          level: correctionLevel,
-          score: driftResult.score,
-        });
-      }
-    }
+    // Clear the pending correction after injection
+    updateSessionState(sessionInfo.sessionId, { pending_correction: undefined });
   }
 
   // Note: Team memory context injection is now at the TOP of preProcessRequest()
@@ -880,10 +852,34 @@ async function postProcessResponse(
         updateSessionMode(activeSessionId, 'drifted');
         markWaitingForRecovery(activeSessionId, true);
         incrementEscalation(activeSessionId);
+
+        // Pre-compute correction for next request (fire-and-forget pattern)
+        // This avoids blocking Haiku calls in preProcessRequest
+        const correction = buildCorrection(driftResult, activeSession, correctionLevel);
+        const correctionText = formatCorrectionForInjection(correction);
+        updateSessionState(activeSessionId, { pending_correction: correctionText });
+
+        logger.info({
+          msg: 'Pre-computed correction saved',
+          level: correctionLevel,
+          correctionLength: correctionText.length,
+        });
+      } else if (correctionLevel) {
+        // Nudge or correct level - still save correction but don't change mode
+        const correction = buildCorrection(driftResult, activeSession, correctionLevel);
+        const correctionText = formatCorrectionForInjection(correction);
+        updateSessionState(activeSessionId, { pending_correction: correctionText });
+
+        logger.info({
+          msg: 'Pre-computed mild correction saved',
+          level: correctionLevel,
+        });
       } else if (driftScore >= 8) {
         updateSessionMode(activeSessionId, 'normal');
         markWaitingForRecovery(activeSessionId, false);
         lastDriftResults.delete(activeSessionId);
+        // Clear any pending correction since drift is resolved
+        updateSessionState(activeSessionId, { pending_correction: undefined });
       }
 
       updateLastChecked(activeSessionId, Date.now());

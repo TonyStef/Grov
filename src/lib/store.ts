@@ -130,6 +130,7 @@ interface ProxyFields {
   completed_at?: string;
   parent_session_id?: string;
   task_type?: TaskType;
+  pending_correction?: string;  // Pre-computed drift correction for next request
 }
 
 // Full SessionState type (union of all)
@@ -354,6 +355,7 @@ export function initDatabase(): Database.Database {
       completed_at TEXT,
       parent_session_id TEXT,
       task_type TEXT DEFAULT 'main' CHECK(task_type IN ('main', 'subtask', 'parallel')),
+      pending_correction TEXT,
       FOREIGN KEY (parent_session_id) REFERENCES session_states(session_id)
     );
 
@@ -495,6 +497,9 @@ export function initDatabase(): Database.Database {
   }
   if (!existingColumns.has('drift_warnings')) {
     db.exec(`ALTER TABLE session_states ADD COLUMN drift_warnings JSON DEFAULT '[]'`);
+  }
+  if (!existingColumns.has('pending_correction')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN pending_correction TEXT`);
   }
 
   // Create steps table (action log for current session)
@@ -958,6 +963,10 @@ export function updateSessionState(
     setClauses.push('status = ?');
     params.push(updates.status);
   }
+  if (updates.pending_correction !== undefined) {
+    setClauses.push('pending_correction = ?');
+    params.push(updates.pending_correction || null);
+  }
 
   // Always update last_update
   setClauses.push('last_update = ?');
@@ -1081,6 +1090,7 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
     completed_at: row.completed_at as string | undefined,
     parent_session_id: row.parent_session_id as string | undefined,
     task_type: (row.task_type as TaskType) || 'main',
+    pending_correction: row.pending_correction as string | undefined,
   };
 }
 

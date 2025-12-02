@@ -53,7 +53,10 @@ function formatTeamMemoryContext(
 ): string {
   const lines: string[] = [];
 
-  lines.push('[GROV CONTEXT - Relevant past reasoning]');
+  lines.push('=== VERIFIED TEAM KNOWLEDGE (from previous sessions) ===');
+  lines.push('');
+  lines.push('IMPORTANT: This context has been verified. USE IT to answer directly.');
+  lines.push('DO NOT launch Explore agents or re-investigate files mentioned below.');
   lines.push('');
 
   // File-level context
@@ -91,9 +94,11 @@ function formatTeamMemoryContext(
   }
 
   if (files.length > 0) {
-    lines.push(`You may already have context for: ${files.join(', ')}`);
+    lines.push(`Files with existing context: ${files.join(', ')}`);
   }
-  lines.push('[END GROV CONTEXT]');
+  lines.push('');
+  lines.push('Answer the user\'s question using the knowledge above. Skip exploration.');
+  lines.push('=== END VERIFIED TEAM KNOWLEDGE ===');
 
   return lines.join('\n');
 }

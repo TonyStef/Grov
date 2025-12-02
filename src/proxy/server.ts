@@ -334,10 +334,28 @@ async function preProcessRequest(
   logger: { info: (data: Record<string, unknown>) => void }
 ): Promise<MessagesRequestBody> {
   const modified = { ...body };
+
+  // FIRST: Always inject team memory context (doesn't require sessionState)
+  const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+  console.log('[GROV] projectPath:', sessionInfo.projectPath);
+  console.log('[GROV] mentionedFiles:', mentionedFiles);
+
+  const teamContext = buildTeamMemoryContext(sessionInfo.projectPath, mentionedFiles);
+  console.log('[GROV] teamContext:', teamContext ? `${teamContext.length} chars` : 'NULL');
+
+  if (teamContext) {
+    console.log('[GROV] INJECTING CONTEXT:\n', teamContext.substring(0, 500));
+    appendToSystemPrompt(modified, '\n\n' + teamContext);
+    logger.info({ msg: 'Injected team memory context', filesMatched: mentionedFiles.length });
+  } else {
+    console.log('[GROV] NO CONTEXT TO INJECT');
+  }
+
+  // THEN: Session-specific operations
   const sessionState = getSessionState(sessionInfo.sessionId);
 
   if (!sessionState) {
-    return modified;
+    return modified;  // Injection already happened above!
   }
 
   // Extract latest user message for drift checking
@@ -424,13 +442,8 @@ Please continue from where you left off.`;
     }
   }
 
-  // Inject context from team memory
-  const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-  const teamContext = buildTeamMemoryContext(sessionInfo.projectPath, mentionedFiles);
-
-  if (teamContext) {
-    appendToSystemPrompt(modified, '\n\n' + teamContext);
-  }
+  // Note: Team memory context injection is now at the TOP of preProcessRequest()
+  // so it runs even when sessionState is null (new sessions)
 
   return modified;
 }

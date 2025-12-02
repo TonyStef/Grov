@@ -336,10 +336,24 @@ async function preProcessRequest(
   logger: { info: (data: Record<string, unknown>) => void }
 ): Promise<MessagesRequestBody> {
   const modified = { ...body };
+
+  // FIRST: Always inject team memory context (doesn't require sessionState)
+  const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+  const teamContext = buildTeamMemoryContext(sessionInfo.projectPath, mentionedFiles);
+
+  if (teamContext) {
+    appendToSystemPrompt(modified, '\n\n' + teamContext);
+    logger.info({
+      msg: 'Injected team memory context',
+      filesMatched: mentionedFiles.length,
+    });
+  }
+
+  // THEN: Session-specific operations (drift, clear, etc.)
   const sessionState = getSessionState(sessionInfo.sessionId);
 
   if (!sessionState) {
-    return modified;
+    return modified;  // Injection already happened above
   }
 
   // Extract latest user message for drift checking
@@ -425,21 +439,6 @@ Please continue from where you left off.`;
       }
     }
   }
-
-  // Inject context from team memory
-  const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-  const teamContext = buildTeamMemoryContext(sessionInfo.projectPath, mentionedFiles);
-
-  if (teamContext) {
-    appendToSystemPrompt(modified, '\n\n' + teamContext);
-    logger.info({
-      msg: 'Injected team memory context',
-      filesMatched: mentionedFiles.length,
-    });
-  }
-
-  // Log final system prompt size
-  const finalSystemSize = getSystemPromptText(modified).length;
 
   return modified;
 }

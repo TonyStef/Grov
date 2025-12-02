@@ -804,6 +804,33 @@ async function postProcessResponse(
   });
 
   if (actions.length === 0) {
+    // No tool_use, but capture substantial text responses (Claude's conclusions)
+    const isEndTurn = response.stop_reason === 'end_turn';
+    if (isEndTurn && textContent.length > 100 && activeSessionId) {
+      // Extract any file paths mentioned in the conclusion
+      const filePattern = /[\w\/.-]+\.(ts|js|tsx|jsx|py|go|rs|java|css|html|md|json|yaml|yml)/g;
+      const mentionedFiles = [...new Set(
+        (textContent.match(filePattern) || [])
+          .filter(f => !f.includes('://') && !f.match(/^\d+\.\d+/))
+      )];
+
+      createStep({
+        session_id: activeSessionId,
+        action_type: 'other',
+        files: mentionedFiles,
+        folders: [],
+        reasoning: textContent.substring(0, 2000),  // Larger limit for conclusions
+        drift_score: 0,
+        is_validated: true,
+        is_key_decision: mentionedFiles.length > 0 || textContent.length > 500,
+      });
+
+      logger.info({
+        msg: 'Captured text-only response (conclusion)',
+        chars: textContent.length,
+        files: mentionedFiles.length,
+      });
+    }
     return;
   }
 

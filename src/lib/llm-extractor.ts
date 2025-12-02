@@ -653,10 +653,10 @@ export async function analyzeTaskContext(
   // Check if we need to compress reasoning
   const needsCompression = assistantResponse.length > 1000;
   const compressionInstruction = needsCompression
-    ? `\n  "step_reasoning": "compressed summary of assistant's actions and reasoning (max 800 chars)"`
+    ? `\n  "step_reasoning": "Extract CONCLUSIONS and SPECIFIC RECOMMENDATIONS only. Include: exact file paths (e.g., src/lib/utils.ts), function/component names, architectural patterns discovered, and WHY decisions were made. DO NOT write process descriptions like 'explored' or 'analyzed'. Max 800 chars."`
     : '';
   const compressionRule = needsCompression
-    ? '\n- step_reasoning: Summarize what the assistant did and WHY in a concise way (max 800 chars)'
+    ? '\n- step_reasoning: Extract CONCLUSIONS (specific files, patterns, decisions) NOT process descriptions. Example GOOD: "Utilities belong in src/lib/utils.ts alongside cn(), formatDate()". Example BAD: "Explored codebase structure".'
     : '';
 
   // Extract topic keywords from goal for comparison
@@ -796,40 +796,51 @@ export async function extractReasoningAndDecisions(
     return { reasoning_trace: [], decisions: [] };
   }
 
-  const prompt = `Analyze Claude's work session and extract structured reasoning and decisions.
+  const prompt = `Extract CONCLUSIONS and KNOWLEDGE from Claude's work - NOT process descriptions.
 
 ORIGINAL GOAL:
 ${originalGoal || 'Not specified'}
 
-CLAUDE'S WORK (reasoning from each step):
+CLAUDE'S RESPONSE:
 ${combinedReasoning}
 
 ═══════════════════════════════════════════════════════════════
-EXTRACT TWO THINGS:
+EXTRACT ACTIONABLE CONCLUSIONS - NOT PROCESS
 ═══════════════════════════════════════════════════════════════
 
-1. REASONING TRACE (what was done and WHY):
-   - Each entry: "[ACTION] [target] because/to [reason]"
-   - Include specific file names, function names when mentioned
-   - Focus on WHY decisions were made, not just what
-   - Max 10 entries, most important first
+GOOD examples (specific, reusable knowledge):
+- "Utility functions belong in frontend/lib/utils.ts - existing utils: cn(), formatDate(), debounce()"
+- "Auth tokens stored in localStorage with 15min expiry for long form sessions"
+- "API routes follow REST pattern in /api/v1/ with Zod validation"
+- "Database migrations go in prisma/migrations/ using prisma migrate"
 
-2. DECISIONS (choices made between alternatives):
-   - Only include actual choices/tradeoffs
-   - Each must have: what was chosen, why it was chosen
-   - Examples: "Chose X over Y because Z"
+BAD examples (process descriptions - DO NOT EXTRACT THESE):
+- "Explored the codebase structure"
+- "Analyzed several approaches"
+- "Searched for utility directories"
+- "Looked at the file organization"
+
+1. REASONING TRACE (conclusions and recommendations):
+   - WHAT was discovered or decided (specific file paths, patterns)
+   - WHY this is the right approach
+   - WHERE this applies in the codebase
+   - Max 10 entries, prioritize specific file/function recommendations
+
+2. DECISIONS (architectural choices):
+   - Only significant choices that affect future work
+   - What was chosen and why
    - Max 5 decisions
 
 Return JSON:
 {
   "reasoning_trace": [
-    "Created auth/token-store.ts to separate storage logic from validation",
-    "Used Map instead of Object for O(1) lookup performance",
-    "Added expiry check in validateToken to prevent stale token usage"
+    "Utility functions belong in frontend/lib/utils.ts alongside cn(), formatDate(), debounce(), generateId()",
+    "Backend utilities go in backend/app/utils/ with domain-specific files like validation.py",
+    "The @/lib/utils import alias is configured for frontend utility access"
   ],
   "decisions": [
-    {"choice": "Used SHA256 for token hashing", "reason": "Fast, secure enough for this use case, no external deps"},
-    {"choice": "Split into separate files", "reason": "Better testability and single responsibility"}
+    {"choice": "Add to existing utils.ts rather than new file", "reason": "Maintains established pattern, easier discoverability"},
+    {"choice": "Use frontend/lib/ over src/utils/", "reason": "Follows Next.js conventions used throughout project"}
   ]
 }
 
@@ -837,7 +848,8 @@ RESPONSE RULES:
 - English only
 - No emojis
 - Valid JSON only
-- Be specific, not vague (bad: "Fixed bug", good: "Fixed null check in validateToken")`;
+- Extract WHAT and WHERE, not just WHAT was done
+- If no specific conclusions found, return empty arrays`;
 
   debugLLM('extractReasoningAndDecisions', `Analyzing ${stepsReasoning.length} steps, ${combinedReasoning.length} chars`);
 

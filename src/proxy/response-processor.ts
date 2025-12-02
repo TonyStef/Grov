@@ -63,8 +63,20 @@ async function buildTaskFromSession(
   status: 'complete' | 'partial' | 'abandoned';
   trigger_reason: TriggerReason;
 }> {
-  // Aggregate files from steps
-  const filesTouched = [...new Set(steps.flatMap(s => s.files))];
+  // Aggregate files from steps (tool_use actions)
+  const stepFiles = steps.flatMap(s => s.files);
+
+  // Also extract file paths mentioned in reasoning text (Claude's text responses)
+  const reasoningFiles = steps
+    .filter(s => s.reasoning)
+    .flatMap(s => {
+      // Match common code file extensions
+      const matches = s.reasoning?.match(/[\w\/.-]+\.(ts|js|tsx|jsx|py|go|rs|java|css|html|md|json|yaml|yml)/g) || [];
+      // Filter out obvious non-paths (urls, version numbers)
+      return matches.filter(m => !m.includes('://') && !m.match(/^\d+\.\d+/));
+    });
+
+  const filesTouched = [...new Set([...stepFiles, ...reasoningFiles])];
 
   // Build basic reasoning trace from steps (fallback)
   const basicReasoningTrace = steps

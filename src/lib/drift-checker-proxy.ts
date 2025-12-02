@@ -407,7 +407,7 @@ function formatForcedRecoveryInjection(
 
 <grov_forced_recovery>
 ════════════════════════════════════════════════════════════
-⚠️  CRITICAL: FORCED RECOVERY MODE ACTIVATED  ⚠️
+*** CRITICAL: FORCED RECOVERY MODE ACTIVATED ***
 ════════════════════════════════════════════════════════════
 
 ${recoveryPrompt}

@@ -304,6 +304,11 @@ async function getOrCreateSession(
   // No active session - check for recently completed session (for new_task detection)
   const completedSession = getCompletedSessionForProject(projectPath);
   if (completedSession) {
+    logger.info({
+      msg: 'Found recently completed session for comparison',
+      sessionId: completedSession.session_id.substring(0, 8),
+      goal: completedSession.original_goal?.substring(0, 50),
+    });
   }
 
   // No existing session - create placeholder, real session will be created in postProcessResponse
@@ -431,7 +436,6 @@ Please continue from where you left off.`;
       msg: 'Injected team memory context',
       filesMatched: mentionedFiles.length,
     });
-  } else {
   }
 
   // Log final system prompt size

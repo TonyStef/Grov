@@ -42,87 +42,71 @@ Session 2: User asks about related feature
         Claude skips exploration, reads files directly
 ```
 
-**Zero friction.** You don't change anything about how you use Claude Code.
-
 ## Quick Start
 
 ```bash
 # Install globally
 npm install -g grov
 
-# One-time setup (registers hooks + configures proxy URL)
+# One-time setup (configures proxy URL)
 grov init
 
-# Done. Use Claude Code normally.
-claude
-```
-
-That's it. Grov works invisibly in the background.
-
-### Enable Full Features (Optional)
-
-For real-time drift detection and action tracking, run the proxy:
-
-```bash
-# Terminal 1: Start proxy
+# Terminal 1: Start proxy (required)
 grov proxy
 
 # Terminal 2: Use Claude normally
 claude
 ```
 
-The proxy intercepts Claude's API calls to detect when it drifts from your goal and automatically corrects course.
+The proxy intercepts Claude's API calls to:
+- Capture reasoning and decisions
+- Inject relevant context from past sessions
+- Detect drift from your goal and auto-correct
 
 ## Commands
 
 ```bash
-grov init         # Register hooks + configure proxy (run once)
+grov init         # Configure proxy URL (run once)
+grov disable      # Disable grov and restore direct Anthropic connection
+grov proxy        # Start local proxy (required for grov to work)
+grov proxy-status # Show active proxy sessions
 grov status       # Show captured tasks for current project
 grov status -a    # Show all tasks (including partial/abandoned)
-grov unregister   # Disable grov and remove proxy config
 grov drift-test   # Test drift detection (debug)
-grov proxy        # Start local proxy (enables full drift detection)
-grov proxy-status # Show active proxy sessions
 ```
 
 ## How It Actually Works
 
-1. **SessionStart hook** fires when you run `claude`
-   - Grov queries its database for relevant past reasoning
-   - Outputs context that Claude Code injects into the session
+1. **`grov init`** configures Claude Code to route through the local proxy
+   - Sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080` in `~/.claude/settings.json`
 
-2. **UserPromptSubmit hook** fires on every prompt
-   - Monitors Claude's actions (files touched, commands run)
-   - Detects scope drift and injects corrections if needed
-   - Smart filtering skips simple prompts ("yes", "ok", "continue")
+2. **`grov proxy`** starts a local server that intercepts all API calls
+   - Extracts your intent from the first prompt
+   - Injects relevant context from team memory
+   - Tracks actions (file edits, commands, explorations)
+   - Detects drift and injects corrections
 
-3. **Proxy mode** (optional) intercepts API calls
-   - Detects drift from your original goal in real-time
-   - Injects corrections before Claude goes off-track
-   - Tracks token usage and manages context window
+3. **On each prompt**, the proxy:
+   - Queries database for relevant past reasoning
+   - Injects context into the system prompt
+   - Monitors Claude's actions for drift
 
-4. **You work normally** with Claude Code
-
-5. **Stop hook** fires when the session ends
-   - Grov parses the session's JSONL file
+4. **When a task completes**, the proxy:
    - Extracts reasoning via LLM (Claude Haiku 4.5)
    - Stores structured summary in SQLite
+   - Makes it available for future sessions
 
-6. **Next session**, Claude has context and skips re-exploration
+5. **Next session**, Claude has context and skips re-exploration
 
 ## Anti-Drift Detection
 
 Grov monitors what Claude **does** (not what you ask) and corrects if it drifts from your goal.
 
-**Two modes:**
-- **Hook mode** (default): Checks drift per prompt via UserPromptSubmit hook
-- **Proxy mode** (full): Intercepts every API call for real-time detection
-
 **How it works:**
 - Extracts your intent from the first prompt
 - Monitors Claude's actions (file edits, commands, explorations)
 - Uses Claude Haiku 4.5 to score alignment (1-10)
-- Injects corrections at 5 levels: nudge → correct → intervene → halt
+- Injects corrections at 4 levels: nudge → correct → intervene → halt
 
 **Key principle:** You can explore freely. Grov watches Claude's actions, not your prompts.
 
@@ -146,8 +130,6 @@ export PROXY_PORT=8080         # Default proxy port
 ```
 
 Without an API key, grov uses basic extraction (files touched, tool usage counts) and disables drift detection.
-
-**Note:** `grov init` automatically configures Claude Code to use the proxy. Just run `grov proxy` in a separate terminal to enable full features.
 
 ## What Gets Stored
 
@@ -196,10 +178,9 @@ Read them directly if relevant to the current task.
 
 - [x] Local capture & inject
 - [x] LLM-powered extraction (Claude Haiku 4.5)
-- [x] Zero-friction hooks
+- [x] Local proxy with real-time monitoring
 - [x] Per-prompt context injection
 - [x] Anti-drift detection & correction
-- [x] Local proxy with real-time monitoring
 - [ ] Team sync (cloud backend)
 - [ ] Web dashboard
 - [ ] Semantic search

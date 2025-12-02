@@ -1,15 +1,25 @@
+<p align="center">
+  <img src="landing/public/images/logos/grov-nobg.png" alt="grov logo" width="120">
+</p>
+
 <h1 align="center">grov</h1>
 
 <p align="center"><strong>Collective AI memory for engineering teams.</strong></p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/grov"><img src="https://img.shields.io/npm/v/grov" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/grov"><img src="https://img.shields.io/npm/dm/grov" alt="npm downloads"></a>
+  <a href="https://github.com/TonyStef/Grov/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="license"></a>
+</p>
+
+<p align="center">
   <a href="https://grov.dev">Website</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#roadmap">Roadmap</a> •
+  <a href="#advanced-features">Advanced</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
-Grov automatically captures reasoning from your Claude Code sessions and injects relevant context into future sessions. Your AI remembers what it learned.
+Grov captures reasoning from your Claude Code sessions and injects it into future sessions. Your AI remembers what it learned.
 
 ## The Problem
 
@@ -19,13 +29,25 @@ Every time you start a new Claude Code session:
 - It rediscovers patterns you've already established
 - You burn tokens on redundant exploration
 
-**Measured impact:** A typical task takes 10+ minutes, 7%+ token usage, and 3+ explore agents just to understand the codebase.
+**Measured impact:** A typical task takes 10+ minutes, 7%+ token usage, and 3+ explore agents just to understand the codebase.*
 
 ## The Solution
 
 Grov captures what Claude learns and injects it back on the next session.
 
 **With grov:** Same task takes ~1-2 minutes, <2% tokens, 0 explore agents. Claude reads files directly because it already has context.
+
+<sub>*Based on controlled testing: Auth file modification task without grov launched 3+ subagents and read ~10 files for exploration. With grov (after initial memory capture), an adjacent task went directly to reading relevant files with full context.</sub>
+
+## Quick Start
+
+```bash
+npm install -g grov   # Install
+grov init             # Configure (one-time)
+grov proxy            # Start (keep running)
+```
+
+Then use Claude Code normally in another terminal. That's it.
 
 ## How It Works
 
@@ -42,96 +64,60 @@ Session 2: User asks about related feature
         Claude skips exploration, reads files directly
 ```
 
-## Quick Start
-
-```bash
-# Install globally
-npm install -g grov
-
-# One-time setup (configures proxy URL)
-grov init
-
-# Terminal 1: Start proxy (required)
-grov proxy
-
-# Terminal 2: Use Claude normally
-claude
-```
-
-The proxy intercepts Claude's API calls to:
-- Capture reasoning and decisions
-- Inject relevant context from past sessions
-- Detect drift from your goal and auto-correct
-
 ## Commands
 
 ```bash
-grov init         # Configure proxy URL (run once)
-grov disable      # Disable grov and restore direct Anthropic connection
-grov proxy        # Start local proxy (required for grov to work)
-grov proxy-status # Show active proxy sessions
-grov status       # Show captured tasks for current project
-grov status -a    # Show all tasks (including partial/abandoned)
-grov drift-test   # Test drift detection (debug)
+grov init         # Configure proxy URL (one-time)
+grov proxy        # Start the proxy (required)
+grov proxy-status # Show active sessions
+grov status       # Show captured tasks
+grov disable      # Disable grov
 ```
 
-## How It Actually Works
+## Data Storage
 
-1. **`grov init`** configures Claude Code to route through the local proxy
-   - Sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080` in `~/.claude/settings.json`
+- **Database:** `~/.grov/memory.db` (SQLite)
+- **Per-project:** Context is filtered by project path
+- **Local only:** Nothing leaves your machine
 
-2. **`grov proxy`** starts a local server that intercepts all API calls
-   - Extracts your intent from the first prompt
-   - Injects relevant context from team memory
-   - Tracks actions (file edits, commands, explorations)
-   - Detects drift and injects corrections
+## Requirements
 
-3. **On each prompt**, the proxy:
-   - Queries database for relevant past reasoning
-   - Injects context into the system prompt
-   - Monitors Claude's actions for drift
+- Node.js 18+
+- Claude Code
 
-4. **When a task completes**, the proxy:
-   - Extracts reasoning via LLM (Claude Haiku 4.5)
-   - Stores structured summary in SQLite
-   - Makes it available for future sessions
+---
 
-5. **Next session**, Claude has context and skips re-exploration
+## Advanced Features
 
-## Anti-Drift Detection
+### Anti-Drift Detection
 
 Grov monitors what Claude **does** (not what you ask) and corrects if it drifts from your goal.
 
-**How it works:**
 - Extracts your intent from the first prompt
 - Monitors Claude's actions (file edits, commands, explorations)
-- Uses Claude Haiku 4.5 to score alignment (1-10)
+- Uses Claude Haiku to score alignment (1-10)
 - Injects corrections at 4 levels: nudge → correct → intervene → halt
 
-**Key principle:** You can explore freely. Grov watches Claude's actions, not your prompts.
-
 ```bash
-# Test drift detection manually
+# Test drift detection
 grov drift-test "refactor the auth system" --goal "fix login bug"
 ```
 
-## Environment Variables
+### Environment Variables
 
 ```bash
 # Required for drift detection and LLM extraction
 export ANTHROPIC_API_KEY=sk-ant-...
 
-# Optional: Override drift model (default: claude-haiku-4-5)
-export GROV_DRIFT_MODEL=claude-sonnet-4-20250514
-
-# Optional: Proxy settings
-export PROXY_HOST=127.0.0.1    # Default proxy host
-export PROXY_PORT=8080         # Default proxy port
+# Optional
+export GROV_DRIFT_MODEL=claude-sonnet-4-20250514  # Override model
+export PROXY_HOST=127.0.0.1                        # Proxy host
+export PROXY_PORT=8080                             # Proxy port
 ```
 
-Without an API key, grov uses basic extraction (files touched, tool usage counts) and disables drift detection.
+Without an API key, grov uses basic extraction and disables drift detection.
 
-## What Gets Stored
+### What Gets Stored
 
 ```json
 {
@@ -143,12 +129,11 @@ Without an API key, grov uses basic extraction (files touched, tool usage counts
     "Found refresh window was too short",
     "Extended from 5min to 15min"
   ],
-  "status": "complete",
-  "tags": ["auth", "session", "token"]
+  "status": "complete"
 }
 ```
 
-## What Gets Injected
+### What Gets Injected
 
 ```
 VERIFIED CONTEXT FROM PREVIOUS SESSIONS:
@@ -159,27 +144,24 @@ VERIFIED CONTEXT FROM PREVIOUS SESSIONS:
 - Reason: Users were getting logged out during long forms
 
 YOU MAY SKIP EXPLORE AGENTS for files mentioned above.
-Read them directly if relevant to the current task.
 ```
 
-## Data Storage
+### How the Proxy Works
 
-- **Database:** `~/.grov/memory.db` (SQLite)
-- **API Key:** Set `ANTHROPIC_API_KEY` in `~/.zshrc` or `~/.grov/.env`
-- **Per-project:** Context is filtered by project path
-- **Local only:** Nothing leaves your machine (unless you add cloud sync)
+1. **`grov init`** sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080` in Claude's settings
+2. **`grov proxy`** intercepts all API calls and:
+   - Extracts intent from first prompt
+   - Injects context from team memory
+   - Tracks actions and detects drift
+   - Saves reasoning when tasks complete
 
-## Requirements
-
-- Node.js 18+
-- Claude Code v2.0+
+---
 
 ## Roadmap
 
 - [x] Local capture & inject
-- [x] LLM-powered extraction (Claude Haiku 4.5)
+- [x] LLM-powered extraction
 - [x] Local proxy with real-time monitoring
-- [x] Per-prompt context injection
 - [x] Anti-drift detection & correction
 - [ ] Team sync (cloud backend)
 - [ ] Web dashboard
@@ -187,34 +169,17 @@ Read them directly if relevant to the current task.
 
 ## Contributing
 
-We welcome contributions! Here's how to get started:
-
 1. **Fork the repo** and clone locally
 2. **Install dependencies:** `npm install`
 3. **Build:** `npm run build`
 4. **Test locally:** `node dist/cli.js --help`
 
-### Development
-
 ```bash
-# Watch mode for development
-npm run dev
-
-# Test the CLI
-node dist/cli.js init
-node dist/cli.js status
+npm run dev              # Watch mode
+node dist/cli.js init    # Test CLI
 ```
 
-### Guidelines
-
-- Keep PRs focused on a single change
-- Follow existing code style
-- Update tests if applicable
-- Update docs if adding features
-
-### Reporting Issues
-
-Found a bug or have a feature request? [Open an issue](https://github.com/TonyStef/Grov/issues).
+Found a bug? [Open an issue](https://github.com/TonyStef/Grov/issues).
 
 ## License
 

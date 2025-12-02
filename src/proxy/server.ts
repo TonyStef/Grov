@@ -340,18 +340,10 @@ async function preProcessRequest(
 
   // FIRST: Always inject team memory context (doesn't require sessionState)
   const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-  console.log('[GROV] projectPath:', sessionInfo.projectPath);
-  console.log('[GROV] mentionedFiles:', mentionedFiles);
-
   const teamContext = buildTeamMemoryContext(sessionInfo.projectPath, mentionedFiles);
-  console.log('[GROV] teamContext:', teamContext ? `${teamContext.length} chars` : 'NULL');
 
   if (teamContext) {
-    console.log('[GROV] INJECTING CONTEXT:\n', teamContext.substring(0, 500));
     appendToSystemPrompt(modified, '\n\n' + teamContext);
-    logger.info({ msg: 'Injected team memory context', filesMatched: mentionedFiles.length });
-  } else {
-    console.log('[GROV] NO CONTEXT TO INJECT');
   }
 
   // THEN: Session-specific operations

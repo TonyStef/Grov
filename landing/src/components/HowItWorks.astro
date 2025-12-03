@@ -1,5 +1,5 @@
 ---
-// How it works section - 3 steps
+// How it works section - 4 steps
 ---
 
 <section class="py-24 px-6 bg-grov-surface reveal-section">
@@ -23,7 +23,7 @@
             Install once
           </h3>
           <p class="text-grov-text-secondary mb-4">
-            Two commands. Takes 30 seconds.
+            Three commands. Takes 30 seconds.
           </p>
           <div class="code-block">
             <code>
@@ -32,6 +32,9 @@
               <br />
               <span class="text-grov-text-muted">$</span>
               <span class="text-grov-text"> grov init</span>
+              <br />
+              <span class="text-grov-text-muted">$</span>
+              <span class="text-grov-text"> grov proxy</span>
             </code>
           </div>
         </div>
@@ -47,8 +50,8 @@
             Use Claude normally
           </h3>
           <p class="text-grov-text-secondary">
-            Grov runs invisibly in the background. It captures reasoning from your sessions
-            using Claude Code hooks. No changes to your workflow.
+            Keep grov proxy running in a terminal. It captures reasoning from your sessions
+            through a local proxy. No changes to your workflow.
           </p>
         </div>
       </div>
@@ -63,8 +66,24 @@
             Context compounds
           </h3>
           <p class="text-grov-text-secondary">
-            Each new session, grov injects relevant context from past sessions.
+            Throughout your session, grov injects relevant context from past sessions.
             Claude skips exploration and reads files directly. Your AI gets smarter over time.
+          </p>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="flex flex-col md:flex-row gap-8 items-start">
+        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-grov-black border border-grov-border flex items-center justify-center">
+          <span class="text-grov-accent font-bold">4</span>
+        </div>
+        <div class="flex-grow">
+          <h3 class="text-xl font-bold text-grov-text mb-3">
+            Stay on track
+          </h3>
+          <p class="text-grov-text-secondary">
+            Grov monitors what Claude does and corrects if it drifts from your goal.
+            It scores alignment and injects corrections automatically.
           </p>
         </div>
       </div>

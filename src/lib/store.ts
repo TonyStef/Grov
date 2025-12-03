@@ -131,6 +131,8 @@ interface ProxyFields {
   parent_session_id?: string;
   task_type?: TaskType;
   pending_correction?: string;  // Pre-computed drift correction for next request
+  pending_forced_recovery?: string;  // Pre-computed Haiku recovery for escalation >= 3
+  pending_clear_summary?: string;  // Pre-computed summary for CLEAR mode (generated at 85% threshold)
 }
 
 // Full SessionState type (union of all)

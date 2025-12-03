@@ -1,6 +1,7 @@
 // Grov Proxy Server - Fastify + undici
 // Intercepts Claude Code <-> Anthropic API traffic for drift detection and context injection
 
+import { createHash } from 'crypto';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { config, maskSensitiveValue } from './config.js';
 import { forwardToAnthropic, isForwardError } from './forwarder.js';
@@ -36,6 +37,7 @@ import {
   shouldSkipSteps,
   isDriftCheckAvailable,
   checkRecoveryAlignment,
+  generateForcedRecovery,
   type DriftCheckResult,
 } from '../lib/drift-checker-proxy.js';
 import { buildCorrection, formatCorrectionForInjection } from '../lib/correction-builder-proxy.js';
@@ -57,6 +59,9 @@ import { randomUUID } from 'crypto';
 // Store last drift result for recovery alignment check
 const lastDriftResults = new Map<string, DriftCheckResult>();
 
+// Track last messageCount per session to detect retries vs new turns
+const lastMessageCount = new Map<string, number>();
+
 // Request body type
 interface MessagesRequestBody {
   model: string;
@@ -76,8 +81,13 @@ function appendToSystemPrompt(
   if (typeof body.system === 'string') {
     body.system = body.system + textToAppend;
   } else if (Array.isArray(body.system)) {
-    // Append as new text block
-    body.system.push({ type: 'text', text: textToAppend });
+    // Append as new text block WITHOUT cache_control
+    // Anthropic allows max 4 cache blocks - Claude Code already uses 2+
+    // Grov's injections are small (~2KB) so uncached is fine
+    (body.system as Array<Record<string, unknown>>).push({
+      type: 'text',
+      text: textToAppend,
+    });
   } else {
     // No system prompt yet, create as string
     body.system = textToAppend;
@@ -99,6 +109,51 @@ function getSystemPromptText(body: MessagesRequestBody): string {
   return '';
 }
 
+/**
+ * Inject text into raw body string WITHOUT re-serializing
+ * This preserves the original formatting/whitespace for cache compatibility
+ *
+ * Adds a new text block to the end of the system array
+ */
+function injectIntoRawBody(rawBody: string, injectionText: string): { modified: string; success: boolean } {
+  // Find the system array in the raw JSON
+  // Pattern: "system": [....]
+  const systemMatch = rawBody.match(/"system"\s*:\s*\[/);
+  if (!systemMatch || systemMatch.index === undefined) {
+    return { modified: rawBody, success: false };
+  }
+
+  // Find the matching closing bracket for the system array
+  const startIndex = systemMatch.index + systemMatch[0].length;
+  let bracketCount = 1;
+  let endIndex = startIndex;
+
+  for (let i = startIndex; i < rawBody.length && bracketCount > 0; i++) {
+    const char = rawBody[i];
+    if (char === '[') bracketCount++;
+    else if (char === ']') bracketCount--;
+    if (bracketCount === 0) {
+      endIndex = i;
+      break;
+    }
+  }
+
+  if (bracketCount !== 0) {
+    return { modified: rawBody, success: false };
+  }
+
+  // Escape the injection text for JSON
+  const escapedText = JSON.stringify(injectionText).slice(1, -1); // Remove outer quotes
+
+  // Create the new block (without cache_control - will be cache_creation)
+  const newBlock = `,{"type":"text","text":"${escapedText}"}`;
+
+  // Insert before the closing bracket
+  const modified = rawBody.slice(0, endIndex) + newBlock + rawBody.slice(endIndex);
+
+  return { modified, success: true };
+}
+
 // Session tracking (in-memory for active sessions)
 const activeSessions = new Map<string, {
   sessionId: string;
@@ -115,17 +170,25 @@ export function createServer(): FastifyInstance {
     bodyLimit: config.BODY_LIMIT,
   });
 
+  // Custom JSON parser that preserves raw bytes for cache preservation
+  fastify.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
+    // Store raw bytes on request for later use
+    (req as unknown as { rawBody: Buffer }).rawBody = body as Buffer;
+    try {
+      const json = JSON.parse((body as Buffer).toString('utf-8'));
+      done(null, json);
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   // Health check endpoint
   fastify.get('/health', async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 
   // Main messages endpoint
-  fastify.post('/v1/messages', {
-    config: {
-      rawBody: true,
-    },
-  }, handleMessages);
+  fastify.post('/v1/messages', handleMessages);
 
   // Catch-all for other Anthropic endpoints (pass through)
   fastify.all('/*', async (request, reply) => {
@@ -147,20 +210,17 @@ async function handleMessages(
   const startTime = Date.now();
   const model = request.body.model;
 
-  // Skip Haiku subagents - forward directly without any tracking
-  // Haiku requests are Task tool spawns for exploration, they don't make decisions
-  // All reasoning and decisions happen in the main model (Opus/Sonnet)
   if (model.includes('haiku')) {
     logger.info({ msg: 'Skipping Haiku subagent', model });
 
     try {
+      // Force non-streaming for Haiku too
+      const haikusBody = { ...request.body, stream: false };
       const result = await forwardToAnthropic(
-        request.body,
+        haikusBody,
         request.headers as Record<string, string | string[] | undefined>,
         logger
       );
-
-      const latency = Date.now() - startTime;
 
       return reply
         .status(result.statusCode)
@@ -196,39 +256,68 @@ async function handleMessages(
     messageCount: request.body.messages?.length || 0,
   });
 
-  // === PRE-HANDLER: Modify request if needed ===
-  const modifiedBody = await preProcessRequest(request.body, sessionInfo, logger);
+  // Process request to get injection text (stored in __grovInjection)
+  const processedBody = await preProcessRequest(request.body, sessionInfo, logger);
+  const injectionText = (processedBody as Record<string, unknown>).__grovInjection as string | undefined;
 
-  // === FORWARD TO ANTHROPIC ===
+  // Get raw body bytes
+  const rawBody = (request as unknown as { rawBody?: Buffer }).rawBody;
+  const rawBodyStr = rawBody?.toString('utf-8') || '';
+
+  // Inject into raw bytes if we have injection text
+  let finalBodyToSend: string | Buffer;
+
+  if (injectionText && rawBodyStr) {
+    // Inject directly into raw bytes (preserves original formatting for cache)
+    const result = injectIntoRawBody(rawBodyStr, '\n\n' + injectionText);
+    finalBodyToSend = result.modified;
+  } else if (rawBody) {
+    // No injection, use original raw bytes
+    finalBodyToSend = rawBody;
+  } else {
+    // Fallback to re-serialization (shouldn't happen normally)
+    finalBodyToSend = JSON.stringify(processedBody);
+  }
+
+  const forwardStart = Date.now();
   try {
+    // Forward: raw bytes (with injection inserted) or original raw bytes
     const result = await forwardToAnthropic(
-      modifiedBody,
+      processedBody,
       request.headers as Record<string, string | string[] | undefined>,
-      logger
+      logger,
+      typeof finalBodyToSend === 'string' ? Buffer.from(finalBodyToSend, 'utf-8') : finalBodyToSend
     );
+    const forwardLatency = Date.now() - forwardStart;
 
-    // === POST-HANDLER: Process response with task orchestration ===
     // FIRE-AND-FORGET: Don't block response to Claude Code
     // This prevents retry loops caused by Haiku calls adding latency
-    // See docs/RETRY_LOOP_BUG.md for details
     if (result.statusCode === 200 && isAnthropicResponse(result.body)) {
       postProcessResponse(result.body, sessionInfo, request.body, logger)
         .catch(err => console.error('[GROV] postProcess error:', err));
     }
 
-    // Return response to Claude Code IMMEDIATELY (unmodified)
     const latency = Date.now() - startTime;
+    const filteredHeaders = filterResponseHeaders(result.headers);
+
+    // If response was SSE, forward raw SSE to Claude Code (it expects streaming)
+    // Otherwise, send JSON
+    const isSSEResponse = result.wasSSE;
+    const responseContentType = isSSEResponse ? 'text/event-stream; charset=utf-8' : 'application/json';
+    const responseBody = isSSEResponse ? result.rawBody : JSON.stringify(result.body);
+
     logger.info({
       msg: 'Request complete',
       statusCode: result.statusCode,
       latencyMs: latency,
+      wasSSE: isSSEResponse,
     });
 
     return reply
       .status(result.statusCode)
-      .header('content-type', 'application/json')
-      .headers(filterResponseHeaders(result.headers))
-      .send(JSON.stringify(result.body));
+      .header('content-type', responseContentType)
+      .headers(filteredHeaders)
+      .send(responseBody);
 
   } catch (error) {
     if (isForwardError(error)) {
@@ -327,9 +416,50 @@ async function getOrCreateSession(
 }
 
 /**
+ * Detect request type: 'first', 'continuation', or 'retry'
+ * - first: new user message (messageCount changed, last msg is user without tool_result)
+ * - continuation: tool result (messageCount changed, last msg has tool_result)
+ * - retry: same messageCount as before
+ */
+function detectRequestType(
+  messages: Array<{ role: string; content: unknown }>,
+  sessionId: string
+): 'first' | 'continuation' | 'retry' {
+  const currentCount = messages?.length || 0;
+  const lastCount = lastMessageCount.get(sessionId);
+  lastMessageCount.set(sessionId, currentCount);
+
+  // Same messageCount = retry
+  if (lastCount !== undefined && currentCount === lastCount) {
+    return 'retry';
+  }
+
+  // No messages or no last message = first
+  if (!messages || messages.length === 0) return 'first';
+
+  const lastMessage = messages[messages.length - 1];
+
+  // Check if last message is tool_result (continuation)
+  if (lastMessage.role === 'user') {
+    const content = lastMessage.content;
+    if (Array.isArray(content)) {
+      const hasToolResult = content.some(
+        (block: unknown) => typeof block === 'object' && block !== null && (block as Record<string, unknown>).type === 'tool_result'
+      );
+      if (hasToolResult) return 'continuation';
+    }
+  }
+
+  return 'first';
+}
+
+/**
  * Pre-process request before forwarding
- * - Context injection
- * - CLEAR operation
+ * - Context injection (first request only)
+ * - CLEAR operation (first request only)
+ * - Drift correction (first request only)
+ *
+ * SKIP all injections on: retry, continuation
  */
 async function preProcessRequest(
   body: MessagesRequestBody,
@@ -338,13 +468,25 @@ async function preProcessRequest(
 ): Promise<MessagesRequestBody> {
   const modified = { ...body };
 
-  // FIRST: Always inject team memory context (doesn't require sessionState)
+  // Detect request type: first, continuation, or retry
+  const requestType = detectRequestType(modified.messages || [], sessionInfo.sessionId);
+
+  // Team context injection is now done via RAW BODY modification
+  // to preserve cache for existing content. See injectIntoRawBody() call in handleMessages.
   const mentionedFiles = extractFilesFromMessages(modified.messages || []);
   const teamContext = buildTeamMemoryContext(sessionInfo.projectPath, mentionedFiles);
 
+  // Store injection text for later use (will be injected into raw bytes)
   if (teamContext) {
-    appendToSystemPrompt(modified, '\n\n' + teamContext);
+    (modified as Record<string, unknown>).__grovInjection = teamContext;
   }
+
+  // SKIP heavy operations (drift check, session ops) for retries and continuations
+  if (requestType !== 'first') {
+    return modified;
+  }
+
+  // === FIRST REQUEST ONLY: Heavy operations below ===
 
   // THEN: Session-specific operations
   const sessionState = getSessionState(sessionInfo.sessionId);
@@ -353,57 +495,68 @@ async function preProcessRequest(
     return modified;  // Injection already happened above!
   }
 
+  // === CLEAR MODE (100% threshold) ===
+  // If token count exceeds threshold AND we have a pre-computed summary, apply CLEAR
+  const currentTokenCount = sessionState.token_count || 0;
+
+  if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD &&
+      sessionState.pending_clear_summary) {
+
+    logger.info({
+      msg: 'CLEAR MODE ACTIVATED - resetting conversation',
+      tokenCount: currentTokenCount,
+      threshold: config.TOKEN_CLEAR_THRESHOLD,
+      summaryLength: sessionState.pending_clear_summary.length,
+    });
+
+    // 1. Empty messages array (fundamental reset)
+    modified.messages = [];
+
+    // 2. Inject summary into system prompt (this will cause cache miss - intentional)
+    appendToSystemPrompt(modified, sessionState.pending_clear_summary);
+
+    // 3. Mark session as cleared
+    markCleared(sessionInfo.sessionId);
+
+    // 4. Clear pending summary
+    updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
+
+    // 5. Clear __grovInjection since we're doing a full reset anyway
+    // (cache will miss regardless due to messages=[] and system prompt change)
+    delete (modified as Record<string, unknown>).__grovInjection;
+
+    logger.info({ msg: 'CLEAR complete - conversation reset with summary' });
+
+    return modified;  // Skip other injections - this is a complete reset
+  }
+
   // Extract latest user message for drift checking
   const latestUserMessage = extractGoalFromMessages(body.messages) || '';
 
-  // CLEAR operation if token threshold exceeded
-  if ((sessionState.token_count || 0) > config.TOKEN_CLEAR_THRESHOLD) {
-    logger.info({
-      msg: 'Token threshold exceeded, initiating CLEAR',
-      tokenCount: sessionState.token_count,
-      threshold: config.TOKEN_CLEAR_THRESHOLD,
-    });
+  // === INJECT PRE-COMPUTED CORRECTIONS (fire-and-forget pattern) ===
+  // Corrections are computed in postProcessResponse and stored in sessionState
+  // This avoids blocking Haiku calls in the request path
 
-    // Generate summary from session state + steps
-    let summary: string;
-    if (isSummaryAvailable()) {
-      const steps = getValidatedSteps(sessionInfo.sessionId);
-      summary = await generateSessionSummary(sessionState, steps);
-    } else {
-      const files = getValidatedSteps(sessionInfo.sessionId).flatMap(s => s.files);
-      summary = `PREVIOUS SESSION CONTEXT:
-Goal: ${sessionState.original_goal || 'Not specified'}
-Files worked on: ${[...new Set(files)].slice(0, 10).join(', ') || 'None'}
-Please continue from where you left off.`;
-    }
+  let additionalInjection = '';
 
-    // Clear messages and inject summary
-    modified.messages = [];
-    appendToSystemPrompt(modified, '\n\n' + summary);
-
-    // Update session state
-    markCleared(sessionInfo.sessionId);
-
-    logger.info({
-      msg: 'CLEAR completed',
-      summaryLength: summary.length,
-    });
+  // Drift correction (pending_correction)
+  if (sessionState.pending_correction) {
+    additionalInjection += '\n\n=== DRIFT CORRECTION ===\n' + sessionState.pending_correction;
+    updateSessionState(sessionInfo.sessionId, { pending_correction: undefined });
+    logger.info({ msg: 'Injected pending drift correction' });
   }
 
-  // Inject pre-computed drift correction (if any)
-  // Corrections are computed in postProcessResponse and stored in pending_correction
-  // This avoids blocking Haiku calls - see docs/RETRY_LOOP_BUG.md
-  if (sessionState.pending_correction) {
-    appendToSystemPrompt(modified, sessionState.pending_correction);
+  // Forced recovery (pending_forced_recovery) - more aggressive than drift
+  if (sessionState.pending_forced_recovery) {
+    additionalInjection += '\n\n=== FORCED RECOVERY ===\n' + sessionState.pending_forced_recovery;
+    updateSessionState(sessionInfo.sessionId, { pending_forced_recovery: undefined });
+    logger.info({ msg: 'Injected pending forced recovery' });
+  }
 
-    logger.info({
-      msg: 'Injected pre-computed correction',
-      mode: sessionState.session_mode,
-      correctionLength: sessionState.pending_correction.length,
-    });
-
-    // Clear the pending correction after injection
-    updateSessionState(sessionInfo.sessionId, { pending_correction: undefined });
+  // Combine with existing __grovInjection (team context)
+  if (additionalInjection) {
+    const existingInjection = (modified as Record<string, unknown>).__grovInjection as string || '';
+    (modified as Record<string, unknown>).__grovInjection = existingInjection + additionalInjection;
   }
 
   // Note: Team memory context injection is now at the TOP of preProcessRequest()
@@ -771,6 +924,33 @@ async function postProcessResponse(
     activeSession: activeSessionId.substring(0, 8),
   });
 
+  // === CLEAR MODE PRE-COMPUTE (85% threshold) ===
+  // Pre-compute summary before hitting 100% threshold to avoid blocking Haiku call
+  const preComputeThreshold = Math.floor(config.TOKEN_CLEAR_THRESHOLD * 0.85);
+  const currentTokenCount = (activeSession?.token_count || 0) + usage.totalTokens;
+
+  if (activeSession &&
+      currentTokenCount > preComputeThreshold &&
+      !activeSession.pending_clear_summary &&
+      isSummaryAvailable()) {
+
+    // Get all validated steps for comprehensive summary
+    const allSteps = getValidatedSteps(activeSessionId);
+
+    // Generate summary asynchronously (fire-and-forget)
+    generateSessionSummary(activeSession, allSteps, 15000).then(summary => {
+      updateSessionState(activeSessionId, { pending_clear_summary: summary });
+      logger.info({
+        msg: 'CLEAR summary pre-computed',
+        tokenCount: currentTokenCount,
+        threshold: preComputeThreshold,
+        summaryLength: summary.length,
+      });
+    }).catch(err => {
+      logger.info({ msg: 'CLEAR summary generation failed', error: String(err) });
+    });
+  }
+
   if (actions.length === 0) {
     return;
   }
@@ -872,6 +1052,30 @@ async function postProcessResponse(
         lastDriftResults.delete(activeSessionId);
         // Clear any pending correction since drift is resolved
         updateSessionState(activeSessionId, { pending_correction: undefined });
+      }
+
+      // FORCED MODE: escalation >= 3 triggers Haiku-generated recovery
+      const currentEscalation = activeSession.escalation_count || 0;
+      if (currentEscalation >= 3 && driftScore < 8) {
+        updateSessionMode(activeSessionId, 'forced');
+
+        // Generate forced recovery asynchronously (fire-and-forget within fire-and-forget)
+        generateForcedRecovery(
+          activeSession,
+          recentSteps.map(s => ({ actionType: s.action_type, files: s.files })),
+          driftResult
+        ).then(forcedRecovery => {
+          updateSessionState(activeSessionId, {
+            pending_forced_recovery: forcedRecovery.injectionText,
+          });
+          logger.info({
+            msg: 'Pre-computed forced recovery saved',
+            escalation: currentEscalation,
+            mandatoryAction: forcedRecovery.mandatoryAction?.substring(0, 50),
+          });
+        }).catch(err => {
+          logger.info({ msg: 'Forced recovery generation failed', error: String(err) });
+        });
       }
 
       updateLastChecked(activeSessionId, Date.now());
@@ -1041,10 +1245,16 @@ function filterResponseHeaders(
   const allowedHeaders = [
     'content-type',
     'x-request-id',
+    'request-id',
+    'x-should-retry',
+    'retry-after',
+    'retry-after-ms',
     'anthropic-ratelimit-requests-limit',
     'anthropic-ratelimit-requests-remaining',
+    'anthropic-ratelimit-requests-reset',
     'anthropic-ratelimit-tokens-limit',
     'anthropic-ratelimit-tokens-remaining',
+    'anthropic-ratelimit-tokens-reset',
   ];
 
   for (const header of allowedHeaders) {

@@ -18,7 +18,7 @@ export interface AnthropicResponse {
   };
 }
 
-export type ContentBlock = TextBlock | ToolUseBlock;
+export type ContentBlock = TextBlock | ToolUseBlock | ThinkingBlock;
 
 export interface TextBlock {
   type: 'text';
@@ -30,6 +30,11 @@ export interface ToolUseBlock {
   id: string;
   name: string;
   input: Record<string, unknown>;
+}
+
+export interface ThinkingBlock {
+  type: 'thinking';
+  thinking: string;
 }
 
 // Parsed action from tool_use

@@ -86,9 +86,10 @@ program
 program
   .command('proxy')
   .description('Start the Grov proxy server (intercepts Claude API calls)')
-  .action(async () => {
+  .option('-d, --debug', 'Enable debug logging to grov-proxy.log')
+  .action(async (options: { debug?: boolean }) => {
     const { startServer } = await import('./proxy/server.js');
-    await startServer();
+    await startServer({ debug: options.debug ?? false });
   });
 
 // grov proxy-status - Show active proxy sessions

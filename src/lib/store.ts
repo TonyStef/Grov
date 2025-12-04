@@ -133,6 +133,7 @@ interface ProxyFields {
   pending_correction?: string;  // Pre-computed drift correction for next request
   pending_forced_recovery?: string;  // Pre-computed Haiku recovery for escalation >= 3
   pending_clear_summary?: string;  // Pre-computed summary for CLEAR mode (generated at 85% threshold)
+  cached_injection?: string;  // Cached team context injection (must be identical across session for cache)
 }
 
 // Full SessionState type (union of all)
@@ -502,6 +503,12 @@ export function initDatabase(): Database.Database {
   }
   if (!existingColumns.has('pending_correction')) {
     db.exec(`ALTER TABLE session_states ADD COLUMN pending_correction TEXT`);
+  }
+  if (!existingColumns.has('pending_clear_summary')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN pending_clear_summary TEXT`);
+  }
+  if (!existingColumns.has('pending_forced_recovery')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN pending_forced_recovery TEXT`);
   }
 
   // Create steps table (action log for current session)
@@ -969,6 +976,14 @@ export function updateSessionState(
     setClauses.push('pending_correction = ?');
     params.push(updates.pending_correction || null);
   }
+  if (updates.pending_forced_recovery !== undefined) {
+    setClauses.push('pending_forced_recovery = ?');
+    params.push(updates.pending_forced_recovery || null);
+  }
+  if (updates.pending_clear_summary !== undefined) {
+    setClauses.push('pending_clear_summary = ?');
+    params.push(updates.pending_clear_summary || null);
+  }
 
   // Always update last_update
   setClauses.push('last_update = ?');
@@ -1093,6 +1108,8 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
     parent_session_id: row.parent_session_id as string | undefined,
     task_type: (row.task_type as TaskType) || 'main',
     pending_correction: row.pending_correction as string | undefined,
+    pending_forced_recovery: row.pending_forced_recovery as string | undefined,
+    pending_clear_summary: row.pending_clear_summary as string | undefined,
   };
 }
 
@@ -1442,6 +1459,53 @@ export function getValidatedSteps(sessionId: string): StepRecord[] {
 }
 
 /**
+ * Get key decision steps for a session (is_key_decision = 1)
+ * Used for user message injection - important decisions with reasoning
+ */
+export function getKeyDecisions(sessionId: string, limit = 5): StepRecord[] {
+  const database = initDatabase();
+
+  const stmt = database.prepare(
+    `SELECT * FROM steps
+     WHERE session_id = ? AND is_key_decision = 1 AND reasoning IS NOT NULL
+     ORDER BY timestamp DESC
+     LIMIT ?`
+  );
+  const rows = stmt.all(sessionId, limit) as Record<string, unknown>[];
+
+  return rows.map(rowToStep);
+}
+
+/**
+ * Get edited files for a session (action_type IN ('edit', 'write'))
+ * Used for user message injection - prevent re-work
+ */
+export function getEditedFiles(sessionId: string): string[] {
+  const database = initDatabase();
+
+  const stmt = database.prepare(
+    `SELECT DISTINCT files FROM steps
+     WHERE session_id = ? AND action_type IN ('edit', 'write')
+     ORDER BY timestamp DESC`
+  );
+  const rows = stmt.all(sessionId) as Array<{ files: string }>;
+
+  const allFiles: string[] = [];
+  for (const row of rows) {
+    try {
+      const files = JSON.parse(row.files || '[]');
+      if (Array.isArray(files)) {
+        allFiles.push(...files);
+      }
+    } catch {
+      // Skip invalid JSON
+    }
+  }
+
+  return [...new Set(allFiles)];
+}
+
+/**
  * Delete steps for a session
  */
 export function deleteStepsForSession(sessionId: string): void {
@@ -1643,24 +1707,36 @@ export function getKeyDecisionSteps(sessionId: string, limit: number = 5): StepR
 
 /**
  * Get steps reasoning by file path (for proxy team memory injection)
- * Searches across ALL sessions, returns file-level reasoning from steps table
+ * Searches across sessions, returns file-level reasoning from steps table
+ * @param excludeSessionId - Optional session ID to exclude (for filtering current session)
  */
 export function getStepsReasoningByPath(
   filePath: string,
-  limit = 5
+  limit = 5,
+  excludeSessionId?: string
 ): Array<{ file_path: string; reasoning: string; anchor?: string }> {
   const database = initDatabase();
 
   // Search steps where files JSON contains this path and reasoning exists
   const pattern = `%"${escapeLikePattern(filePath)}"%`;
 
-  const rows = database.prepare(`
+  let sql = `
     SELECT files, reasoning
     FROM steps
     WHERE files LIKE ? AND reasoning IS NOT NULL AND reasoning != ''
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `).all(pattern, limit) as Array<{ files: string; reasoning: string }>;
+  `;
+  const params: (string | number)[] = [pattern];
+
+  // Exclude current session if specified (for team memory from PAST sessions only)
+  if (excludeSessionId) {
+    sql += ` AND session_id != ?`;
+    params.push(excludeSessionId);
+  }
+
+  sql += ` ORDER BY timestamp DESC LIMIT ?`;
+  params.push(limit);
+
+  const rows = database.prepare(sql).all(...params) as Array<{ files: string; reasoning: string }>;
 
   return rows.map(row => {
     const files = safeJsonParse<string[]>(row.files, []);

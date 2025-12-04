@@ -28,9 +28,12 @@ import {
   markSessionCompleted,
   getCompletedSessionForProject,
   cleanupOldCompletedSessions,
+  getKeyDecisions,
+  getEditedFiles,
   type SessionState,
   type TaskType,
 } from '../lib/store.js';
+import { smartTruncate } from '../lib/utils.js';
 import {
   checkDrift,
   scoreToCorrectionLevel,
@@ -55,12 +58,293 @@ import {
 import { buildTeamMemoryContext, extractFilesFromMessages } from './request-processor.js';
 import { saveToTeamMemory, cleanupSession } from './response-processor.js';
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Store last drift result for recovery alignment check
 const lastDriftResults = new Map<string, DriftCheckResult>();
 
 // Track last messageCount per session to detect retries vs new turns
 const lastMessageCount = new Map<string, number>();
+
+// Cache injection content per session (MUST be identical across requests for cache preservation)
+// Stored in memory because session DB state doesn't exist on first request
+const cachedInjections = new Map<string, string>();
+
+// ============================================
+// DELTA TRACKING - Avoid duplicate injections
+// ============================================
+// Track what has already been injected per session to only inject NEW content
+
+interface SessionInjectionTracking {
+  files: Set<string>;        // Files already mentioned in user message injection
+  decisionIds: Set<string>;  // Step IDs of key decisions already injected
+  reasonings: Set<string>;   // Reasoning content hashes already injected
+}
+
+const sessionInjectionTracking = new Map<string, SessionInjectionTracking>();
+
+function getOrCreateTracking(sessionId: string): SessionInjectionTracking {
+  if (!sessionInjectionTracking.has(sessionId)) {
+    sessionInjectionTracking.set(sessionId, {
+      files: new Set(),
+      decisionIds: new Set(),
+      reasonings: new Set(),
+    });
+  }
+  return sessionInjectionTracking.get(sessionId)!;
+}
+
+/**
+ * Build dynamic injection content for user message (DELTA only)
+ * Includes: edited files, key decisions, drift correction, forced recovery
+ * Only injects NEW content that hasn't been injected before
+ */
+function buildDynamicInjection(
+  sessionId: string,
+  sessionState: SessionState | null,
+  logger?: { info: (data: Record<string, unknown>) => void }
+): string | null {
+  const tracking = getOrCreateTracking(sessionId);
+  const parts: string[] = [];
+  const debugInfo: Record<string, unknown> = {};
+
+  // 1. Get edited files (delta - not already injected)
+  const allEditedFiles = getEditedFiles(sessionId);
+  const newFiles = allEditedFiles.filter(f => !tracking.files.has(f));
+  debugInfo.totalEditedFiles = allEditedFiles.length;
+  debugInfo.newEditedFiles = newFiles.length;
+  debugInfo.alreadyTrackedFiles = tracking.files.size;
+
+  if (newFiles.length > 0) {
+    // Track and add to injection
+    newFiles.forEach(f => tracking.files.add(f));
+    const fileNames = newFiles.slice(0, 5).map(f => f.split('/').pop());
+    parts.push(`[EDITED: ${fileNames.join(', ')}]`);
+    debugInfo.editedFilesInjected = fileNames;
+  }
+
+  // 2. Get key decisions with reasoning (delta - not already injected)
+  const keyDecisions = getKeyDecisions(sessionId, 5);
+  debugInfo.totalKeyDecisions = keyDecisions.length;
+  debugInfo.alreadyTrackedDecisions = tracking.decisionIds.size;
+
+  const newDecisions = keyDecisions.filter(d =>
+    !tracking.decisionIds.has(d.id) &&
+    d.reasoning &&
+    !tracking.reasonings.has(d.reasoning)
+  );
+  debugInfo.newKeyDecisions = newDecisions.length;
+
+  for (const decision of newDecisions.slice(0, 3)) {
+    tracking.decisionIds.add(decision.id);
+    tracking.reasonings.add(decision.reasoning!);
+    const truncated = smartTruncate(decision.reasoning!, 120);
+    parts.push(`[DECISION: ${truncated}]`);
+
+    // Log the original and truncated reasoning for debugging
+    if (logger) {
+      logger.info({
+        msg: 'Key decision reasoning extracted',
+        originalLength: decision.reasoning!.length,
+        truncatedLength: truncated.length,
+        original: decision.reasoning!.substring(0, 200) + (decision.reasoning!.length > 200 ? '...' : ''),
+        truncated,
+      });
+    }
+  }
+  debugInfo.decisionsInjected = newDecisions.slice(0, 3).length;
+
+  // 3. Add drift correction if pending
+  if (sessionState?.pending_correction) {
+    parts.push(`[DRIFT: ${sessionState.pending_correction}]`);
+    debugInfo.hasDriftCorrection = true;
+    debugInfo.driftCorrectionLength = sessionState.pending_correction.length;
+  }
+
+  // 4. Add forced recovery if pending
+  if (sessionState?.pending_forced_recovery) {
+    parts.push(`[RECOVERY: ${sessionState.pending_forced_recovery}]`);
+    debugInfo.hasForcedRecovery = true;
+    debugInfo.forcedRecoveryLength = sessionState.pending_forced_recovery.length;
+  }
+
+  // Log debug info
+  if (logger) {
+    logger.info({
+      msg: 'Dynamic injection build details',
+      ...debugInfo,
+      partsCount: parts.length,
+    });
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  const injection = '---\n[GROV CONTEXT]\n' + parts.join('\n');
+
+  // Log final injection content
+  if (logger) {
+    logger.info({
+      msg: 'Dynamic injection content',
+      size: injection.length,
+      content: injection,
+    });
+  }
+
+  return injection;
+}
+
+/**
+ * Append dynamic injection to the last user message in raw body string
+ * This preserves cache for system + previous messages, only the last user msg changes
+ */
+function appendToLastUserMessage(rawBody: string, injection: string): string {
+  // Find the last occurrence of "role":"user" followed by content
+  // We need to find the content field of the last user message and append to it
+
+  // Strategy: Find all user messages, get the last one, append to its content
+  // This is tricky because content can be string or array
+
+  // Simpler approach: Find the last user message's closing content
+  // Look for pattern: "role":"user","content":"..." or "role":"user","content":[...]
+
+  // Find last "role":"user"
+  const userRolePattern = /"role"\s*:\s*"user"/g;
+  let lastUserMatch: RegExpExecArray | null = null;
+  let match;
+
+  while ((match = userRolePattern.exec(rawBody)) !== null) {
+    lastUserMatch = match;
+  }
+
+  if (!lastUserMatch) {
+    // No user message found, can't inject
+    return rawBody;
+  }
+
+  // From lastUserMatch position, find the content field
+  const afterRole = rawBody.slice(lastUserMatch.index);
+
+  // Find "content" field after role
+  const contentMatch = afterRole.match(/"content"\s*:\s*/);
+  if (!contentMatch || contentMatch.index === undefined) {
+    return rawBody;
+  }
+
+  const contentStartGlobal = lastUserMatch.index + contentMatch.index + contentMatch[0].length;
+  const afterContent = rawBody.slice(contentStartGlobal);
+
+  // Determine if content is string or array
+  if (afterContent.startsWith('"')) {
+    // String content - find closing quote (handling escapes)
+    let i = 1; // Skip opening quote
+    while (i < afterContent.length) {
+      if (afterContent[i] === '\\') {
+        i += 2; // Skip escaped char
+      } else if (afterContent[i] === '"') {
+        // Found closing quote
+        const insertPos = contentStartGlobal + i;
+        // Insert before closing quote, escape the injection for JSON
+        const escapedInjection = injection
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, '\\n');
+        return rawBody.slice(0, insertPos) + '\\n\\n' + escapedInjection + rawBody.slice(insertPos);
+      } else {
+        i++;
+      }
+    }
+  } else if (afterContent.startsWith('[')) {
+    // Array content - find last text block and append, or add new text block
+    // Find the closing ] of the content array
+    let depth = 1;
+    let i = 1;
+
+    while (i < afterContent.length && depth > 0) {
+      const char = afterContent[i];
+      if (char === '[') depth++;
+      else if (char === ']') depth--;
+      else if (char === '"') {
+        // Skip string
+        i++;
+        while (i < afterContent.length && afterContent[i] !== '"') {
+          if (afterContent[i] === '\\') i++;
+          i++;
+        }
+      }
+      i++;
+    }
+
+    if (depth === 0) {
+      // Found closing bracket at position i-1
+      const insertPos = contentStartGlobal + i - 1;
+      // Add new text block before closing bracket
+      const escapedInjection = injection
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n');
+      const newBlock = `,{"type":"text","text":"\\n\\n${escapedInjection}"}`;
+      return rawBody.slice(0, insertPos) + newBlock + rawBody.slice(insertPos);
+    }
+  }
+
+  // Fallback: couldn't parse, return unchanged
+  return rawBody;
+}
+
+// ============================================
+// DEBUG MODE - Controlled via --debug flag
+// ============================================
+
+let debugMode = false;
+
+export function setDebugMode(enabled: boolean): void {
+  debugMode = enabled;
+}
+
+// ============================================
+// FILE LOGGER - Request/Response tracking (debug only)
+// ============================================
+
+const PROXY_LOG_PATH = path.join(process.cwd(), 'grov-proxy.log');
+let requestCounter = 0;
+
+interface ProxyLogEntry {
+  timestamp: string;
+  requestId: number;
+  type: 'REQUEST' | 'RESPONSE' | 'INJECTION';
+  sessionId?: string;
+  data: Record<string, unknown>;
+}
+
+function proxyLog(entry: Omit<ProxyLogEntry, 'timestamp'>): void {
+  if (!debugMode) return;  // Skip file logging unless --debug flag
+
+  const logEntry: ProxyLogEntry = {
+    timestamp: new Date().toISOString(),
+    ...entry,
+  };
+
+  const line = JSON.stringify(logEntry) + '\n';
+  fs.appendFileSync(PROXY_LOG_PATH, line);
+}
+
+/**
+ * Log token usage to console (always shown, compact format)
+ */
+function logTokenUsage(
+  requestId: number,
+  usage: { cacheCreation: number; cacheRead: number; inputTokens: number; outputTokens: number },
+  latencyMs: number
+): void {
+  const total = usage.cacheCreation + usage.cacheRead;
+  const hitRatio = total > 0 ? ((usage.cacheRead / total) * 100).toFixed(0) : '0';
+  console.log(
+    `[${requestId}] ${hitRatio}% cache | in:${usage.inputTokens} out:${usage.outputTokens} | create:${usage.cacheCreation} read:${usage.cacheRead} | ${latencyMs}ms`
+  );
+}
 
 // Request body type
 interface MessagesRequestBody {
@@ -248,6 +532,8 @@ async function handleMessages(
     projectPath: sessionInfo.projectPath,
   });
 
+  const currentRequestId = ++requestCounter;
+
   logger.info({
     msg: 'Incoming request',
     sessionId: sessionInfo.sessionId.substring(0, 8),
@@ -256,21 +542,78 @@ async function handleMessages(
     messageCount: request.body.messages?.length || 0,
   });
 
-  // Process request to get injection text (stored in __grovInjection)
+  // Log REQUEST to file
+  const rawBodySize = (request as unknown as { rawBody?: Buffer }).rawBody?.length || 0;
+  proxyLog({
+    requestId: currentRequestId,
+    type: 'REQUEST',
+    sessionId: sessionInfo.sessionId.substring(0, 8),
+    data: {
+      model: request.body.model,
+      messageCount: request.body.messages?.length || 0,
+      promptCount: sessionInfo.promptCount,
+      rawBodySize,
+    },
+  });
+
+  // Process request to get injection text
+  // __grovInjection = team memory (system prompt, cached)
+  // __grovUserMsgInjection = dynamic content (user message, delta only)
   const processedBody = await preProcessRequest(request.body, sessionInfo, logger);
-  const injectionText = (processedBody as Record<string, unknown>).__grovInjection as string | undefined;
+  const systemInjection = (processedBody as Record<string, unknown>).__grovInjection as string | undefined;
+  const userMsgInjection = (processedBody as Record<string, unknown>).__grovUserMsgInjection as string | undefined;
 
   // Get raw body bytes
   const rawBody = (request as unknown as { rawBody?: Buffer }).rawBody;
-  const rawBodyStr = rawBody?.toString('utf-8') || '';
+  let rawBodyStr = rawBody?.toString('utf-8') || '';
 
-  // Inject into raw bytes if we have injection text
+  // Track injection sizes for logging
+  let systemInjectionSize = 0;
+  let userMsgInjectionSize = 0;
+  let systemSuccess = false;
+  let userMsgSuccess = false;
+
+  // 1. Inject team memory into SYSTEM prompt (cached, constant)
+  if (systemInjection && rawBodyStr) {
+    const result = injectIntoRawBody(rawBodyStr, '\n\n' + systemInjection);
+    rawBodyStr = result.modified;
+    systemInjectionSize = systemInjection.length;
+    systemSuccess = result.success;
+  }
+
+  // 2. Inject dynamic content into LAST USER MESSAGE (delta only)
+  if (userMsgInjection && rawBodyStr) {
+    rawBodyStr = appendToLastUserMessage(rawBodyStr, userMsgInjection);
+    userMsgInjectionSize = userMsgInjection.length;
+    userMsgSuccess = true;  // appendToLastUserMessage doesn't return success flag
+  }
+
+  // Determine final body to send
   let finalBodyToSend: string | Buffer;
 
-  if (injectionText && rawBodyStr) {
-    // Inject directly into raw bytes (preserves original formatting for cache)
-    const result = injectIntoRawBody(rawBodyStr, '\n\n' + injectionText);
-    finalBodyToSend = result.modified;
+  if (systemInjection || userMsgInjection) {
+    finalBodyToSend = rawBodyStr;
+
+    // Log INJECTION to file with full details
+    const wasCached = (processedBody as Record<string, unknown>).__grovInjectionCached as boolean;
+    proxyLog({
+      requestId: currentRequestId,
+      type: 'INJECTION',
+      sessionId: sessionInfo.sessionId.substring(0, 8),
+      data: {
+        systemInjectionSize,
+        userMsgInjectionSize,
+        totalInjectionSize: systemInjectionSize + userMsgInjectionSize,
+        originalSize: rawBody?.length || 0,
+        finalSize: rawBodyStr.length,
+        systemSuccess,
+        userMsgSuccess,
+        teamMemoryCached: wasCached,
+        // Include actual content for debugging (truncated for log readability)
+        systemInjectionPreview: systemInjection ? systemInjection.substring(0, 200) + (systemInjection.length > 200 ? '...' : '') : null,
+        userMsgInjectionContent: userMsgInjection || null,  // Full content since it's small
+      },
+    });
   } else if (rawBody) {
     // No injection, use original raw bytes
     finalBodyToSend = rawBody;
@@ -299,6 +642,32 @@ async function handleMessages(
 
     const latency = Date.now() - startTime;
     const filteredHeaders = filterResponseHeaders(result.headers);
+
+    // Log token usage (always to console, file only in debug mode)
+    if (isAnthropicResponse(result.body)) {
+      const usage = extractTokenUsage(result.body);
+
+      // Console: compact token summary (always shown)
+      logTokenUsage(currentRequestId, usage, latency);
+
+      // File: detailed response log (debug mode only)
+      proxyLog({
+        requestId: currentRequestId,
+        type: 'RESPONSE',
+        sessionId: sessionInfo.sessionId.substring(0, 8),
+        data: {
+          statusCode: result.statusCode,
+          latencyMs: latency,
+          forwardLatencyMs: forwardLatency,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheCreation: usage.cacheCreation,
+          cacheRead: usage.cacheRead,
+          cacheHitRatio: usage.cacheRead > 0 ? (usage.cacheRead / (usage.cacheRead + usage.cacheCreation)).toFixed(2) : '0.00',
+          wasSSE: result.wasSSE,
+        },
+      });
+    }
 
     // If response was SSE, forward raw SSE to Claude Code (it expects streaming)
     // Otherwise, send JSON
@@ -471,96 +840,111 @@ async function preProcessRequest(
   // Detect request type: first, continuation, or retry
   const requestType = detectRequestType(modified.messages || [], sessionInfo.sessionId);
 
-  // Team context injection is now done via RAW BODY modification
-  // to preserve cache for existing content. See injectIntoRawBody() call in handleMessages.
-  const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-  const teamContext = buildTeamMemoryContext(sessionInfo.projectPath, mentionedFiles);
+  // === NEW ARCHITECTURE: Separate static and dynamic injection ===
+  //
+  // STATIC (system prompt, cached):
+  //   - Team memory from PAST sessions only
+  //   - CLEAR summary when triggered
+  //   -> Uses __grovInjection + injectIntoRawBody()
+  //
+  // DYNAMIC (user message, delta only):
+  //   - Files edited in current session
+  //   - Key decisions with reasoning
+  //   - Drift correction, forced recovery
+  //   -> Uses __grovUserMsgInjection + appendToLastUserMessage()
 
-  // Store injection text for later use (will be injected into raw bytes)
-  if (teamContext) {
-    (modified as Record<string, unknown>).__grovInjection = teamContext;
+  // Get session state
+  const sessionState = getSessionState(sessionInfo.sessionId);
+
+  // === CLEAR MODE (100% threshold) ===
+  // If token count exceeds threshold AND we have a pre-computed summary, apply CLEAR
+  if (sessionState) {
+    const currentTokenCount = sessionState.token_count || 0;
+
+    if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD &&
+        sessionState.pending_clear_summary) {
+
+      logger.info({
+        msg: 'CLEAR MODE ACTIVATED - resetting conversation',
+        tokenCount: currentTokenCount,
+        threshold: config.TOKEN_CLEAR_THRESHOLD,
+        summaryLength: sessionState.pending_clear_summary.length,
+      });
+
+      // 1. Empty messages array (fundamental reset)
+      modified.messages = [];
+
+      // 2. Inject summary into system prompt (this will cause cache miss - intentional)
+      appendToSystemPrompt(modified, sessionState.pending_clear_summary);
+
+      // 3. Mark session as cleared
+      markCleared(sessionInfo.sessionId);
+
+      // 4. Clear pending summary and invalidate team memory cache (new baseline)
+      updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
+      cachedInjections.delete(sessionInfo.sessionId);
+
+      // 5. Clear tracking (fresh start after CLEAR)
+      sessionInjectionTracking.delete(sessionInfo.sessionId);
+
+      logger.info({ msg: 'CLEAR complete - conversation reset with summary' });
+
+      return modified;  // Skip other injections - this is a complete reset
+    }
   }
 
-  // SKIP heavy operations (drift check, session ops) for retries and continuations
+  // === STATIC INJECTION: Team memory (PAST sessions only) ===
+  // Cached per session - identical across all requests for cache preservation
+
+  const cachedTeamMemory = cachedInjections.get(sessionInfo.sessionId);
+
+  if (cachedTeamMemory) {
+    // Reuse cached team memory (constant for this session)
+    (modified as Record<string, unknown>).__grovInjection = cachedTeamMemory;
+    (modified as Record<string, unknown>).__grovInjectionCached = true;
+    logger.info({ msg: 'Using cached team memory', size: cachedTeamMemory.length });
+  } else {
+    // First request: compute team memory from PAST sessions only
+    const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+    // Pass currentSessionId to exclude current session data
+    const teamContext = buildTeamMemoryContext(
+      sessionInfo.projectPath,
+      mentionedFiles,
+      sessionInfo.sessionId  // Exclude current session
+    );
+
+    if (teamContext) {
+      (modified as Record<string, unknown>).__grovInjection = teamContext;
+      (modified as Record<string, unknown>).__grovInjectionCached = false;
+      // Cache for future requests (stays constant)
+      cachedInjections.set(sessionInfo.sessionId, teamContext);
+      logger.info({ msg: 'Computed and cached team memory', size: teamContext.length });
+    }
+  }
+
+  // SKIP dynamic injection for retries and continuations
   if (requestType !== 'first') {
     return modified;
   }
 
-  // === FIRST REQUEST ONLY: Heavy operations below ===
+  // === DYNAMIC INJECTION: User message (delta only) ===
+  // Includes: edited files, key decisions, drift correction, forced recovery
+  // This goes into the LAST user message, not system prompt
 
-  // THEN: Session-specific operations
-  const sessionState = getSessionState(sessionInfo.sessionId);
+  const dynamicInjection = buildDynamicInjection(sessionInfo.sessionId, sessionState, logger);
 
-  if (!sessionState) {
-    return modified;  // Injection already happened above!
+  if (dynamicInjection) {
+    (modified as Record<string, unknown>).__grovUserMsgInjection = dynamicInjection;
+    logger.info({ msg: 'Dynamic injection ready for user message', size: dynamicInjection.length });
+
+    // Clear pending corrections after building injection
+    if (sessionState?.pending_correction || sessionState?.pending_forced_recovery) {
+      updateSessionState(sessionInfo.sessionId, {
+        pending_correction: undefined,
+        pending_forced_recovery: undefined,
+      });
+    }
   }
-
-  // === CLEAR MODE (100% threshold) ===
-  // If token count exceeds threshold AND we have a pre-computed summary, apply CLEAR
-  const currentTokenCount = sessionState.token_count || 0;
-
-  if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD &&
-      sessionState.pending_clear_summary) {
-
-    logger.info({
-      msg: 'CLEAR MODE ACTIVATED - resetting conversation',
-      tokenCount: currentTokenCount,
-      threshold: config.TOKEN_CLEAR_THRESHOLD,
-      summaryLength: sessionState.pending_clear_summary.length,
-    });
-
-    // 1. Empty messages array (fundamental reset)
-    modified.messages = [];
-
-    // 2. Inject summary into system prompt (this will cause cache miss - intentional)
-    appendToSystemPrompt(modified, sessionState.pending_clear_summary);
-
-    // 3. Mark session as cleared
-    markCleared(sessionInfo.sessionId);
-
-    // 4. Clear pending summary
-    updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
-
-    // 5. Clear __grovInjection since we're doing a full reset anyway
-    // (cache will miss regardless due to messages=[] and system prompt change)
-    delete (modified as Record<string, unknown>).__grovInjection;
-
-    logger.info({ msg: 'CLEAR complete - conversation reset with summary' });
-
-    return modified;  // Skip other injections - this is a complete reset
-  }
-
-  // Extract latest user message for drift checking
-  const latestUserMessage = extractGoalFromMessages(body.messages) || '';
-
-  // === INJECT PRE-COMPUTED CORRECTIONS (fire-and-forget pattern) ===
-  // Corrections are computed in postProcessResponse and stored in sessionState
-  // This avoids blocking Haiku calls in the request path
-
-  let additionalInjection = '';
-
-  // Drift correction (pending_correction)
-  if (sessionState.pending_correction) {
-    additionalInjection += '\n\n=== DRIFT CORRECTION ===\n' + sessionState.pending_correction;
-    updateSessionState(sessionInfo.sessionId, { pending_correction: undefined });
-    logger.info({ msg: 'Injected pending drift correction' });
-  }
-
-  // Forced recovery (pending_forced_recovery) - more aggressive than drift
-  if (sessionState.pending_forced_recovery) {
-    additionalInjection += '\n\n=== FORCED RECOVERY ===\n' + sessionState.pending_forced_recovery;
-    updateSessionState(sessionInfo.sessionId, { pending_forced_recovery: undefined });
-    logger.info({ msg: 'Injected pending forced recovery' });
-  }
-
-  // Combine with existing __grovInjection (team context)
-  if (additionalInjection) {
-    const existingInjection = (modified as Record<string, unknown>).__grovInjection as string || '';
-    (modified as Record<string, unknown>).__grovInjection = existingInjection + additionalInjection;
-  }
-
-  // Note: Team memory context injection is now at the TOP of preProcessRequest()
-  // so it runs even when sessionState is null (new sessions)
 
   return modified;
 }
@@ -912,8 +1296,14 @@ async function postProcessResponse(
 
   // Extract token usage
   const usage = extractTokenUsage(response);
+
+  // Use cache metrics as actual context size (cacheCreation + cacheRead)
+  // This is what Anthropic bills for and what determines CLEAR threshold
+  const actualContextSize = usage.cacheCreation + usage.cacheRead;
+
   if (activeSession) {
-    updateTokenCount(activeSessionId, usage.totalTokens);
+    // Set to actual context size (not cumulative - context size IS the total)
+    updateTokenCount(activeSessionId, actualContextSize);
   }
 
   logger.info({
@@ -921,16 +1311,19 @@ async function postProcessResponse(
     input: usage.inputTokens,
     output: usage.outputTokens,
     total: usage.totalTokens,
+    cacheCreation: usage.cacheCreation,
+    cacheRead: usage.cacheRead,
+    actualContextSize,
     activeSession: activeSessionId.substring(0, 8),
   });
 
   // === CLEAR MODE PRE-COMPUTE (85% threshold) ===
   // Pre-compute summary before hitting 100% threshold to avoid blocking Haiku call
   const preComputeThreshold = Math.floor(config.TOKEN_CLEAR_THRESHOLD * 0.85);
-  const currentTokenCount = (activeSession?.token_count || 0) + usage.totalTokens;
 
+  // Use actualContextSize (cacheCreation + cacheRead) as the real context size
   if (activeSession &&
-      currentTokenCount > preComputeThreshold &&
+      actualContextSize > preComputeThreshold &&
       !activeSession.pending_clear_summary &&
       isSummaryAvailable()) {
 
@@ -942,7 +1335,7 @@ async function postProcessResponse(
       updateSessionState(activeSessionId, { pending_clear_summary: summary });
       logger.info({
         msg: 'CLEAR summary pre-computed',
-        tokenCount: currentTokenCount,
+        actualContextSize,
         threshold: preComputeThreshold,
         summaryLength: summary.length,
       });
@@ -1102,6 +1495,9 @@ async function postProcessResponse(
 
   // Save each action as a step (with reasoning from Claude's text)
   for (const action of actions) {
+    // Detect key decisions based on action type and reasoning content
+    const isKeyDecision = detectKeyDecision(action, textContent);
+
     createStep({
       session_id: activeSessionId,
       action_type: action.actionType,
@@ -1111,8 +1507,53 @@ async function postProcessResponse(
       reasoning: textContent.substring(0, 1000),  // Claude's explanation (truncated)
       drift_score: driftScore,
       is_validated: !skipSteps,
+      is_key_decision: isKeyDecision,
     });
+
+    if (isKeyDecision) {
+      logger.info({
+        msg: 'Key decision detected',
+        actionType: action.actionType,
+        files: action.files.slice(0, 3),
+      });
+    }
   }
+}
+
+/**
+ * Detect if an action represents a key decision worth injecting later
+ * Key decisions are:
+ * - Edit/write actions (code modifications)
+ * - Actions with decision-related keywords in reasoning
+ * - Actions with substantial reasoning content
+ */
+function detectKeyDecision(
+  action: { actionType: string; files: string[]; command?: string },
+  reasoning: string
+): boolean {
+  // Code modifications are always key decisions
+  if (action.actionType === 'edit' || action.actionType === 'write') {
+    return true;
+  }
+
+  // Check for decision-related keywords in reasoning
+  const decisionKeywords = [
+    'decision', 'decided', 'chose', 'chosen', 'selected', 'picked',
+    'approach', 'strategy', 'solution', 'implementation',
+    'because', 'reason', 'rationale', 'trade-off', 'tradeoff',
+    'instead of', 'rather than', 'prefer', 'opted',
+    'conclusion', 'determined', 'resolved'
+  ];
+
+  const reasoningLower = reasoning.toLowerCase();
+  const hasDecisionKeyword = decisionKeywords.some(kw => reasoningLower.includes(kw));
+
+  // Substantial reasoning (>200 chars) with decision keyword = key decision
+  if (hasDecisionKeyword && reasoning.length > 200) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -1283,14 +1724,19 @@ function isAnthropicResponse(body: unknown): body is AnthropicResponse {
 
 /**
  * Start the proxy server
+ * @param options.debug - Enable debug logging to grov-proxy.log
  */
-export async function startServer(): Promise<FastifyInstance> {
+export async function startServer(options: { debug?: boolean } = {}): Promise<FastifyInstance> {
+  // Set debug mode based on flag
+  if (options.debug) {
+    setDebugMode(true);
+    console.log('[DEBUG] Logging to grov-proxy.log');
+  }
+
   const server = createServer();
 
   // Cleanup old completed sessions (older than 24 hours)
-  const cleanedUp = cleanupOldCompletedSessions();
-  if (cleanedUp > 0) {
-  }
+  cleanupOldCompletedSessions();
 
   try {
     await server.listen({
@@ -1298,7 +1744,7 @@ export async function startServer(): Promise<FastifyInstance> {
       port: config.PORT,
     });
 
-    console.log(`✓ Grov Proxy: http://${config.HOST}:${config.PORT} → ${config.ANTHROPIC_BASE_URL}`);
+    console.log(`Grov Proxy: http://${config.HOST}:${config.PORT} -> ${config.ANTHROPIC_BASE_URL}`);
 
     return server;
   } catch (err) {

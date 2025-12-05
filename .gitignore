@@ -1,10 +1,56 @@
+# Dependencies
 node_modules/
+
+# Build outputs
 dist/
-*.log
-.DS_Store
+*.tsbuildinfo
+
+# Next.js
+dashboard/.next/
+dashboard/out/
+
+# Astro (landing page)
+landing/.astro/
+landing/dist/
+landing/src/env.d.ts
+
+# Shared package
+shared/dist/
+
+# API
+api/dist/
+
+# Turbo
+.turbo/
+
+# Environment files
 .env
 .env.local
+.env.*.local
+dashboard/.env
+dashboard/.env.local
+api/.env
+api/.env.local
 
-# Astro auto-generated files (landing page)
-landing/.astro/
-landing/src/env.d.ts
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.tgz
+.vercel

@@ -3,7 +3,7 @@
 
 import { createHash } from 'crypto';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { config, maskSensitiveValue } from './config.js';
+import { config, maskSensitiveValue, buildSafeHeaders } from './config.js';
 import { forwardToAnthropic, isForwardError } from './forwarder.js';
 import { parseToolUseBlocks, extractTokenUsage, getAllFiles, getAllFolders } from './action-parser.js';
 import type { AnthropicResponse } from './action-parser.js';
@@ -64,12 +64,214 @@ import * as path from 'path';
 // Store last drift result for recovery alignment check
 const lastDriftResults = new Map<string, DriftCheckResult>();
 
+// Server logger reference (set in startServer)
+let serverLog: { info: (msg: string | object) => void } | null = null;
+
+/** Log helper for extended cache - always uses console.log for visibility */
+function log(msg: string): void {
+  console.log(`[CACHE] ${msg}`);
+}
+
 // Track last messageCount per session to detect retries vs new turns
 const lastMessageCount = new Map<string, number>();
 
 // Cache injection content per session (MUST be identical across requests for cache preservation)
 // Stored in memory because session DB state doesn't exist on first request
 const cachedInjections = new Map<string, string>();
+
+// ============================================
+// EXTENDED CACHE - Keep Anthropic cache alive during idle
+// ============================================
+
+interface ExtendedCacheEntry {
+  headers: Record<string, string>;  // Safe headers via buildSafeHeaders()
+  rawBody: Buffer;                  // Exact request bytes for prefix matching
+  timestamp: number;                // Last activity (for idle calculation)
+  keepAliveCount: number;           // Track attempts (max 2)
+}
+
+const extendedCache = new Map<string, ExtendedCacheEntry>();
+
+// Timing constants
+const EXTENDED_CACHE_IDLE_THRESHOLD = 4 * 60 * 1000;  // 4 minutes (under 5-min TTL)
+const EXTENDED_CACHE_MAX_IDLE = 10 * 60 * 1000;       // 10 minutes total
+const EXTENDED_CACHE_MAX_KEEPALIVES = 2;
+const EXTENDED_CACHE_MAX_ENTRIES = 100;               // Max concurrent sessions (memory cap)
+
+/**
+ * Evict oldest entry if cache is at capacity.
+ * Uses LRU based on timestamp.
+ */
+function evictOldestCacheEntry(): void {
+  if (extendedCache.size < EXTENDED_CACHE_MAX_ENTRIES) return;
+
+  let oldestId: string | null = null;
+  let oldestTime = Infinity;
+
+  for (const [id, entry] of extendedCache) {
+    if (entry.timestamp < oldestTime) {
+      oldestTime = entry.timestamp;
+      oldestId = id;
+    }
+  }
+
+  if (oldestId) {
+    extendedCache.delete(oldestId);
+    log(`Extended cache: evicted ${oldestId.substring(0, 8)} (capacity limit)`);
+  }
+}
+
+/**
+ * Send keep-alive request to Anthropic to refresh cache TTL.
+ * CRITICAL: Uses raw string manipulation to preserve cache prefix matching.
+ */
+async function sendExtendedCacheKeepAlive(sessionId: string, entry: ExtendedCacheEntry): Promise<void> {
+  let rawBodyStr = entry.rawBody.toString('utf-8');
+
+  // 1. Find messages array and add "." message before closing bracket
+  const messagesMatch = rawBodyStr.match(/"messages"\s*:\s*\[/);
+  if (!messagesMatch || messagesMatch.index === undefined) {
+    throw new Error('Cannot find messages array in rawBody');
+  }
+
+  // Find closing bracket of messages array (handling nested arrays/objects)
+  const messagesStart = messagesMatch.index + messagesMatch[0].length;
+  let bracketDepth = 1;  // We're inside the [ already
+  let braceDepth = 0;    // Track {} for objects
+  let inString = false;  // Track if we're inside a string
+  let messagesEnd = messagesStart;
+
+  for (let i = messagesStart; i < rawBodyStr.length && bracketDepth > 0; i++) {
+    const char = rawBodyStr[i];
+    const prevChar = i > 0 ? rawBodyStr[i - 1] : '';
+
+    // Handle string boundaries (skip escaped quotes)
+    if (char === '"' && prevChar !== '\\') {
+      inString = !inString;
+      continue;
+    }
+
+    // Skip everything inside strings
+    if (inString) continue;
+
+    // Track brackets and braces
+    if (char === '[') bracketDepth++;
+    else if (char === ']') bracketDepth--;
+    else if (char === '{') braceDepth++;
+    else if (char === '}') braceDepth--;
+
+    // Found the closing bracket of messages array
+    if (bracketDepth === 0) {
+      messagesEnd = i;
+      break;
+    }
+  }
+
+  // Safety check: did we find the end?
+  if (bracketDepth !== 0) {
+    throw new Error(`Could not find closing bracket of messages array (depth=${bracketDepth})`);
+  }
+
+  // Check if array has content (anything between messagesStart and messagesEnd)
+  const arrayContent = rawBodyStr.slice(messagesStart, messagesEnd).trim();
+  const messagesIsEmpty = arrayContent.length === 0;
+
+  // Insert minimal user message before closing bracket
+  const keepAliveMsg = messagesIsEmpty
+    ? '{"role":"user","content":"."}'
+    : ',{"role":"user","content":"."}';
+
+  log(`Extended cache: SEND keep-alive session=${sessionId.substring(0, 8)} msg_array_size=${messagesEnd - messagesStart}`);
+
+  rawBodyStr = rawBodyStr.slice(0, messagesEnd) + keepAliveMsg + rawBodyStr.slice(messagesEnd);
+
+  // NOTE: We do NOT modify max_tokens or stream!
+  // Keeping them identical preserves the cache prefix for byte-exact matching.
+  // Claude will respond briefly to "." anyway, and forwarder handles streaming.
+
+  // 2. Validate JSON after manipulation
+  try {
+    JSON.parse(rawBodyStr);
+  } catch (e) {
+    throw new Error(`Invalid JSON after modifications: ${e instanceof Error ? e.message : 'unknown'}`);
+  }
+
+  // 5. Forward to Anthropic using same undici path as regular requests
+  const result = await forwardToAnthropic(
+    {},
+    entry.headers as Record<string, string | string[] | undefined>,
+    undefined,
+    Buffer.from(rawBodyStr, 'utf-8')
+  );
+
+  if (result.statusCode !== 200) {
+    throw new Error(`Keep-alive failed: ${result.statusCode}`);
+  }
+
+  // Log cache metrics
+  const usage = (result.body as Record<string, unknown>).usage as Record<string, number> | undefined;
+  const cacheRead = usage?.cache_read_input_tokens || 0;
+  const cacheCreate = usage?.cache_creation_input_tokens || 0;
+  const inputTokens = usage?.input_tokens || 0;
+  log(`Extended cache: keep-alive for ${sessionId.substring(0, 8)} - cache_read=${cacheRead}, cache_create=${cacheCreate}, input=${inputTokens}`);
+}
+
+/**
+ * Check all extended cache entries and send keep-alives for idle sessions.
+ * Uses Promise.all for parallel execution.
+ */
+async function checkExtendedCache(): Promise<void> {
+  const now = Date.now();
+  const sessionsToKeepAlive: Array<{ sessionId: string; entry: ExtendedCacheEntry }> = [];
+
+  // First pass: cleanup stale/maxed entries, collect sessions needing keep-alive
+  for (const [sessionId, entry] of extendedCache) {
+    const idleTime = now - entry.timestamp;
+
+    // Stale cleanup: user left after 10 minutes
+    if (idleTime > EXTENDED_CACHE_MAX_IDLE) {
+      extendedCache.delete(sessionId);
+      log(`Extended cache: cleared ${sessionId.substring(0, 8)} (stale)`);
+      continue;
+    }
+
+    // Skip if not idle enough yet
+    if (idleTime < EXTENDED_CACHE_IDLE_THRESHOLD) {
+      continue;
+    }
+
+    // Skip if already sent max keep-alives
+    if (entry.keepAliveCount >= EXTENDED_CACHE_MAX_KEEPALIVES) {
+      extendedCache.delete(sessionId);
+      log(`Extended cache: cleared ${sessionId.substring(0, 8)} (max retries)`);
+      continue;
+    }
+
+    sessionsToKeepAlive.push({ sessionId, entry });
+  }
+
+  // Second pass: send all keep-alives in PARALLEL
+  const keepAlivePromises: Promise<void>[] = [];
+
+  for (const { sessionId, entry } of sessionsToKeepAlive) {
+    const promise = sendExtendedCacheKeepAlive(sessionId, entry)
+      .then(() => {
+        entry.timestamp = Date.now();
+        entry.keepAliveCount++;
+      })
+      .catch((err) => {
+        extendedCache.delete(sessionId);
+        log(`Extended cache: cleared ${sessionId.substring(0, 8)} (error: ${err instanceof Error ? err.message : 'unknown'})`);
+      });
+
+    keepAlivePromises.push(promise);
+  }
+
+  // Wait for all keep-alives to complete
+  if (keepAlivePromises.length > 0) {
+    await Promise.all(keepAlivePromises);
+  }
+}
 
 // ============================================
 // DELTA TRACKING - Avoid duplicate injections
@@ -309,6 +511,28 @@ export function setDebugMode(enabled: boolean): void {
 // ============================================
 
 const PROXY_LOG_PATH = path.join(process.cwd(), 'grov-proxy.log');
+const TASK_LOG_PATH = path.join(process.cwd(), 'grov-task.log');
+
+/**
+ * Task orchestration logger - always active, writes to grov-task.log
+ * Logs: task analysis, intent extraction, orchestration, reasoning
+ */
+function taskLog(event: string, data: Record<string, unknown>): void {
+  const timestamp = new Date().toISOString();
+  const sessionId = data.sessionId ? String(data.sessionId).substring(0, 8) : '-';
+
+  // Format: [timestamp] [session] EVENT: key=value key=value
+  const kvPairs = Object.entries(data)
+    .filter(([k]) => k !== 'sessionId')
+    .map(([k, v]) => {
+      const val = typeof v === 'string' ? v.substring(0, 100) : JSON.stringify(v);
+      return `${k}=${val}`;
+    })
+    .join(' | ');
+
+  const line = `[${timestamp}] [${sessionId}] ${event}: ${kvPairs}\n`;
+  fs.appendFileSync(TASK_LOG_PATH, line);
+}
 let requestCounter = 0;
 
 interface ProxyLogEntry {
@@ -636,7 +860,13 @@ async function handleMessages(
     // FIRE-AND-FORGET: Don't block response to Claude Code
     // This prevents retry loops caused by Haiku calls adding latency
     if (result.statusCode === 200 && isAnthropicResponse(result.body)) {
-      postProcessResponse(result.body, sessionInfo, request.body, logger)
+      // Prepare extended cache data (only if enabled)
+      const extendedCacheData = config.EXTENDED_CACHE_ENABLED ? {
+        headers: buildSafeHeaders(request.headers as Record<string, string | string[] | undefined>),
+        rawBody: typeof finalBodyToSend === 'string' ? Buffer.from(finalBodyToSend, 'utf-8') : finalBodyToSend,
+      } : undefined;
+
+      postProcessResponse(result.body, sessionInfo, request.body, logger, extendedCacheData)
         .catch(err => console.error('[GROV] postProcess error:', err));
     }
 
@@ -963,7 +1193,8 @@ async function postProcessResponse(
   response: AnthropicResponse,
   sessionInfo: { sessionId: string; promptCount: number; projectPath: string; currentSession: SessionState | null; completedSession: SessionState | null },
   requestBody: MessagesRequestBody,
-  logger: { info: (data: Record<string, unknown>) => void }
+  logger: { info: (data: Record<string, unknown>) => void },
+  extendedCacheData?: { headers: Record<string, string>; rawBody: Buffer }
 ): Promise<void> {
   // Parse tool_use blocks
   const actions = parseToolUseBlocks(response);
@@ -993,6 +1224,29 @@ async function postProcessResponse(
     return;
   }
 
+  // === EXTENDED CACHE: Capture for keep-alive ===
+  // Only capture on end_turn (user idle starts now, not during tool_use loops)
+  if (isEndTurn && extendedCacheData) {
+    const rawStr = extendedCacheData.rawBody.toString('utf-8');
+    const hasSystem = rawStr.includes('"system"');
+    const hasTools = rawStr.includes('"tools"');
+    const hasCacheCtrl = rawStr.includes('"cache_control"');
+    const msgMatch = rawStr.match(/"messages"\s*:\s*\[/);
+    const msgPos = msgMatch?.index ?? -1;
+
+    // Evict oldest if at capacity (only for NEW entries, not updates)
+    if (!extendedCache.has(sessionInfo.sessionId)) {
+      evictOldestCacheEntry();
+    }
+
+    extendedCache.set(sessionInfo.sessionId, {
+      headers: extendedCacheData.headers,
+      rawBody: extendedCacheData.rawBody,
+      timestamp: Date.now(),
+      keepAliveCount: 0,
+    });
+    log(`Extended cache: CAPTURE session=${sessionInfo.sessionId.substring(0, 8)} size=${rawStr.length} sys=${hasSystem} tools=${hasTools} cache_ctrl=${hasCacheCtrl} msg_pos=${msgPos}`);
+  }
 
   // If not end_turn (tool_use in progress), skip task orchestration but keep session
   if (!isEndTurn) {
@@ -1035,9 +1289,29 @@ async function postProcessResponse(
         reasoning: taskAnalysis.reasoning,
       });
 
+      // TASK LOG: Analysis result
+      taskLog('TASK_ANALYSIS', {
+        sessionId: sessionInfo.sessionId,
+        action: taskAnalysis.action,
+        topic_match: taskAnalysis.topic_match,
+        goal: taskAnalysis.current_goal || '',
+        reasoning: taskAnalysis.reasoning || '',
+        userMessage: latestUserMessage.substring(0, 80),
+        hasCurrentSession: !!sessionInfo.currentSession,
+        hasCompletedSession: !!sessionInfo.completedSession,
+      });
+
       // Update recent steps with reasoning (backfill from end_turn response)
       if (taskAnalysis.step_reasoning && activeSessionId) {
         const updatedCount = updateRecentStepsReasoning(activeSessionId, taskAnalysis.step_reasoning);
+
+        // TASK LOG: Step reasoning update
+        taskLog('STEP_REASONING', {
+          sessionId: activeSessionId,
+          stepsUpdated: updatedCount,
+          reasoningEntries: Object.keys(taskAnalysis.step_reasoning).length,
+          stepIds: Object.keys(taskAnalysis.step_reasoning).join(','),
+        });
       }
 
       // Handle task orchestration based on analysis
@@ -1058,6 +1332,13 @@ async function postProcessResponse(
               });
               activeSession.original_goal = taskAnalysis.current_goal;
             }
+            // TASK LOG: Continue existing session
+            taskLog('ORCHESTRATION_CONTINUE', {
+              sessionId: activeSessionId,
+              source: 'current_session',
+              goal: activeSession.original_goal,
+              goalUpdated: taskAnalysis.current_goal !== activeSession.original_goal,
+            });
           } else if (sessionInfo.completedSession) {
             // Reactivate completed session (user wants to continue/add to it)
             activeSessionId = sessionInfo.completedSession.session_id;
@@ -1071,6 +1352,13 @@ async function postProcessResponse(
               sessionId: activeSessionId,
               promptCount: 1,
               projectPath: sessionInfo.projectPath,
+            });
+
+            // TASK LOG: Reactivate completed session
+            taskLog('ORCHESTRATION_CONTINUE', {
+              sessionId: activeSessionId,
+              source: 'reactivated_completed',
+              goal: activeSession.original_goal,
             });
           }
           break;
@@ -1093,8 +1381,24 @@ async function postProcessResponse(
             try {
               intentData = await extractIntent(latestUserMessage);
               logger.info({ msg: 'Intent extracted for new task', scopeCount: intentData.expected_scope.length });
+
+              // TASK LOG: Intent extraction for new_task
+              taskLog('INTENT_EXTRACTION', {
+                sessionId: sessionInfo.sessionId,
+                context: 'new_task',
+                goal: intentData.goal,
+                scopeCount: intentData.expected_scope.length,
+                scope: intentData.expected_scope.join(', '),
+                constraints: intentData.constraints.join(', '),
+                keywords: intentData.keywords.join(', '),
+              });
             } catch (err) {
               logger.info({ msg: 'Intent extraction failed, using basic goal', error: String(err) });
+              taskLog('INTENT_EXTRACTION_FAILED', {
+                sessionId: sessionInfo.sessionId,
+                context: 'new_task',
+                error: String(err),
+              });
             }
           }
 
@@ -1115,6 +1419,14 @@ async function postProcessResponse(
             projectPath: sessionInfo.projectPath,
           });
           logger.info({ msg: 'Created new task session', sessionId: newSessionId.substring(0, 8) });
+
+          // TASK LOG: New task created
+          taskLog('ORCHESTRATION_NEW_TASK', {
+            sessionId: newSessionId,
+            goal: intentData.goal,
+            scopeCount: intentData.expected_scope.length,
+            keywordsCount: intentData.keywords.length,
+          });
           break;
         }
 
@@ -1129,7 +1441,16 @@ async function postProcessResponse(
           if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
             try {
               intentData = await extractIntent(latestUserMessage);
-            } catch { /* use fallback */ }
+              taskLog('INTENT_EXTRACTION', {
+                sessionId: sessionInfo.sessionId,
+                context: 'subtask',
+                goal: intentData.goal,
+                scope: intentData.expected_scope.join(', '),
+                keywords: intentData.keywords.join(', '),
+              });
+            } catch (err) {
+              taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'subtask', error: String(err) });
+            }
           }
 
           const parentId = sessionInfo.currentSession?.session_id || taskAnalysis.parent_task_id;
@@ -1151,6 +1472,13 @@ async function postProcessResponse(
             projectPath: sessionInfo.projectPath,
           });
           logger.info({ msg: 'Created subtask session', sessionId: subtaskId.substring(0, 8), parent: parentId?.substring(0, 8) });
+
+          // TASK LOG: Subtask created
+          taskLog('ORCHESTRATION_SUBTASK', {
+            sessionId: subtaskId,
+            parentId: parentId || 'none',
+            goal: intentData.goal,
+          });
           break;
         }
 
@@ -1165,7 +1493,16 @@ async function postProcessResponse(
           if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
             try {
               intentData = await extractIntent(latestUserMessage);
-            } catch { /* use fallback */ }
+              taskLog('INTENT_EXTRACTION', {
+                sessionId: sessionInfo.sessionId,
+                context: 'parallel_task',
+                goal: intentData.goal,
+                scope: intentData.expected_scope.join(', '),
+                keywords: intentData.keywords.join(', '),
+              });
+            } catch (err) {
+              taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'parallel_task', error: String(err) });
+            }
           }
 
           const parentId = sessionInfo.currentSession?.session_id || taskAnalysis.parent_task_id;
@@ -1187,6 +1524,13 @@ async function postProcessResponse(
             projectPath: sessionInfo.projectPath,
           });
           logger.info({ msg: 'Created parallel task session', sessionId: parallelId.substring(0, 8), parent: parentId?.substring(0, 8) });
+
+          // TASK LOG: Parallel task created
+          taskLog('ORCHESTRATION_PARALLEL', {
+            sessionId: parallelId,
+            parentId: parentId || 'none',
+            goal: intentData.goal,
+          });
           break;
         }
 
@@ -1199,6 +1543,12 @@ async function postProcessResponse(
               activeSessions.delete(sessionInfo.currentSession.session_id);
               lastDriftResults.delete(sessionInfo.currentSession.session_id);
               logger.info({ msg: 'Task complete - saved to team memory, marked completed' });
+
+              // TASK LOG: Task completed
+              taskLog('ORCHESTRATION_TASK_COMPLETE', {
+                sessionId: sessionInfo.currentSession.session_id,
+                goal: sessionInfo.currentSession.original_goal,
+              });
             } catch (err) {
               logger.info({ msg: 'Failed to save completed task', error: String(err) });
             }
@@ -1223,6 +1573,13 @@ async function postProcessResponse(
                   activeSessionId = parentId;
                   activeSession = parentSession;
                   logger.info({ msg: 'Subtask complete - returning to parent', parent: parentId.substring(0, 8) });
+
+                  // TASK LOG: Subtask completed
+                  taskLog('ORCHESTRATION_SUBTASK_COMPLETE', {
+                    sessionId: sessionInfo.currentSession.session_id,
+                    parentId: parentId,
+                    goal: sessionInfo.currentSession.original_goal,
+                  });
                 }
               }
             } catch (err) {
@@ -1245,7 +1602,15 @@ async function postProcessResponse(
         if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
           try {
             intentData = await extractIntent(latestUserMessage);
-          } catch { /* use fallback */ }
+            taskLog('INTENT_EXTRACTION', {
+              sessionId: sessionInfo.sessionId,
+              context: 'fallback_analysis_failed',
+              goal: intentData.goal,
+              scope: intentData.expected_scope.join(', '),
+            });
+          } catch (err) {
+            taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'fallback_analysis_failed', error: String(err) });
+          }
         }
 
         const newSessionId = randomUUID();
@@ -1263,6 +1628,12 @@ async function postProcessResponse(
     }
   } else {
     // No task analysis available - fallback with intent extraction
+    taskLog('TASK_ANALYSIS_UNAVAILABLE', {
+      sessionId: sessionInfo.sessionId,
+      hasCurrentSession: !!sessionInfo.currentSession,
+      userMessage: latestUserMessage.substring(0, 80),
+    });
+
     if (!sessionInfo.currentSession) {
       let intentData = {
         goal: latestUserMessage.substring(0, 500),
@@ -1274,7 +1645,15 @@ async function postProcessResponse(
         try {
           intentData = await extractIntent(latestUserMessage);
           logger.info({ msg: 'Intent extracted (fallback)', scopeCount: intentData.expected_scope.length });
-        } catch { /* use fallback */ }
+          taskLog('INTENT_EXTRACTION', {
+            sessionId: sessionInfo.sessionId,
+            context: 'no_analysis_available',
+            goal: intentData.goal,
+            scope: intentData.expected_scope.join(', '),
+          });
+        } catch (err) {
+          taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'no_analysis_available', error: String(err) });
+        }
       }
 
       const newSessionId = randomUUID();
@@ -1735,8 +2114,54 @@ export async function startServer(options: { debug?: boolean } = {}): Promise<Fa
 
   const server = createServer();
 
+  // Set server logger for background tasks
+  serverLog = server.log;
+
   // Cleanup old completed sessions (older than 24 hours)
   cleanupOldCompletedSessions();
+
+  // Start extended cache timer if enabled
+  let extendedCacheTimer: NodeJS.Timeout | null = null;
+
+  if (config.EXTENDED_CACHE_ENABLED) {
+    extendedCacheTimer = setInterval(checkExtendedCache, 60_000);
+    log('Extended cache: enabled (keep-alive timer started)');
+
+    // Cleanup on shutdown - clear timer and sensitive data
+    const cleanupExtendedCache = () => {
+      log('Shutdown initiated...');
+
+      // 1. Stop the timer first
+      if (extendedCacheTimer) {
+        clearInterval(extendedCacheTimer);
+        extendedCacheTimer = null;
+        log('Extended cache: timer stopped');
+      }
+
+      // 2. Clear sensitive data
+      if (extendedCache.size > 0) {
+        log(`Extended cache: clearing ${extendedCache.size} entries`);
+        for (const entry of extendedCache.values()) {
+          for (const key of Object.keys(entry.headers)) {
+            entry.headers[key] = '';
+          }
+          entry.rawBody = Buffer.alloc(0);
+        }
+        extendedCache.clear();
+      }
+
+      // 3. Close server and exit
+      server.close().then(() => {
+        log('Server closed. Goodbye!');
+        process.exit(0);
+      }).catch(() => {
+        process.exit(1);
+      });
+    };
+
+    process.on('SIGTERM', cleanupExtendedCache);
+    process.on('SIGINT', cleanupExtendedCache);
+  }
 
   try {
     await server.listen({

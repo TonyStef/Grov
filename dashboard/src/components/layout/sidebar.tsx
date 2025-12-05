@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -9,7 +10,12 @@ import {
   Users,
   Settings,
   ChevronDown,
+  Check,
+  Plus,
 } from 'lucide-react';
+import { useTeamStore, useCurrentTeam, useTeams } from '@/stores/team-store';
+import { getInitials } from '@/lib/utils';
+import type { Team } from '@grov/shared';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: Home },
@@ -19,8 +25,32 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  initialTeams?: Team[];
+}
+
+export function Sidebar({ initialTeams }: SidebarProps) {
   const pathname = usePathname();
+  const [isTeamMenuOpen, setIsTeamMenuOpen] = useState(false);
+
+  const currentTeam = useCurrentTeam();
+  const teams = useTeams();
+  const setTeams = useTeamStore((state) => state.setTeams);
+  const setCurrentTeam = useTeamStore((state) => state.setCurrentTeam);
+
+  // Initialize teams from server data
+  useEffect(() => {
+    if (initialTeams && initialTeams.length > 0) {
+      setTeams(initialTeams);
+    }
+  }, [initialTeams, setTeams]);
+
+  const handleTeamSelect = (teamId: string) => {
+    setCurrentTeam(teamId);
+    setIsTeamMenuOpen(false);
+    // Refresh the page to load new team data
+    window.location.reload();
+  };
 
   return (
     <aside className="flex w-64 flex-col border-r border-border bg-bg-1">
@@ -34,16 +64,75 @@ export function Sidebar() {
       </div>
 
       {/* Team Switcher */}
-      <div className="border-b border-border p-4">
-        <button className="flex w-full items-center justify-between rounded-md bg-bg-2 px-3 py-2 text-sm transition-colors hover:bg-bg-3">
+      <div className="relative border-b border-border p-4">
+        <button
+          onClick={() => setIsTeamMenuOpen(!isTeamMenuOpen)}
+          className="flex w-full items-center justify-between rounded-md bg-bg-2 px-3 py-2 text-sm transition-colors hover:bg-bg-3"
+        >
           <div className="flex items-center gap-2">
             <div className="flex h-6 w-6 items-center justify-center rounded bg-accent-400/20 text-xs font-medium text-accent-400">
-              T
+              {currentTeam ? getInitials(currentTeam.name) : '?'}
             </div>
-            <span>My Team</span>
+            <span className="truncate max-w-[140px]">
+              {currentTeam?.name || 'No Team'}
+            </span>
           </div>
-          <ChevronDown className="h-4 w-4 text-text-muted" />
+          <ChevronDown
+            className={`h-4 w-4 text-text-muted transition-transform ${
+              isTeamMenuOpen ? 'rotate-180' : ''
+            }`}
+          />
         </button>
+
+        {/* Team Dropdown */}
+        {isTeamMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setIsTeamMenuOpen(false)}
+            />
+
+            {/* Menu */}
+            <div className="absolute left-4 right-4 top-full z-20 mt-1 rounded-md border border-border bg-bg-1 py-1 shadow-lg">
+              {teams.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-text-muted">
+                  No teams yet
+                </div>
+              ) : (
+                teams.map((team) => (
+                  <button
+                    key={team.id}
+                    onClick={() => handleTeamSelect(team.id)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-bg-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-5 w-5 items-center justify-center rounded bg-accent-400/20 text-xs font-medium text-accent-400">
+                        {getInitials(team.name)}
+                      </div>
+                      <span className="truncate">{team.name}</span>
+                    </div>
+                    {team.id === currentTeam?.id && (
+                      <Check className="h-4 w-4 text-accent-400" />
+                    )}
+                  </button>
+                ))
+              )}
+
+              {/* Create new team link */}
+              <div className="border-t border-border mt-1 pt-1">
+                <Link
+                  href="/team"
+                  onClick={() => setIsTeamMenuOpen(false)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:bg-bg-2 hover:text-text-primary"
+                >
+                  <Plus className="h-4 w-4" />
+                  Create new team
+                </Link>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Navigation */}

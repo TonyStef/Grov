@@ -4,8 +4,19 @@
 
 import { useState } from 'react';
 
+// Support both string[] and object[] formats
+type TraceStep = string | { step?: number; thought: string };
+
 interface ReasoningTraceProps {
-  trace: string[];
+  trace: TraceStep[];
+}
+
+// Extract text from a trace step (handles both string and object formats)
+function getStepText(step: TraceStep): string {
+  if (typeof step === 'string') {
+    return step;
+  }
+  return step.thought || '';
 }
 
 export function ReasoningTrace({ trace }: ReasoningTraceProps) {
@@ -65,63 +76,66 @@ export function ReasoningTrace({ trace }: ReasoningTraceProps) {
       </div>
 
       <div className="space-y-3">
-        {trace.map((step, index) => (
-          <div
-            key={index}
-            className="rounded-md border border-border/50 bg-bg-0/50"
-          >
-            <button
-              onClick={() => toggleStep(index)}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-bg-2/50 transition-colors"
+        {trace.map((step, index) => {
+          const text = getStepText(step);
+          return (
+            <div
+              key={index}
+              className="rounded-md border border-border/50 bg-bg-0/50"
             >
-              {/* Step number */}
-              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-accent-400/20 text-xs font-medium text-accent-400">
-                {index + 1}
-              </span>
-
-              {/* Preview */}
-              <span
-                className={`flex-1 text-sm ${
-                  expandedSteps.has(index)
-                    ? 'text-text-primary'
-                    : 'text-text-secondary truncate'
-                }`}
+              <button
+                onClick={() => toggleStep(index)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-bg-2/50 transition-colors"
               >
-                {step.length > 100 && !expandedSteps.has(index)
-                  ? step.slice(0, 100) + '...'
-                  : expandedSteps.has(index)
-                  ? ''
-                  : step}
-              </span>
+                {/* Step number */}
+                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-accent-400/20 text-xs font-medium text-accent-400">
+                  {index + 1}
+                </span>
 
-              {/* Expand icon */}
-              <svg
-                className={`h-4 w-4 flex-shrink-0 text-text-muted transition-transform ${
-                  expandedSteps.has(index) ? 'rotate-180' : ''
-                }`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </button>
+                {/* Preview */}
+                <span
+                  className={`flex-1 text-sm ${
+                    expandedSteps.has(index)
+                      ? 'text-text-primary'
+                      : 'text-text-secondary truncate'
+                  }`}
+                >
+                  {text.length > 100 && !expandedSteps.has(index)
+                    ? text.slice(0, 100) + '...'
+                    : expandedSteps.has(index)
+                    ? ''
+                    : text}
+                </span>
 
-            {/* Expanded content */}
-            {expandedSteps.has(index) && (
-              <div className="border-t border-border/50 px-4 py-3">
-                <p className="whitespace-pre-wrap text-sm text-text-secondary leading-relaxed">
-                  {step}
-                </p>
-              </div>
-            )}
-          </div>
-        ))}
+                {/* Expand icon */}
+                <svg
+                  className={`h-4 w-4 flex-shrink-0 text-text-muted transition-transform ${
+                    expandedSteps.has(index) ? 'rotate-180' : ''
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+
+              {/* Expanded content */}
+              {expandedSteps.has(index) && (
+                <div className="border-t border-border/50 px-4 py-3">
+                  <p className="whitespace-pre-wrap text-sm text-text-secondary leading-relaxed">
+                    {text}
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

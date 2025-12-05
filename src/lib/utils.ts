@@ -11,6 +11,55 @@ export function truncate(str: string, maxLength: number): string {
 }
 
 /**
+ * Smart truncate: cleans markdown noise, prefers sentence/punctuation boundaries.
+ * Used for reasoning content that may contain markdown tables, bullets, etc.
+ */
+export function smartTruncate(text: string, maxLen: number = 120): string {
+  // 1. Clean markdown noise
+  let clean = text
+    .replace(/\|[^|]+\|/g, '')           // markdown table cells
+    .replace(/^[-*]\s*/gm, '')           // bullet points
+    .replace(/#{1,6}\s*/g, '')           // headers
+    .replace(/\n+/g, ' ')                // newlines to space
+    .replace(/\s+/g, ' ')                // multiple spaces to one
+    .trim();
+
+  // 2. If short enough, return as-is
+  if (clean.length <= maxLen) return clean;
+
+  // 3. Try to keep complete sentences
+  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [];
+  let result = '';
+  for (const sentence of sentences) {
+    if ((result + sentence).length <= maxLen) {
+      result += sentence;
+    } else {
+      break;
+    }
+  }
+
+  // 4. If we got at least one meaningful sentence, return it
+  if (result.length > 20) return result.trim();
+
+  // 5. Fallback: find punctuation boundary
+  const truncated = clean.slice(0, maxLen);
+  const breakPoints = [
+    truncated.lastIndexOf('. '),
+    truncated.lastIndexOf(', '),
+    truncated.lastIndexOf('; '),
+    truncated.lastIndexOf(': '),
+    truncated.lastIndexOf(' - '),
+    truncated.lastIndexOf(' '),
+  ].filter(p => p > maxLen * 0.6);
+
+  const cutPoint = breakPoints.length > 0
+    ? Math.max(...breakPoints)
+    : truncated.lastIndexOf(' ');
+
+  return truncated.slice(0, cutPoint > 0 ? cutPoint : maxLen).trim() + '...';
+}
+
+/**
  * Capitalize the first letter of a string.
  */
 export function capitalize(str: string): string {

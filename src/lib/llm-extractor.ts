@@ -530,26 +530,34 @@ export function isSummaryAvailable(): boolean {
  */
 export async function generateSessionSummary(
   sessionState: SessionState,
-  steps: StepRecord[]
+  steps: StepRecord[],
+  maxTokens: number = 800  // Default 800, CLEAR mode uses 15000
 ): Promise<string> {
   const client = getAnthropicClient();
 
+  // For larger summaries, include more steps
+  const stepLimit = maxTokens > 5000 ? 50 : 20;
+  const wordLimit = Math.min(Math.floor(maxTokens / 2), 10000);  // ~2 tokens per word
+
   const stepsText = steps
     .filter(s => s.is_validated)
-    .slice(-20)
+    .slice(-stepLimit)
     .map(step => {
       let desc = `- ${step.action_type}`;
       if (step.files.length > 0) {
         desc += `: ${step.files.join(', ')}`;
       }
       if (step.command) {
-        desc += ` (${step.command.substring(0, 50)})`;
+        desc += ` (${step.command.substring(0, 100)})`;
+      }
+      if (step.reasoning && maxTokens > 5000) {
+        desc += `\n  Reasoning: ${step.reasoning.substring(0, 200)}`;
       }
       return desc;
     })
     .join('\n');
 
-  const prompt = `Create a concise summary of this coding session for context continuation.
+  const prompt = `Create a ${maxTokens > 5000 ? 'comprehensive' : 'concise'} summary of this coding session for context continuation.
 
 ORIGINAL GOAL: ${sessionState.original_goal || 'Not specified'}
 
@@ -560,19 +568,20 @@ CONSTRAINTS: ${sessionState.constraints.join(', ') || 'None'}
 ACTIONS TAKEN:
 ${stepsText || 'No actions recorded'}
 
-Create a summary with these sections (keep total under 500 words):
-1. ORIGINAL GOAL: (1 sentence)
-2. PROGRESS: (2-3 bullet points of what was accomplished)
-3. KEY DECISIONS: (any important choices made)
-4. FILES MODIFIED: (list of files)
-5. CURRENT STATE: (where the work left off)
-6. NEXT STEPS: (recommended next actions)
+Create a summary with these sections (keep total under ${wordLimit} words):
+1. ORIGINAL GOAL: (1-2 sentences)
+2. PROGRESS: (${maxTokens > 5000 ? '5-10' : '2-3'} bullet points of what was accomplished)
+3. KEY DECISIONS: (important architectural/design choices made, with reasoning)
+4. FILES MODIFIED: (list of files with brief description of changes)
+5. CURRENT STATE: (detailed status of where the work left off)
+6. NEXT STEPS: (recommended next actions to continue)
+${maxTokens > 5000 ? '7. IMPORTANT CONTEXT: (any critical information that must not be lost)' : ''}
 
 Format as plain text, not JSON.`;
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 800,
+    max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
   });
 

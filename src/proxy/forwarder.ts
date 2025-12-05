@@ -12,13 +12,139 @@ const agent = new Agent({
   autoSelectFamilyAttemptTimeout: 500, // Try next address family after 500ms
 });
 import { config, buildSafeHeaders, maskSensitiveValue } from './config.js';
-import type { AnthropicResponse } from './action-parser.js';
+import type { AnthropicResponse, ContentBlock } from './action-parser.js';
+
+/**
+ * Parse SSE stream and reconstruct final message
+ * SSE format: "event: <type>\ndata: <json>\n\n"
+ */
+function parseSSEResponse(sseText: string): AnthropicResponse | null {
+  const lines = sseText.split('\n');
+
+  let message: Partial<AnthropicResponse> | null = null;
+  const contentBlocks: ContentBlock[] = [];
+  const contentDeltas: Map<number, string[]> = new Map();
+  let finalUsage: AnthropicResponse['usage'] | null = null;
+  let stopReason: string | null = null;
+
+  let currentEvent = '';
+  let currentData = '';
+
+  for (const line of lines) {
+    if (line.startsWith('event: ')) {
+      currentEvent = line.slice(7).trim();
+    } else if (line.startsWith('data: ')) {
+      currentData = line.slice(6);
+
+      try {
+        const data = JSON.parse(currentData);
+
+        switch (data.type) {
+          case 'message_start':
+            // Initialize message from message_start event
+            message = data.message;
+            break;
+
+          case 'content_block_start':
+            // Add new content block
+            if (data.content_block) {
+              contentBlocks[data.index] = data.content_block;
+              if (data.content_block.type === 'text') {
+                contentDeltas.set(data.index, []);
+              } else if (data.content_block.type === 'thinking') {
+                // Initialize thinking with empty string, will accumulate via deltas
+                contentBlocks[data.index] = { type: 'thinking', thinking: '' };
+              }
+            }
+            break;
+
+          case 'content_block_delta':
+            // Accumulate text deltas
+            if (data.delta?.type === 'text_delta' && data.delta.text) {
+              const deltas = contentDeltas.get(data.index) || [];
+              deltas.push(data.delta.text);
+              contentDeltas.set(data.index, deltas);
+            } else if (data.delta?.type === 'thinking_delta' && data.delta.thinking) {
+              // Handle thinking blocks
+              const block = contentBlocks[data.index];
+              if (block && block.type === 'thinking') {
+                (block as { type: 'thinking'; thinking: string }).thinking += data.delta.thinking;
+              }
+            } else if (data.delta?.type === 'input_json_delta' && data.delta.partial_json) {
+              // Handle tool input streaming
+              const block = contentBlocks[data.index];
+              if (block && block.type === 'tool_use') {
+                // Accumulate partial JSON - will need to parse at the end
+                const partialKey = `tool_partial_${data.index}`;
+                const existing = contentDeltas.get(data.index) || [];
+                existing.push(data.delta.partial_json);
+                contentDeltas.set(data.index, existing);
+              }
+            }
+            break;
+
+          case 'message_delta':
+            // Final usage and stop_reason
+            if (data.usage) {
+              finalUsage = data.usage;
+            }
+            if (data.delta?.stop_reason) {
+              stopReason = data.delta.stop_reason;
+            }
+            break;
+        }
+      } catch {
+        // Ignore unparseable data lines
+      }
+    }
+  }
+
+  if (!message) {
+    return null;
+  }
+
+  // Reconstruct content blocks with accumulated text/input
+  for (let i = 0; i < contentBlocks.length; i++) {
+    const block = contentBlocks[i];
+    if (!block) continue;
+
+    const deltas = contentDeltas.get(i);
+    if (deltas && deltas.length > 0) {
+      if (block.type === 'text') {
+        (block as { text: string }).text = deltas.join('');
+      } else if (block.type === 'tool_use') {
+        // Parse accumulated partial JSON for tool input
+        try {
+          const fullJson = deltas.join('');
+          (block as { input: Record<string, unknown> }).input = JSON.parse(fullJson);
+        } catch {
+          // Keep original input if parsing fails
+        }
+      }
+    }
+  }
+
+  // Build final response
+  const response: AnthropicResponse = {
+    id: message.id || '',
+    type: 'message',
+    role: 'assistant',
+    content: contentBlocks.filter(Boolean),
+    model: message.model || '',
+    stop_reason: stopReason,
+    stop_sequence: null,
+    usage: finalUsage || message.usage || { input_tokens: 0, output_tokens: 0 },
+  };
+
+  return response;
+}
 
 export interface ForwardResult {
   statusCode: number;
   headers: Record<string, string | string[]>;
   body: AnthropicResponse | Record<string, unknown>;
   rawBody: string;
+  wasSSE: boolean;  // True if response was SSE streaming
 }
 
 export interface ForwardError {
@@ -30,14 +156,23 @@ export interface ForwardError {
 /**
  * Forward request to Anthropic API
  * Buffers full response for processing
+ *
+ * @param body - Parsed body for logging
+ * @param headers - Request headers
+ * @param logger - Optional logger
+ * @param rawBody - Raw request bytes (preserves exact bytes for cache)
  */
 export async function forwardToAnthropic(
   body: Record<string, unknown>,
   headers: Record<string, string | string[] | undefined>,
-  logger?: { info: (msg: string, data?: Record<string, unknown>) => void; error: (msg: string, data?: Record<string, unknown>) => void }
+  logger?: { info: (msg: string, data?: Record<string, unknown>) => void; error: (msg: string, data?: Record<string, unknown>) => void },
+  rawBody?: Buffer
 ): Promise<ForwardResult> {
   const targetUrl = `${config.ANTHROPIC_BASE_URL}/v1/messages`;
   const safeHeaders = buildSafeHeaders(headers);
+
+  // Use raw bytes if available (preserves cache), otherwise re-serialize
+  const requestBody = rawBody || JSON.stringify(body);
 
   // Log request (mask sensitive data)
   if (logger && config.LOG_REQUESTS) {
@@ -50,6 +185,8 @@ export async function forwardToAnthropic(
       model: body.model,
       messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
       headers: maskedHeaders,
+      usingRawBody: !!rawBody,
+      bodySize: rawBody?.length || JSON.stringify(body).length,
     });
   }
 
@@ -60,7 +197,7 @@ export async function forwardToAnthropic(
         ...safeHeaders,
         'content-type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: requestBody,
       bodyTimeout: config.REQUEST_TIMEOUT,
       headersTimeout: config.REQUEST_TIMEOUT,
       dispatcher: agent,
@@ -73,13 +210,27 @@ export async function forwardToAnthropic(
     }
     const rawBody = Buffer.concat(chunks).toString('utf-8');
 
+    // Check if response is SSE streaming
+    const contentType = response.headers['content-type'];
+    const isSSE = typeof contentType === 'string' && contentType.includes('text/event-stream');
+
     // Parse response
     let parsedBody: AnthropicResponse | Record<string, unknown>;
-    try {
-      parsedBody = JSON.parse(rawBody);
-    } catch {
-      // Return raw body if not JSON
-      parsedBody = { error: 'Invalid JSON response', raw: rawBody.substring(0, 500) };
+    if (isSSE) {
+      // Parse SSE and reconstruct final message
+      const sseMessage = parseSSEResponse(rawBody);
+      if (sseMessage) {
+        parsedBody = sseMessage;
+      } else {
+        parsedBody = { error: 'Failed to parse SSE response', raw: rawBody.substring(0, 500) };
+      }
+    } else {
+      // Regular JSON response
+      try {
+        parsedBody = JSON.parse(rawBody);
+      } catch {
+        parsedBody = { error: 'Invalid JSON response', raw: rawBody.substring(0, 500) };
+      }
     }
 
     // Convert headers to record
@@ -90,11 +241,18 @@ export async function forwardToAnthropic(
       }
     }
 
+    // If we parsed SSE, change content-type to JSON for Claude Code
+    if (isSSE) {
+      responseHeaders['content-type'] = 'application/json';
+    }
+
     if (logger && config.LOG_REQUESTS) {
       logger.info('Received from Anthropic', {
         statusCode: response.statusCode,
         bodyLength: rawBody.length,
         hasUsage: 'usage' in parsedBody,
+        wasSSE: isSSE,
+        parseSuccess: !('error' in parsedBody),
       });
     }
 
@@ -103,6 +261,7 @@ export async function forwardToAnthropic(
       headers: responseHeaders,
       body: parsedBody,
       rawBody,
+      wasSSE: isSSE,
     };
   } catch (error) {
     const err = error as Error & { code?: string };

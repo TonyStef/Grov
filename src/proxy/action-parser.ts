@@ -15,10 +15,12 @@ export interface AnthropicResponse {
   usage: {
     input_tokens: number;
     output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
   };
 }
 
-export type ContentBlock = TextBlock | ToolUseBlock;
+export type ContentBlock = TextBlock | ToolUseBlock | ThinkingBlock;
 
 export interface TextBlock {
   type: 'text';
@@ -30,6 +32,11 @@ export interface ToolUseBlock {
   id: string;
   name: string;
   input: Record<string, unknown>;
+}
+
+export interface ThinkingBlock {
+  type: 'thinking';
+  thinking: string;
 }
 
 // Parsed action from tool_use
@@ -193,17 +200,21 @@ function extractPathFromGlobPattern(pattern: string): string | null {
 }
 
 /**
- * Extract token usage from response
+ * Extract token usage from response (including cache metrics)
  */
 export function extractTokenUsage(response: AnthropicResponse): {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cacheCreation: number;
+  cacheRead: number;
 } {
   return {
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
-    totalTokens: response.usage.input_tokens + response.usage.output_tokens
+    totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+    cacheCreation: response.usage.cache_creation_input_tokens || 0,
+    cacheRead: response.usage.cache_read_input_tokens || 0,
   };
 }
 

@@ -1294,6 +1294,19 @@ async function postProcessResponse(
     }
   }
 
+  // AUTO-SAVE on every end_turn (for all task types: new_task, continue, subtask, parallel)
+  // task_complete and subtask_complete already save and return early, so they won't reach here
+  if (isEndTurn && activeSession && activeSessionId) {
+    try {
+      await saveToTeamMemory(activeSessionId, 'complete');
+      markSessionCompleted(activeSessionId);
+      activeSessions.delete(activeSessionId);
+      logger.info({ msg: 'Auto-saved task on end_turn', sessionId: activeSessionId.substring(0, 8) });
+    } catch (err) {
+      logger.info({ msg: 'Auto-save failed', error: String(err) });
+    }
+  }
+
   // Extract token usage
   const usage = extractTokenUsage(response);
 
@@ -1345,6 +1358,25 @@ async function postProcessResponse(
   }
 
   if (actions.length === 0) {
+    // Final response (no tool calls) - save for reasoning extraction and create task
+    if (isEndTurn && textContent.length > 100 && activeSessionId) {
+      // 1. Save the final response text
+      updateSessionState(activeSessionId, {
+        final_response: textContent.substring(0, 10000),
+      });
+
+      // 2. Save the task (uses final_response for reasoning extraction via Haiku)
+      if (activeSession) {
+        try {
+          await saveToTeamMemory(activeSessionId, 'complete');
+          markSessionCompleted(activeSessionId);
+          activeSessions.delete(activeSessionId);
+          logger.info({ msg: 'Task saved on final answer', sessionId: activeSessionId.substring(0, 8) });
+        } catch (err) {
+          logger.info({ msg: 'Task save failed', error: String(err) });
+        }
+      }
+    }
     return;
   }
 

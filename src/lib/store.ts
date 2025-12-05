@@ -136,6 +136,7 @@ interface ProxyFields {
   pending_forced_recovery?: string;  // Pre-computed Haiku recovery for escalation >= 3
   pending_clear_summary?: string;  // Pre-computed summary for CLEAR mode (generated at 85% threshold)
   cached_injection?: string;  // Cached team context injection (must be identical across session for cache)
+  final_response?: string;  // Final Claude response text (for reasoning extraction in Q&A tasks)
 }
 
 // Full SessionState type (union of all)
@@ -519,6 +520,9 @@ export function initDatabase(): Database.Database {
   }
   if (!existingColumns.has('pending_forced_recovery')) {
     db.exec(`ALTER TABLE session_states ADD COLUMN pending_forced_recovery TEXT`);
+  }
+  if (!existingColumns.has('final_response')) {
+    db.exec(`ALTER TABLE session_states ADD COLUMN final_response TEXT`);
   }
 
   // Create steps table (action log for current session)
@@ -1040,6 +1044,10 @@ export function updateSessionState(
     setClauses.push('pending_clear_summary = ?');
     params.push(updates.pending_clear_summary || null);
   }
+  if (updates.final_response !== undefined) {
+    setClauses.push('final_response = ?');
+    params.push(updates.final_response || null);
+  }
 
   // Always update last_update
   setClauses.push('last_update = ?');
@@ -1166,6 +1174,7 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
     pending_correction: row.pending_correction as string | undefined,
     pending_forced_recovery: row.pending_forced_recovery as string | undefined,
     pending_clear_summary: row.pending_clear_summary as string | undefined,
+    final_response: row.final_response as string | undefined,
   };
 }
 

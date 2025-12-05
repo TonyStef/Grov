@@ -1,3 +1,6 @@
+// Team management routes
+// All routes require authentication
+
 import type { FastifyInstance } from 'fastify';
 import type {
   Team,
@@ -10,6 +13,15 @@ import type {
 } from '@grov/shared';
 import { supabase } from '../db/client.js';
 import { randomBytes } from 'crypto';
+import { requireAuth, getAuthenticatedUser } from '../middleware/auth.js';
+import { requireTeamMember, requireTeamAdmin } from '../middleware/team.js';
+
+// Rate limit configurations for team endpoints
+const teamRateLimits = {
+  createTeam: { max: 5, timeWindow: '1 minute' },     // 5 team creations per minute
+  createInvite: { max: 10, timeWindow: '1 minute' },  // 10 invites per minute
+  joinTeam: { max: 5, timeWindow: '1 minute' },       // 5 joins per minute
+};
 
 // Generate invite code
 function generateInviteCode(): string {
@@ -28,9 +40,9 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // List user's teams
   fastify.get<{ Reply: TeamListResponse }>(
     '/',
+    { preHandler: [requireAuth] },
     async (request, reply) => {
-      // TODO: Get user ID from auth
-      const userId = 'temp-user-id';
+      const user = getAuthenticatedUser(request);
 
       const { data, error } = await supabase
         .from('team_members')
@@ -44,7 +56,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
             created_at
           )
         `)
-        .eq('user_id', userId);
+        .eq('user_id', user.id);
 
       if (error) {
         fastify.log.error(error);
@@ -53,7 +65,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       const teams = (data || []).map((item: any) => ({
         ...item.team,
-        member_count: 1, // TODO: Add actual count
+        member_count: 1, // TODO: Add actual count with aggregation
       }));
 
       return { teams };
@@ -63,12 +75,11 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Create team
   fastify.post<{ Body: CreateTeamInput; Reply: Team }>(
     '/',
+    { preHandler: [requireAuth], config: { rateLimit: teamRateLimits.createTeam } },
     async (request, reply) => {
+      const user = getAuthenticatedUser(request);
       const { name, settings } = request.body;
       const slug = slugify(name);
-
-      // TODO: Get user ID from auth
-      const userId = 'temp-user-id';
 
       // Create team
       const { data: team, error: teamError } = await supabase
@@ -76,7 +87,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         .insert({
           name,
           slug,
-          owner_id: userId,
+          owner_id: user.id,
           settings: settings || {},
         })
         .select()
@@ -93,7 +104,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
       // Add owner as member
       await supabase.from('team_members').insert({
         team_id: team.id,
-        user_id: userId,
+        user_id: user.id,
         role: 'owner',
       });
 
@@ -104,6 +115,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Get team details
   fastify.get<{ Params: { id: string }; Reply: Team }>(
     '/:id',
+    { preHandler: [requireAuth, requireTeamMember] },
     async (request, reply) => {
       const { id } = request.params;
 
@@ -124,13 +136,30 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Update team
   fastify.patch<{ Params: { id: string }; Body: UpdateTeamInput; Reply: Team }>(
     '/:id',
+    { preHandler: [requireAuth, requireTeamAdmin] },
     async (request, reply) => {
       const { id } = request.params;
-      const updates = request.body;
+
+      // Explicitly extract only allowed fields to prevent mass assignment attacks
+      // This ensures attackers cannot modify protected fields like owner_id, id, or created_at
+      const { name, settings } = request.body;
+      const allowedUpdates: Partial<UpdateTeamInput> = {};
+
+      if (name !== undefined) {
+        allowedUpdates.name = name;
+      }
+      if (settings !== undefined) {
+        allowedUpdates.settings = settings;
+      }
+
+      // Reject empty updates
+      if (Object.keys(allowedUpdates).length === 0) {
+        return reply.status(400).send({ error: 'No valid fields to update' } as any);
+      }
 
       const { data, error } = await supabase
         .from('teams')
-        .update(updates)
+        .update(allowedUpdates)
         .eq('id', id)
         .select()
         .single();
@@ -147,6 +176,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // List team members
   fastify.get<{ Params: { id: string }; Reply: TeamMembersResponse }>(
     '/:id/members',
+    { preHandler: [requireAuth, requireTeamMember] },
     async (request, reply) => {
       const { id } = request.params;
 
@@ -187,18 +217,17 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Create invitation
   fastify.post<{ Params: { id: string }; Reply: CreateInvitationResponse }>(
     '/:id/invite',
+    { preHandler: [requireAuth, requireTeamAdmin], config: { rateLimit: teamRateLimits.createInvite } },
     async (request, reply) => {
       const { id } = request.params;
+      const user = getAuthenticatedUser(request);
       const inviteCode = generateInviteCode();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-      // TODO: Get user ID from auth
-      const userId = 'temp-user-id';
 
       const { error } = await supabase.from('team_invitations').insert({
         team_id: id,
         invite_code: inviteCode,
-        created_by: userId,
+        created_by: user.id,
         expires_at: expiresAt.toISOString(),
       });
 
@@ -220,11 +249,10 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Join team via invite code
   fastify.post<{ Params: { code: string }; Body: JoinTeamRequest }>(
     '/join/:code',
+    { preHandler: [requireAuth], config: { rateLimit: teamRateLimits.joinTeam } },
     async (request, reply) => {
       const { code } = request.params;
-
-      // TODO: Get user ID from auth
-      const userId = 'temp-user-id';
+      const user = getAuthenticatedUser(request);
 
       // Find invitation
       const { data: invitation, error: inviteError } = await supabase
@@ -244,7 +272,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
       // Add member
       const { error: memberError } = await supabase.from('team_members').insert({
         team_id: invitation.team_id,
-        user_id: userId,
+        user_id: user.id,
         role: 'member',
       });
 
@@ -263,10 +291,27 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Remove member
   fastify.delete<{ Params: { id: string; userId: string } }>(
     '/:id/members/:userId',
+    { preHandler: [requireAuth, requireTeamAdmin] },
     async (request, reply) => {
       const { id, userId } = request.params;
+      const user = getAuthenticatedUser(request);
 
-      // TODO: Check permissions
+      // Prevent removing the owner
+      const { data: targetMember } = await supabase
+        .from('team_members')
+        .select('role')
+        .eq('team_id', id)
+        .eq('user_id', userId)
+        .single();
+
+      if (targetMember?.role === 'owner') {
+        return reply.status(403).send({ error: 'Cannot remove team owner' });
+      }
+
+      // Prevent self-removal (owners/admins should transfer ownership first)
+      if (userId === user.id) {
+        return reply.status(400).send({ error: 'Cannot remove yourself. Leave the team instead.' });
+      }
 
       const { error } = await supabase
         .from('team_members')

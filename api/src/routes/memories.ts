@@ -1,3 +1,6 @@
+// Memory management routes
+// All routes require authentication and team membership
+
 import type { FastifyInstance } from 'fastify';
 import type {
   Memory,
@@ -7,6 +10,23 @@ import type {
   MemorySyncResponse,
 } from '@grov/shared';
 import { supabase } from '../db/client.js';
+import { requireAuth, getAuthenticatedUser } from '../middleware/auth.js';
+import { requireTeamMember, requireTeamAdmin } from '../middleware/team.js';
+
+// Rate limit configurations for memory endpoints
+const memoryRateLimits = {
+  sync: { max: 20, timeWindow: '1 minute' }, // 20 sync requests per minute
+};
+
+/**
+ * Sanitize search input to prevent PostgREST filter injection
+ * Removes characters that have syntactic meaning in PostgREST filter expressions
+ */
+function sanitizeSearchInput(input: string): string {
+  // Remove PostgREST special characters: . , ( ) that could break filter syntax
+  // Keep % as it's useful for wildcard searching within ilike
+  return input.replace(/[.,()]/g, '');
+}
 
 export default async function memoriesRoutes(fastify: FastifyInstance) {
   // List memories for a team
@@ -16,6 +36,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
     Reply: MemoryListResponse;
   }>(
     '/:id/memories',
+    { preHandler: [requireAuth, requireTeamMember] },
     async (request, reply) => {
       const { id } = request.params;
       const {
@@ -42,7 +63,8 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       // Apply filters
       if (search) {
-        query = query.or(`original_query.ilike.%${search}%,goal.ilike.%${search}%`);
+        const sanitizedSearch = sanitizeSearchInput(search);
+        query = query.or(`original_query.ilike.%${sanitizedSearch}%,goal.ilike.%${sanitizedSearch}%`);
       }
 
       if (tags && tags.length > 0) {
@@ -100,6 +122,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
   // Get single memory
   fastify.get<{ Params: { id: string; memoryId: string }; Reply: Memory }>(
     '/:id/memories/:memoryId',
+    { preHandler: [requireAuth, requireTeamMember] },
     async (request, reply) => {
       const { id, memoryId } = request.params;
 
@@ -125,16 +148,15 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
     Reply: MemorySyncResponse;
   }>(
     '/:id/memories/sync',
+    { preHandler: [requireAuth, requireTeamMember], config: { rateLimit: memoryRateLimits.sync } },
     async (request, reply) => {
       const { id } = request.params;
       const { memories } = request.body;
+      const user = getAuthenticatedUser(request);
 
       if (!memories || !Array.isArray(memories)) {
         return reply.status(400).send({ error: 'memories array is required' } as any);
       }
-
-      // TODO: Get user ID from auth
-      const userId = 'temp-user-id';
 
       let synced = 0;
       let failed = 0;
@@ -143,7 +165,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
       for (const memory of memories) {
         const { error } = await supabase.from('memories').insert({
           team_id: id,
-          user_id: userId,
+          user_id: user.id,
           project_path: memory.project_path,
           original_query: memory.original_query,
           goal: memory.goal,
@@ -165,6 +187,8 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         }
       }
 
+      fastify.log.info(`Synced ${synced} memories for team ${id} by user ${user.email}`);
+
       return {
         synced,
         failed,
@@ -173,11 +197,13 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // Delete memory
+  // Delete memory (admin only)
   fastify.delete<{ Params: { id: string; memoryId: string } }>(
     '/:id/memories/:memoryId',
+    { preHandler: [requireAuth, requireTeamAdmin] },
     async (request, reply) => {
       const { id, memoryId } = request.params;
+      const user = getAuthenticatedUser(request);
 
       const { error } = await supabase
         .from('memories')
@@ -189,6 +215,8 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         fastify.log.error(error);
         return reply.status(500).send({ error: 'Failed to delete memory' });
       }
+
+      fastify.log.info(`Deleted memory ${memoryId} from team ${id} by user ${user.email}`);
 
       return { success: true };
     }

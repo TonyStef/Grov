@@ -17,6 +17,8 @@
     "fastify": "^5.6.2",
     "@fastify/cors": "^11.0.0",
     "@fastify/helmet": "^13.0.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "jose": "^6.1.2",
     "pino": "^10.1.0",
     "pino-pretty": "^13.1.2",
     "dotenv": "^16.4.5"

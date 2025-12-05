@@ -1,17 +1,35 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import { config } from 'dotenv';
 
 // Load environment variables
 config();
+
+// Validate required environment variables
+const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'JWT_SECRET'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`Missing required environment variable: ${envVar}`);
+    process.exit(1);
+  }
+}
+
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  console.error('JWT_SECRET must be at least 32 characters');
+  process.exit(1);
+}
+
+// Import auth plugin
+import { authPlugin } from './middleware/auth.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
 import teamsRoutes from './routes/teams.js';
 import memoriesRoutes from './routes/memories.js';
 
-// Create Fastify instance
+// Create Fastify instance with security defaults
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || 'info',
@@ -19,6 +37,10 @@ const fastify = Fastify({
       ? { target: 'pino-pretty' }
       : undefined,
   },
+  // Security: Limit request body size to prevent DoS
+  bodyLimit: 1048576, // 1MB max body size
+  // Security: Disable request logging of sensitive data in production
+  disableRequestLogging: process.env.NODE_ENV === 'production',
 });
 
 // Register plugins
@@ -28,8 +50,47 @@ await fastify.register(cors, {
 });
 
 await fastify.register(helmet, {
-  contentSecurityPolicy: false,
+  // Enable security headers
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  // Strict Transport Security
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true,
+  },
+  // Prevent clickjacking
+  frameguard: { action: 'deny' },
+  // Prevent MIME type sniffing
+  noSniff: true,
+  // XSS filter
+  xssFilter: true,
 });
+
+// Register rate limiting with global defaults
+await fastify.register(rateLimit, {
+  max: 100, // 100 requests per window
+  timeWindow: '1 minute',
+  errorResponseBuilder: (request, context) => ({
+    error: 'Too Many Requests',
+    message: `Rate limit exceeded. Try again in ${Math.ceil(context.ttl / 1000)} seconds.`,
+    statusCode: 429,
+  }),
+});
+
+// Register auth plugin (adds user decorator to requests)
+await fastify.register(authPlugin);
 
 // Health check
 fastify.get('/health', async () => {

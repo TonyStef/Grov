@@ -1,11 +1,10 @@
+// Load environment variables FIRST (side-effect import)
+import 'dotenv/config';
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { config } from 'dotenv';
-
-// Load environment variables
-config();
 
 // Validate required environment variables
 const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'JWT_SECRET'];

@@ -91,7 +91,7 @@ export async function apiRequest<T>(
  * Start device authorization flow
  */
 export async function startDeviceFlow(): Promise<ApiResponse<DeviceFlowStartResponse>> {
-  return apiRequest<DeviceFlowStartResponse>('POST', '/auth/device', undefined, {
+  return apiRequest<DeviceFlowStartResponse>('POST', '/auth/device', {}, {
     requireAuth: false,
   });
 }

@@ -16,6 +16,9 @@ landing/src/env.d.ts
 
 # Shared package
 shared/dist/
+shared/src/**/*.js
+shared/src/**/*.d.ts
+shared/src/**/*.map
 
 # API
 api/dist/

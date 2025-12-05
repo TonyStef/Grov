@@ -126,7 +126,8 @@ program
   .option('--disable', 'Disable cloud sync')
   .option('--team <id>', 'Set team ID for sync')
   .option('--status', 'Show sync status')
-  .action(safeAction(async (options: { enable?: boolean; disable?: boolean; team?: string; status?: boolean }) => {
+  .option('--push', 'Upload any unsynced local tasks to the team')
+  .action(safeAction(async (options: { enable?: boolean; disable?: boolean; team?: string; status?: boolean; push?: boolean }) => {
     const { sync } = await import('./commands/sync.js');
     await sync(options);
   }));

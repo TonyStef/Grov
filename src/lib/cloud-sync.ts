@@ -3,7 +3,7 @@
 
 import type { CreateMemoryInput, MemorySyncResponse } from '@grov/shared';
 import { getSyncStatus, getAccessToken } from './credentials.js';
-import { syncMemories, sleep } from './api-client.js';
+import { syncMemories, sleep, getApiUrl } from './api-client.js';
 import type { Task } from './store.js';
 
 // Sync configuration
@@ -18,6 +18,7 @@ const SYNC_CONFIG = {
  */
 export function taskToMemory(task: Task): CreateMemoryInput {
   return {
+    client_task_id: task.id,
     project_path: task.project_path,
     original_query: task.original_query,
     goal: task.goal,
@@ -82,12 +83,16 @@ export async function syncTasks(tasks: Task[]): Promise<{
   synced: number;
   failed: number;
   errors: string[];
+  syncedIds: string[];
+  failedIds: string[];
 }> {
   if (!isSyncEnabled()) {
     return {
       synced: 0,
       failed: tasks.length,
-      errors: ['Sync is not enabled. Run "grov sync --enable --team <team-id>" first.'],
+      errors: [`Sync is not enabled. Run "grov sync --enable --team <team-id>" first. (API: ${getApiUrl()})`],
+      syncedIds: [],
+      failedIds: tasks.map(t => t.id),
     };
   }
 
@@ -96,7 +101,9 @@ export async function syncTasks(tasks: Task[]): Promise<{
     return {
       synced: 0,
       failed: tasks.length,
-      errors: ['No team configured. Run "grov sync --enable --team <team-id>" first.'],
+      errors: [`No team configured. Run "grov sync --enable --team <team-id>" first. (API: ${getApiUrl()})`],
+      syncedIds: [],
+      failedIds: tasks.map(t => t.id),
     };
   }
 
@@ -105,7 +112,9 @@ export async function syncTasks(tasks: Task[]): Promise<{
     return {
       synced: 0,
       failed: tasks.length,
-      errors: ['Not authenticated. Run "grov login" first.'],
+      errors: [`Not authenticated. Run "grov login" first. (API: ${getApiUrl()})`],
+      syncedIds: [],
+      failedIds: tasks.map(t => t.id),
     };
   }
 
@@ -121,6 +130,8 @@ export async function syncTasks(tasks: Task[]): Promise<{
   let totalSynced = 0;
   let totalFailed = 0;
   const allErrors: string[] = [];
+  const syncedIds: string[] = [];
+  const failedIds: string[] = [];
 
   for (const batch of batches) {
     const batchResult = await syncBatchWithRetry(teamId, batch);
@@ -129,12 +140,20 @@ export async function syncTasks(tasks: Task[]): Promise<{
     if (batchResult.errors) {
       allErrors.push(...batchResult.errors);
     }
+    const batchIds = batch.map((m) => m.client_task_id || '');
+    if (batchResult.synced === batch.length) {
+      syncedIds.push(...batchIds);
+    } else if (batchResult.failed === batch.length) {
+      failedIds.push(...batchIds);
+    }
   }
 
   return {
     synced: totalSynced,
     failed: totalFailed,
     errors: allErrors,
+    syncedIds: syncedIds.filter(Boolean),
+    failedIds: failedIds.filter(Boolean),
   };
 }
 

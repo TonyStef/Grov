@@ -20,6 +20,7 @@ export interface Memory {
   id: string;
   team_id: string;
   user_id: string | null;
+  client_task_id?: string | null;
   project_path: string;
   original_query: string;
   goal: string | null;
@@ -35,6 +36,7 @@ export interface Memory {
 
 // Input for creating a new memory (CLI sync)
 export interface CreateMemoryInput {
+  client_task_id?: string;
   project_path: string;
   original_query: string;
   goal?: string;

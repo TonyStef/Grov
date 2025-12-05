@@ -7,10 +7,13 @@ import {
   deleteStepsForSession,
   deleteSessionState,
   createTask,
+  markTaskSynced,
+  setTaskSyncError,
   type SessionState,
   type StepRecord,
   type TriggerReason,
 } from '../lib/store.js';
+import { syncTask } from '../lib/cloud-sync.js';
 import {
   extractReasoning,
   isLLMAvailable,
@@ -41,7 +44,21 @@ export async function saveToTeamMemory(
   const taskData = await buildTaskFromSession(sessionState, steps, triggerReason);
 
   // Create task in team memory
-  createTask(taskData);
+  const task = createTask(taskData);
+
+  // Fire-and-forget cloud sync; never block capture path
+  syncTask(task)
+    .then((success) => {
+      if (success) {
+        markTaskSynced(task.id);
+      } else {
+        setTaskSyncError(task.id, 'Sync not enabled or team not configured');
+      }
+    })
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : 'Unknown sync error';
+      setTaskSyncError(task.id, message);
+    });
 }
 
 /**

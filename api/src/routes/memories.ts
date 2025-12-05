@@ -163,9 +163,10 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
       const errors: string[] = [];
 
       for (const memory of memories) {
-        const { error } = await supabase.from('memories').insert({
+        const { error } = await supabase.from('memories').upsert({
           team_id: id,
           user_id: user.id,
+          client_task_id: memory.client_task_id || null,
           project_path: memory.project_path,
           original_query: memory.original_query,
           goal: memory.goal,
@@ -176,7 +177,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           tags: memory.tags || [],
           status: memory.status,
           linked_commit: memory.linked_commit,
-        });
+        }, { onConflict: 'team_id,client_task_id' });
 
         if (error) {
           fastify.log.error(error);

@@ -6,13 +6,16 @@ import {
   setSyncEnabled,
   getSyncStatus
 } from '../lib/credentials.js';
-import { fetchTeams } from '../lib/api-client.js';
+import { fetchTeams, getApiUrl } from '../lib/api-client.js';
+import { syncTasks } from '../lib/cloud-sync.js';
+import { getUnsyncedTasks, markTaskSynced, setTaskSyncError } from '../lib/store.js';
 
 export interface SyncOptions {
   enable?: boolean;
   disable?: boolean;
   team?: string;
   status?: boolean;
+  push?: boolean;
 }
 
 export async function sync(options: SyncOptions): Promise<void> {
@@ -23,6 +26,44 @@ export async function sync(options: SyncOptions): Promise<void> {
     process.exit(1);
   }
 
+  // Manual catch-up: push unsynced tasks for current project
+  if (options.push) {
+    const projectPath = process.cwd();
+    const unsynced = getUnsyncedTasks(projectPath);
+    const apiUrl = getApiUrl();
+
+    if (unsynced.length === 0) {
+      console.log('No unsynced tasks found for this project.\n');
+      return;
+    }
+
+    console.log(`Syncing ${unsynced.length} pending task(s) to the cloud via ${apiUrl}...\n`);
+    const result = await syncTasks(unsynced);
+
+    if (result.syncedIds.length > 0) {
+      for (const id of result.syncedIds) {
+        markTaskSynced(id);
+      }
+    }
+
+    if (result.failedIds.length > 0) {
+      const errorMessage = result.errors[0] || 'Sync failed';
+      for (const id of result.failedIds) {
+        setTaskSyncError(id, errorMessage);
+      }
+    }
+
+    console.log(`Synced: ${result.synced}, Failed: ${result.failed}`);
+    if (result.errors.length > 0) {
+      console.log('Errors:');
+      for (const err of result.errors) {
+        console.log(`- ${err}`);
+      }
+    }
+    console.log('');
+    return;
+  }
+
   // Show status
   if (options.status || (!options.enable && !options.disable && !options.team)) {
     const syncStatus = getSyncStatus();
@@ -31,6 +72,7 @@ export async function sync(options: SyncOptions): Promise<void> {
     console.log(`  Logged in as: ${creds.email}`);
     console.log(`  Sync enabled: ${syncStatus?.enabled ? 'Yes' : 'No'}`);
     console.log(`  Team ID:      ${syncStatus?.teamId || 'Not set'}`);
+    console.log(`  API URL:      ${getApiUrl()}`);
     console.log('');
 
     if (!syncStatus?.enabled) {

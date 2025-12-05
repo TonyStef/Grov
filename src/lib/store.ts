@@ -42,6 +42,8 @@ export interface Task {
   turn_number?: number;
   tags: string[];
   created_at: string;
+  synced_at?: string | null;
+  sync_error?: string | null;
 }
 
 // Input for creating a new task
@@ -313,6 +315,8 @@ export function initDatabase(): Database.Database {
       turn_number INTEGER,
       tags JSON DEFAULT '[]',
       created_at TEXT NOT NULL,
+      synced_at TEXT,
+      sync_error TEXT,
       FOREIGN KEY (parent_task_id) REFERENCES tasks(id)
     );
 
@@ -330,6 +334,12 @@ export function initDatabase(): Database.Database {
   } catch { /* column exists */ }
   try {
     db.exec(`ALTER TABLE tasks ADD COLUMN trigger_reason TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN synced_at TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN sync_error TEXT`);
   } catch { /* column exists */ }
 
   // Create session_states table (temporary per-session tracking)
@@ -600,7 +610,9 @@ export function createTask(input: CreateTaskInput): Task {
     parent_task_id: input.parent_task_id,
     turn_number: input.turn_number,
     tags: input.tags || [],
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    synced_at: null,
+    sync_error: null
   };
 
   const stmt = database.prepare(`
@@ -608,12 +620,12 @@ export function createTask(input: CreateTaskInput): Task {
       id, project_path, user, original_query, goal,
       reasoning_trace, files_touched, decisions, constraints,
       status, trigger_reason, linked_commit,
-      parent_task_id, turn_number, tags, created_at
+      parent_task_id, turn_number, tags, created_at, synced_at, sync_error
     ) VALUES (
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?,
-      ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?
     )
   `);
 
@@ -633,7 +645,9 @@ export function createTask(input: CreateTaskInput): Task {
     task.parent_task_id || null,
     task.turn_number || null,
     JSON.stringify(task.tags),
-    task.created_at
+    task.created_at,
+    task.synced_at,
+    task.sync_error
   );
 
   return task;
@@ -757,6 +771,46 @@ export function getTaskCount(projectPath: string): number {
 }
 
 /**
+ * Get unsynced tasks for a project (synced_at is NULL)
+ */
+export function getUnsyncedTasks(
+  projectPath: string,
+  limit?: number
+): Task[] {
+  const database = initDatabase();
+
+  let sql = 'SELECT * FROM tasks WHERE project_path = ? AND synced_at IS NULL ORDER BY created_at DESC';
+  const params: (string | number)[] = [projectPath];
+
+  if (limit) {
+    sql += ' LIMIT ?';
+    params.push(limit);
+  }
+
+  const stmt = database.prepare(sql);
+  const rows = stmt.all(...params) as Record<string, unknown>[];
+
+  return rows.map(rowToTask);
+}
+
+/**
+ * Mark a task as synced and clear any previous sync error
+ */
+export function markTaskSynced(id: string): void {
+  const database = initDatabase();
+  const now = new Date().toISOString();
+  database.prepare('UPDATE tasks SET synced_at = ?, sync_error = NULL WHERE id = ?').run(now, id);
+}
+
+/**
+ * Record a sync error for a task
+ */
+export function setTaskSyncError(id: string, error: string): void {
+  const database = initDatabase();
+  database.prepare('UPDATE tasks SET sync_error = ? WHERE id = ?').run(error, id);
+}
+
+/**
  * Safely parse JSON with fallback to empty array.
  */
 function safeJsonParse<T>(value: unknown, fallback: T): T {
@@ -790,7 +844,9 @@ function rowToTask(row: Record<string, unknown>): Task {
     parent_task_id: row.parent_task_id as string | undefined,
     turn_number: row.turn_number as number | undefined,
     tags: safeJsonParse<string[]>(row.tags, []),
-    created_at: row.created_at as string
+    created_at: row.created_at as string,
+    synced_at: row.synced_at as string | null | undefined,
+    sync_error: row.sync_error as string | null | undefined
   };
 }
 

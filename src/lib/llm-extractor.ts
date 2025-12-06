@@ -922,6 +922,18 @@ export interface ExtractedReasoningAndDecisions {
   decisions: Array<{ choice: string; reason: string }>;
 }
 
+// Internal interface for Haiku response with knowledge pairs
+interface HaikuKnowledgePair {
+  conclusion: string;
+  insight: string | null;
+}
+
+interface HaikuExtractionResponse {
+  knowledge_pairs?: HaikuKnowledgePair[];
+  reasoning_trace?: string[]; // Backwards compatibility with old format
+  decisions?: Array<{ choice: string; reason: string }>;
+}
+
 /**
  * Check if reasoning extraction is available
  */
@@ -1029,11 +1041,15 @@ Bad examples:
 Return a JSON object with this structure:
 
 {
-  "reasoning_trace": [
-    "CONCLUSION: [specific factual finding with file paths and values]",
-    "CONCLUSION: [another specific finding]",
-    "INSIGHT: [connection or inference you identified]",
-    "INSIGHT: [implication for future work]"
+  "knowledge_pairs": [
+    {
+      "conclusion": "CONCLUSION: [specific factual finding with file paths and values]",
+      "insight": "INSIGHT: [inference or implication RELATED to this conclusion]"
+    },
+    {
+      "conclusion": "CONCLUSION: [another specific finding]",
+      "insight": "INSIGHT: [what this means for future development]"
+    }
   ],
   "decisions": [
     {
@@ -1043,23 +1059,31 @@ Return a JSON object with this structure:
   ]
 }
 
+IMPORTANT: Generate knowledge as PAIRS where each INSIGHT is directly related to its CONCLUSION.
+
+Example pair:
+{
+  "conclusion": "CONCLUSION: MemoryCache uses lazy expiration - entries checked/deleted on get(), not via timers",
+  "insight": "INSIGHT: Lazy expiration avoids timer overhead that would accumulate with large caches - trades CPU on read for memory efficiency"
+}
+
 Rules:
-1. ALWAYS include CONCLUSIONS first (the factual findings)
-2. ADD INSIGHTS where you can infer something not explicitly stated
-3. Use the prefixes "CONCLUSION: " and "INSIGHT: " for clarity
-4. Max 10 reasoning_trace entries - prioritize most valuable
-5. Max 5 decisions - only significant architectural choices
-6. If you cannot find specific file paths or values, re-read the input
-7. If you cannot add insights beyond conclusions, that's OK - conclusions alone are valuable
-8. NEVER include process descriptions ("explored", "searched", "looked at")
-9. English only, no emojis
+1. Each pair MUST have a conclusion AND a related insight
+2. The insight MUST add value beyond the conclusion (inference, implication, pattern)
+3. Max 5 pairs (10 entries total) - prioritize most valuable
+4. Max 5 decisions - only significant architectural choices
+5. If you cannot find a meaningful insight for a conclusion, still include the conclusion with insight: null
+6. NEVER include process descriptions ("explored", "searched", "looked at")
+7. English only, no emojis
+8. Use prefixes "CONCLUSION: " and "INSIGHT: " in the strings
 </output_format>
 
 <validation>
 Before responding, verify:
 - Does each CONCLUSION contain a specific file path or value?
+- Is each INSIGHT directly related to its paired CONCLUSION?
 - Does each INSIGHT add something NOT explicitly in the input?
-- Would a new developer find this useful without seeing the original session?
+- Would a new developer find the pairs useful without seeing the original session?
 - Did I avoid process descriptions?
 - Are the decisions about significant architectural choices?
 </validation>
@@ -1083,11 +1107,30 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
       return { reasoning_trace: [], decisions: [] };
     }
 
-    const result = JSON.parse(jsonMatch[0]) as ExtractedReasoningAndDecisions;
-    debugLLM('extractReasoningAndDecisions', `Extracted ${result.reasoning_trace?.length || 0} traces, ${result.decisions?.length || 0} decisions`);
+    const result = JSON.parse(jsonMatch[0]) as HaikuExtractionResponse;
+
+    // Flatten knowledge_pairs into reasoning_trace (interleaved: conclusion, insight, conclusion, insight...)
+    let reasoningTrace: string[] = [];
+
+    if (result.knowledge_pairs && result.knowledge_pairs.length > 0) {
+      // New format: flatten pairs into interleaved array
+      for (const pair of result.knowledge_pairs) {
+        if (pair.conclusion) {
+          reasoningTrace.push(pair.conclusion);
+        }
+        if (pair.insight) {
+          reasoningTrace.push(pair.insight);
+        }
+      }
+      debugLLM('extractReasoningAndDecisions', `Extracted ${result.knowledge_pairs.length} pairs (${reasoningTrace.length} entries), ${result.decisions?.length || 0} decisions`);
+    } else if (result.reasoning_trace) {
+      // Backwards compatibility: old format with flat array
+      reasoningTrace = result.reasoning_trace;
+      debugLLM('extractReasoningAndDecisions', `Extracted ${reasoningTrace.length} traces (old format), ${result.decisions?.length || 0} decisions`);
+    }
 
     return {
-      reasoning_trace: result.reasoning_trace || [],
+      reasoning_trace: reasoningTrace,
       decisions: result.decisions || [],
     };
   } catch (error) {

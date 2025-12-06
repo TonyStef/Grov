@@ -72,22 +72,51 @@ function formatTeamMemoryContext(
     lines.push('');
   }
 
-  // Task context with decisions and constraints
+  // Task context with knowledge pairs and decisions
+  // Inject up to 5 pairs (10 entries) per task for rich context
   if (tasks.length > 0) {
     lines.push('Related past tasks:');
-    for (const task of tasks.slice(0, 5)) {
+    for (const task of tasks.slice(0, 3)) { // Limit to 3 tasks to manage token budget
       lines.push(`- ${truncate(task.original_query, 60)}`);
       if (task.files_touched.length > 0) {
-        const fileList = task.files_touched.slice(0, 3).map(f => f.split('/').pop()).join(', ');
+        const fileList = task.files_touched.slice(0, 5).map(f => f.split('/').pop()).join(', ');
         lines.push(`  Files: ${fileList}`);
       }
+
+      // Inject knowledge pairs (interleaved: conclusion, insight, conclusion, insight...)
+      // Take up to 5 pairs (10 entries) per task
       if (task.reasoning_trace.length > 0) {
-        lines.push(`  Key: ${truncate(task.reasoning_trace[0], 80)}`);
+        lines.push('  Knowledge:');
+        const maxPairs = 5;
+        const maxEntries = maxPairs * 2; // 10 entries
+        const entries = task.reasoning_trace.slice(0, maxEntries);
+
+        for (let i = 0; i < entries.length; i += 2) {
+          const conclusion = entries[i];
+          const insight = entries[i + 1];
+
+          // Format conclusion (remove prefix for brevity)
+          const cText = conclusion?.replace(/^CONCLUSION:\s*/i, '') || '';
+          if (cText) {
+            lines.push(`    • ${truncate(cText, 120)}`);
+          }
+
+          // Format insight (indented under conclusion)
+          if (insight) {
+            const iText = insight.replace(/^INSIGHT:\s*/i, '');
+            lines.push(`      → ${truncate(iText, 100)}`);
+          }
+        }
       }
-      // Include decisions if available
+
+      // Include decisions (up to 2 per task)
       if (task.decisions && task.decisions.length > 0) {
-        lines.push(`  Decision: ${task.decisions[0].choice} (${truncate(task.decisions[0].reason, 50)})`);
+        const decisionsToShow = task.decisions.slice(0, 2);
+        for (const decision of decisionsToShow) {
+          lines.push(`  Decision: ${truncate(decision.choice, 60)} (${truncate(decision.reason, 50)})`);
+        }
       }
+
       // Include constraints if available
       if (task.constraints && task.constraints.length > 0) {
         lines.push(`  Constraints: ${task.constraints.slice(0, 2).join(', ')}`);

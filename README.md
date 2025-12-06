@@ -129,6 +129,24 @@ Grov monitors what Claude **does** (not what you ask) and corrects if it drifts 
 grov drift-test "refactor the auth system" --goal "fix login bug"
 ```
 
+### Extended Cache (Experimental)
+
+Anthropic's prompt cache expires after 5 minutes of inactivity. If you pause to think between prompts, the cache expires and must be recreated (costs more, takes longer).
+
+```bash
+grov proxy --extended-cache
+```
+
+**What this does:** Sends minimal keep-alive requests (~$0.002 each) during idle periods to preserve your cache.
+
+**Important:** By using `--extended-cache`, you consent to Grov making API requests on your behalf to keep the cache active. These requests:
+- Use your Anthropic API key
+- Are sent automatically during idle periods (every ~4 minutes)
+- Cost approximately $0.002 per keep-alive
+- Are discarded (not added to your conversation)
+
+This feature is **disabled by default** and requires explicit opt-in.
+
 ### Environment Variables
 
 ```bash

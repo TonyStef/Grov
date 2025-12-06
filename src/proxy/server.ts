@@ -1754,17 +1754,17 @@ async function postProcessResponse(
     });
   }
 
+  // Capture final_response for ALL end_turn responses (not just Q&A)
+  // This preserves Claude's analysis even when tools were used
+  if (isEndTurn && textContent.length > 100 && activeSessionId) {
+    updateSessionState(activeSessionId, {
+      final_response: textContent.substring(0, 10000),
+    });
+  }
+
   if (actions.length === 0) {
-    // Final response (no tool calls) - save response text for reasoning extraction
-    // NOTE: Task saving is now controlled by Haiku's task analysis (see switch case 'task_complete' above)
-    // For Q&A tasks, Haiku will detect task_complete when the answer is provided
-    if (isEndTurn && textContent.length > 100 && activeSessionId) {
-      // Save the final response text for potential reasoning extraction later
-      updateSessionState(activeSessionId, {
-        final_response: textContent.substring(0, 10000),
-      });
-      logger.info({ msg: 'Final response saved for reasoning extraction', sessionId: activeSessionId.substring(0, 8) });
-    }
+    // Final response (no tool calls)
+    // NOTE: Task saving is controlled by Haiku's task analysis (see switch case 'task_complete' above)
     return;
   }
 

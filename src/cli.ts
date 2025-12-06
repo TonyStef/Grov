@@ -86,9 +86,10 @@ program
 program
   .command('proxy')
   .description('Start the Grov proxy server (intercepts Claude API calls)')
-  .action(async () => {
+  .option('-d, --debug', 'Enable debug logging to grov-proxy.log')
+  .action(async (options: { debug?: boolean }) => {
     const { startServer } = await import('./proxy/server.js');
-    await startServer();
+    await startServer({ debug: options.debug ?? false });
   });
 
 // grov proxy-status - Show active proxy sessions
@@ -98,6 +99,38 @@ program
   .action(safeAction(async () => {
     const { proxyStatus } = await import('./commands/proxy-status.js');
     await proxyStatus();
+  }));
+
+// grov login - Authenticate with Grov cloud
+program
+  .command('login')
+  .description('Login to Grov cloud (opens browser for authentication)')
+  .action(safeAction(async () => {
+    const { login } = await import('./commands/login.js');
+    await login();
+  }));
+
+// grov logout - Clear stored credentials
+program
+  .command('logout')
+  .description('Logout from Grov cloud')
+  .action(safeAction(async () => {
+    const { logout } = await import('./commands/logout.js');
+    await logout();
+  }));
+
+// grov sync - Configure cloud sync
+program
+  .command('sync')
+  .description('Configure cloud sync to team dashboard')
+  .option('--enable', 'Enable cloud sync')
+  .option('--disable', 'Disable cloud sync')
+  .option('--team <id>', 'Set team ID for sync')
+  .option('--status', 'Show sync status')
+  .option('--push', 'Upload any unsynced local tasks to the team')
+  .action(safeAction(async (options: { enable?: boolean; disable?: boolean; team?: string; status?: boolean; push?: boolean }) => {
+    const { sync } = await import('./commands/sync.js');
+    await sync(options);
   }));
 
 program.parse();

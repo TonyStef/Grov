@@ -7,10 +7,13 @@ import {
   deleteStepsForSession,
   deleteSessionState,
   createTask,
+  markTaskSynced,
+  setTaskSyncError,
   type SessionState,
   type StepRecord,
   type TriggerReason,
 } from '../lib/store.js';
+import { syncTask } from '../lib/cloud-sync.js';
 import {
   extractReasoning,
   isLLMAvailable,
@@ -33,7 +36,9 @@ export async function saveToTeamMemory(
   }
 
   const steps = getValidatedSteps(sessionId);
-  if (steps.length === 0 && triggerReason !== 'abandoned') {
+  // Allow saving if: has steps OR has final_response OR is abandoned
+  const hasFinalResponse = sessionState.final_response && sessionState.final_response.length > 100;
+  if (steps.length === 0 && !hasFinalResponse && triggerReason !== 'abandoned') {
     return; // Nothing to save
   }
 
@@ -41,7 +46,21 @@ export async function saveToTeamMemory(
   const taskData = await buildTaskFromSession(sessionState, steps, triggerReason);
 
   // Create task in team memory
-  createTask(taskData);
+  const task = createTask(taskData);
+
+  // Fire-and-forget cloud sync; never block capture path
+  syncTask(task)
+    .then((success) => {
+      if (success) {
+        markTaskSynced(task.id);
+      } else {
+        setTaskSyncError(task.id, 'Sync not enabled or team not configured');
+      }
+    })
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : 'Unknown sync error';
+      setTaskSyncError(task.id, message);
+    });
 }
 
 /**
@@ -97,12 +116,17 @@ async function buildTaskFromSession(
   let decisions: Array<{ choice: string; reason: string }> = [];
   let constraints: string[] = sessionState.constraints || [];
 
-  if (isReasoningExtractionAvailable() && steps.length > 0) {
+  if (isReasoningExtractionAvailable()) {
     try {
-      // Collect reasoning from steps
+      // Collect reasoning from steps + final response
       const stepsReasoning = steps
         .map(s => s.reasoning)
         .filter((r): r is string => !!r && r.length > 10);
+
+      // Include final response (contains the actual analysis/conclusion)
+      if (sessionState.final_response && sessionState.final_response.length > 100) {
+        stepsReasoning.push(sessionState.final_response);
+      }
 
       if (stepsReasoning.length > 0) {
         const extracted = await extractReasoningAndDecisions(

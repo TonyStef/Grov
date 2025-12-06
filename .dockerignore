@@ -1,0 +1,39 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+.next
+**/.next
+
+# Development files
+*.md
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Testing
+coverage
+*.test.ts
+*.spec.ts
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs
+
+# Landing page (not needed for API/Dashboard)
+landing

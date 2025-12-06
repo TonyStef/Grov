@@ -10,12 +10,14 @@ import {
 import { truncate } from '../lib/utils.js';
 
 /**
- * Build context from team memory for injection
- * Queries tasks and file_reasoning tables
+ * Build context from team memory for injection (PAST sessions only)
+ * Queries tasks and file_reasoning tables, excluding current session data
+ * @param currentSessionId - Session ID to exclude (ensures only past session data)
  */
 export function buildTeamMemoryContext(
   projectPath: string,
-  mentionedFiles: string[]
+  mentionedFiles: string[],
+  currentSessionId?: string
 ): string | null {
   // Get recent completed tasks for this project
   const tasks = getTasksForProject(projectPath, {
@@ -28,9 +30,10 @@ export function buildTeamMemoryContext(
     ? getTasksByFiles(projectPath, mentionedFiles, { status: 'complete', limit: 5 })
     : [];
 
-  // Get file-level reasoning from steps table (proxy version)
+  // Get file-level reasoning from steps table (PAST sessions only)
+  // Pass currentSessionId to exclude current session data
   const fileReasonings = mentionedFiles.length > 0
-    ? mentionedFiles.flatMap(f => getStepsReasoningByPath(f, 3))
+    ? mentionedFiles.flatMap(f => getStepsReasoningByPath(f, 3, currentSessionId))
     : [];
 
   // Combine unique tasks

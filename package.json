@@ -16,13 +16,24 @@
     "README.md",
     "LICENSE"
   ],
+  "workspaces": [
+    "shared",
+    "dashboard",
+    "api",
+    "landing"
+  ],
   "scripts": {
     "build": "tsc",
+    "build:all": "turbo run build",
     "dev": "tsc --watch",
+    "dev:dashboard": "turbo run dev --filter=@grov/dashboard",
+    "dev:api": "turbo run dev --filter=@grov/api",
     "start": "node dist/cli.js",
     "proxy": "node dist/proxy/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:all": "turbo run test",
+    "typecheck": "turbo run typecheck",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -55,19 +66,23 @@
     "debug": "^4.4.3",
     "dotenv": "^16.4.5",
     "fastify": "^5.6.2",
+    "open": "^11.0.0",
     "openai": "^4.70.0",
     "pino": "^10.1.0",
     "pino-pretty": "^13.1.2",
     "undici": "^7.16.0"
   },
   "devDependencies": {
+    "@grov/shared": "workspace:*",
     "@types/better-sqlite3": "^7.6.11",
     "@types/debug": "^4.1.12",
     "@types/node": "^22.19.1",
+    "turbo": "^2.6.3",
     "typescript": "^5.7.2",
     "vitest": "^2.1.9"
   },
   "engines": {
-    "node": ">=18.0.0"
-  }
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
 }

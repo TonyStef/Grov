@@ -25,6 +25,9 @@ export const config = {
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
   LOG_REQUESTS: process.env.LOG_REQUESTS !== 'false',
+
+  // Extended Cache - preserve Anthropic prompt cache during idle
+  EXTENDED_CACHE_ENABLED: process.env.GROV_EXTENDED_CACHE === 'true',
 };
 
 // Headers to forward to Anthropic (whitelist approach)

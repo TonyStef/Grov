@@ -54,6 +54,7 @@ import {
   extractReasoningAndDecisions,
   isReasoningExtractionAvailable,
   type TaskAnalysis,
+  type ConversationMessage,
 } from '../lib/llm-extractor.js';
 import { buildTeamMemoryContext, extractFilesFromMessages } from './request-processor.js';
 import { saveToTeamMemory, cleanupSession } from './response-processor.js';
@@ -1273,18 +1274,21 @@ async function postProcessResponse(
   } else if (isTaskAnalysisAvailable()) {
     // Use completed session for comparison if no active session
     const sessionForComparison = sessionInfo.currentSession || sessionInfo.completedSession;
+    // Extract conversation history for context-aware task analysis
+    const conversationHistory = extractConversationHistory(requestBody.messages || []);
     try {
       const taskAnalysis = await analyzeTaskContext(
         sessionForComparison,
         latestUserMessage,
         recentSteps,
-        textContent
+        textContent,
+        conversationHistory
       );
 
       logger.info({
         msg: 'Task analysis',
         action: taskAnalysis.action,
-        topic_match: taskAnalysis.topic_match,
+        task_type: taskAnalysis.task_type,
         goal: taskAnalysis.current_goal?.substring(0, 50),
         reasoning: taskAnalysis.reasoning,
       });
@@ -1293,7 +1297,7 @@ async function postProcessResponse(
       taskLog('TASK_ANALYSIS', {
         sessionId: sessionInfo.sessionId,
         action: taskAnalysis.action,
-        topic_match: taskAnalysis.topic_match,
+        task_type: taskAnalysis.task_type,
         goal: taskAnalysis.current_goal || '',
         reasoning: taskAnalysis.reasoning || '',
         userMessage: latestUserMessage.substring(0, 80),
@@ -1427,6 +1431,26 @@ async function postProcessResponse(
             scopeCount: intentData.expected_scope.length,
             keywordsCount: intentData.keywords.length,
           });
+
+          // Q&A AUTO-SAVE: If this is an information request with a substantive answer,
+          // save immediately since Q&A completes in a single turn
+          if (taskAnalysis.task_type === 'information' && textContent.length > 100) {
+            logger.info({ msg: 'Q&A detected - saving immediately', sessionId: newSessionId.substring(0, 8) });
+            taskLog('QA_AUTO_SAVE', {
+              sessionId: newSessionId,
+              goal: intentData.goal,
+              responseLength: textContent.length,
+            });
+
+            // Store the response for reasoning extraction
+            updateSessionState(newSessionId, {
+              final_response: textContent.substring(0, 10000),
+            });
+
+            // Save to team memory and mark complete
+            await saveToTeamMemory(newSessionId, 'complete');
+            markSessionCompleted(newSessionId);
+          }
           break;
         }
 
@@ -1673,18 +1697,12 @@ async function postProcessResponse(
     }
   }
 
-  // AUTO-SAVE on every end_turn (for all task types: new_task, continue, subtask, parallel)
-  // task_complete and subtask_complete already save and return early, so they won't reach here
-  if (isEndTurn && activeSession && activeSessionId) {
-    try {
-      await saveToTeamMemory(activeSessionId, 'complete');
-      markSessionCompleted(activeSessionId);
-      activeSessions.delete(activeSessionId);
-      logger.info({ msg: 'Auto-saved task on end_turn', sessionId: activeSessionId.substring(0, 8) });
-    } catch (err) {
-      logger.info({ msg: 'Auto-save failed', error: String(err) });
-    }
-  }
+  // NOTE: Auto-save on every end_turn was REMOVED
+  // Task saving is now controlled by Haiku's task analysis:
+  // - task_complete: Haiku detected task is done (Q&A answered, implementation verified, planning confirmed)
+  // - subtask_complete: Haiku detected subtask is done
+  // This ensures we only save when work is actually complete, not on every Claude response.
+  // See analyzeTaskContext() in llm-extractor.ts for the decision logic.
 
   // Extract token usage
   const usage = extractTokenUsage(response);
@@ -1737,24 +1755,15 @@ async function postProcessResponse(
   }
 
   if (actions.length === 0) {
-    // Final response (no tool calls) - save for reasoning extraction and create task
+    // Final response (no tool calls) - save response text for reasoning extraction
+    // NOTE: Task saving is now controlled by Haiku's task analysis (see switch case 'task_complete' above)
+    // For Q&A tasks, Haiku will detect task_complete when the answer is provided
     if (isEndTurn && textContent.length > 100 && activeSessionId) {
-      // 1. Save the final response text
+      // Save the final response text for potential reasoning extraction later
       updateSessionState(activeSessionId, {
         final_response: textContent.substring(0, 10000),
       });
-
-      // 2. Save the task (uses final_response for reasoning extraction via Haiku)
-      if (activeSession) {
-        try {
-          await saveToTeamMemory(activeSessionId, 'complete');
-          markSessionCompleted(activeSessionId);
-          activeSessions.delete(activeSessionId);
-          logger.info({ msg: 'Task saved on final answer', sessionId: activeSessionId.substring(0, 8) });
-        } catch (err) {
-          logger.info({ msg: 'Task save failed', error: String(err) });
-        }
-      }
+      logger.info({ msg: 'Final response saved for reasoning extraction', sessionId: activeSessionId.substring(0, 8) });
     }
     return;
   }
@@ -2056,7 +2065,8 @@ function extractProjectPath(body: MessagesRequestBody): string | null {
 function extractGoalFromMessages(messages: Array<{ role: string; content: unknown }>): string | undefined {
   const userMessages = messages?.filter(m => m.role === 'user') || [];
 
-  for (const userMsg of userMessages) {
+  // Iterate in REVERSE to get the LAST (most recent) user message
+  for (const userMsg of [...userMessages].reverse()) {
     let rawContent = '';
 
     // Handle string content
@@ -2085,6 +2095,52 @@ function extractGoalFromMessages(messages: Array<{ role: string; content: unknow
   }
 
   return undefined;
+}
+
+/**
+ * Extract conversation history from messages for task analysis
+ * Returns last 10 messages in ConversationMessage format
+ */
+function extractConversationHistory(
+  messages: Array<{ role: string; content: unknown }>
+): ConversationMessage[] {
+  if (!messages || messages.length === 0) return [];
+
+  const result: ConversationMessage[] = [];
+
+  for (const msg of messages.slice(-10)) {
+    if (msg.role !== 'user' && msg.role !== 'assistant') continue;
+
+    let textContent = '';
+
+    // Handle string content
+    if (typeof msg.content === 'string') {
+      textContent = msg.content;
+    }
+
+    // Handle array content - extract text blocks only
+    if (Array.isArray(msg.content)) {
+      const textBlocks = msg.content
+        .filter((block): block is { type: string; text: string } =>
+          block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string')
+        .map(block => block.text);
+      textContent = textBlocks.join('\n');
+    }
+
+    // Remove system-reminder tags
+    const cleanContent = textContent
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+
+    if (cleanContent && cleanContent.length > 0) {
+      result.push({
+        role: msg.role as 'user' | 'assistant',
+        content: cleanContent,
+      });
+    }
+  }
+
+  return result;
 }
 
 /**

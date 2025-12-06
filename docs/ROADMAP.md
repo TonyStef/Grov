@@ -16,15 +16,17 @@ Phase 5: Ecosystem          → Integrations, API, marketplace
 
 **Goal:** Prove that capturing and injecting reasoning actually reduces exploration time.
 
-**Status:** In Development
+**Status:** ✅ Complete
 
 ### Features
 - [x] Design: Task-based storage (not session-based)
 - [x] Design: Hook-based capture (Stop event)
 - [x] Design: Hook-based injection (SessionStart + additionalContext)
-- [ ] `grov init` - Register hooks
-- [ ] `grov capture` - Parse JSONL, extract via LLM, store in SQLite
-- [ ] `grov inject` - Query SQLite, output context JSON
+- [x] `grov init` - Configure proxy
+- [x] `grov proxy` - Intercept Claude Code traffic
+- [x] `grov status` - Show captured tasks
+- [x] LLM-powered extraction (Haiku)
+- [x] Anti-drift detection
 
 ### Success Metrics
 - 0 explore agents on tasks with prior context
@@ -43,73 +45,30 @@ Phase 5: Ecosystem          → Integrations, API, marketplace
 
 **Goal:** Multiple developers share reasoning on the same codebase.
 
-### Features
+**Status:** ✅ Complete
 
-#### Cloud Storage
-```
-┌─────────────────┐         ┌─────────────────┐
-│  Dev A's Local  │◄───────►│   Cloud DB      │◄───────►│  Dev B's Local  │
-│    SQLite       │  sync   │  (Supabase/     │  sync   │    SQLite       │
-└─────────────────┘         │   Postgres)     │         └─────────────────┘
-                            └─────────────────┘
-```
+### Features Implemented
+- [x] Cloud sync to Supabase (Postgres)
+- [x] Auto-sync on session complete
+- [x] Team dashboard at [app.grov.dev](https://app.grov.dev)
+- [x] GitHub OAuth authentication
+- [x] Team creation and invite system
+- [x] View team members' memories
+- [x] Search across sessions
 
-- Local SQLite remains source of truth
-- Background sync when online
-- Conflict resolution: latest timestamp wins
-- Offline-first: works without internet
-
-#### Team Dashboard (Web UI)
-- View all team members' recent tasks
-- Search reasoning by file, tag, or keyword
-- See which areas of codebase have most context
-- Simple stats: tasks captured, context injected
-
-#### Authentication
-- `grov login` - authenticate via browser OAuth
-- `grov logout` - clear credentials
-- `grov team create/join` - team management
-
-### New Commands
+### Commands
 ```bash
-grov login              # Authenticate
-grov logout             # Clear auth
-grov team create <name> # Create a team
-grov team join <code>   # Join existing team
-grov sync               # Force sync now
-grov status             # Show sync status, recent tasks
+grov login                    # Authenticate via GitHub
+grov logout                   # Clear credentials
+grov sync --enable --team ID  # Enable sync for a team
+grov sync                     # Check sync status
 ```
 
-### Architecture Addition
-```
-src/
-├── sync/
-│   ├── cloud-client.ts      # API calls to cloud backend
-│   ├── sync-manager.ts      # Bidirectional sync logic
-│   └── conflict-resolver.ts # Handle merge conflicts
-├── auth/
-│   ├── oauth.ts             # Browser-based OAuth flow
-│   └── credentials.ts       # Store/retrieve tokens
-```
-
-### Backend (New)
-```
-grov-api/
-├── src/
-│   ├── routes/
-│   │   ├── auth.ts          # OAuth endpoints
-│   │   ├── tasks.ts         # CRUD for tasks
-│   │   ├── teams.ts         # Team management
-│   │   └── sync.ts          # Sync endpoints
-│   ├── db/
-│   │   └── schema.sql       # Postgres schema
-│   └── index.ts
-```
-
-### Tech Stack Additions
-- **Backend:** Node.js + Hono/Express
-- **Database:** Supabase (Postgres + Auth + Realtime)
-- **Dashboard:** Next.js or simple React SPA
+### Architecture
+- **API:** Fastify on Google Cloud Run (`api.grov.dev`)
+- **Dashboard:** Next.js 15 on Google Cloud Run (`app.grov.dev`)
+- **Database:** Supabase (Postgres + Auth + RLS)
+- **Auth:** GitHub OAuth via Supabase
 
 ---
 

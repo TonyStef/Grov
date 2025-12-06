@@ -14,8 +14,9 @@
 
 <p align="center">
   <a href="https://grov.dev">Website</a> •
+  <a href="https://app.grov.dev">Dashboard</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#advanced-features">Advanced</a> •
+  <a href="#team-sync">Team Sync</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -77,6 +78,8 @@ grov init         # Configure proxy URL (one-time)
 grov proxy        # Start the proxy (required)
 grov proxy-status # Show active sessions
 grov status       # Show captured tasks
+grov login        # Login to cloud dashboard
+grov sync         # Sync memories to team dashboard
 grov disable      # Disable grov
 ```
 
@@ -84,7 +87,24 @@ grov disable      # Disable grov
 
 - **Database:** `~/.grov/memory.db` (SQLite)
 - **Per-project:** Context is filtered by project path
-- **Local only:** Nothing leaves your machine
+- **Local by default:** Memories stay on your machine unless you enable team sync
+
+## Team Sync
+
+Share memories across your engineering team with the cloud dashboard.
+
+```bash
+grov login                    # Authenticate via GitHub
+grov sync --enable --team ID  # Enable sync for a team
+```
+
+Once enabled, memories automatically sync to [app.grov.dev](https://app.grov.dev) where your team can:
+- Browse all captured reasoning
+- Search across sessions
+- Invite team members
+- See who learned what
+
+Memories sync automatically when sessions complete - no manual intervention needed.
 
 ## Requirements
 
@@ -169,9 +189,10 @@ YOU MAY SKIP EXPLORE AGENTS for files mentioned above.
 - [x] LLM-powered extraction
 - [x] Local proxy with real-time monitoring
 - [x] Anti-drift detection & correction
-- [ ] Team sync (cloud backend)
-- [ ] Web dashboard
+- [x] Team sync (cloud backend)
+- [x] Web dashboard
 - [ ] Semantic search
+- [ ] VS Code extension
 
 ## Contributing
 

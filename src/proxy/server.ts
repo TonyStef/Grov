@@ -1357,24 +1357,24 @@ async function postProcessResponse(
     });
   }
 
-  if (actions.length === 0) {
-    // Final response (no tool calls) - save for reasoning extraction and create task
-    if (isEndTurn && textContent.length > 100 && activeSessionId) {
-      // 1. Save the final response text
-      updateSessionState(activeSessionId, {
-        final_response: textContent.substring(0, 10000),
-      });
+  // Capture final_response for ALL end_turn responses (not just Q&A)
+  // This preserves Claude's analysis even when tools were used
+  if (isEndTurn && textContent.length > 100 && activeSessionId) {
+    updateSessionState(activeSessionId, {
+      final_response: textContent.substring(0, 10000),
+    });
+  }
 
-      // 2. Save the task (uses final_response for reasoning extraction via Haiku)
-      if (activeSession) {
-        try {
-          await saveToTeamMemory(activeSessionId, 'complete');
-          markSessionCompleted(activeSessionId);
-          activeSessions.delete(activeSessionId);
-          logger.info({ msg: 'Task saved on final answer', sessionId: activeSessionId.substring(0, 8) });
-        } catch (err) {
-          logger.info({ msg: 'Task save failed', error: String(err) });
-        }
+  if (actions.length === 0) {
+    // Pure Q&A (no tool calls) - auto-save as task
+    if (isEndTurn && activeSessionId && activeSession) {
+      try {
+        await saveToTeamMemory(activeSessionId, 'complete');
+        markSessionCompleted(activeSessionId);
+        activeSessions.delete(activeSessionId);
+        logger.info({ msg: 'Task saved on final answer', sessionId: activeSessionId.substring(0, 8) });
+      } catch (err) {
+        logger.info({ msg: 'Task save failed', error: String(err) });
       }
     }
     return;

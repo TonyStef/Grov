@@ -87,10 +87,14 @@ program
   .command('proxy')
   .description('Start the Grov proxy server (intercepts Claude API calls)')
   .option('-d, --debug', 'Enable debug logging to grov-proxy.log')
-  .option('--extended-cache', 'Enable extended cache to preserve Anthropic prompt cache during idle')
+  .option('--extended-cache', 'Keep Anthropic cache alive during idle (sends requests on your behalf)')
   .action(async (options: { debug?: boolean; extendedCache?: boolean }) => {
     if (options.extendedCache) {
       process.env.GROV_EXTENDED_CACHE = 'true';
+      console.log('\n⚠️  Extended Cache Enabled');
+      console.log('   By using --extended-cache, you consent to Grov making');
+      console.log('   minimal keep-alive requests on your behalf to preserve');
+      console.log('   Anthropic\'s prompt cache during idle periods.\n');
     }
     const { startServer } = await import('./proxy/server.js');
     await startServer({ debug: options.debug ?? false });

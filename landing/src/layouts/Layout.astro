@@ -1,4 +1,6 @@
 ---
+import Header from '../components/Header.astro';
+
 interface Props {
   title?: string;
   description?: string;
@@ -56,6 +58,7 @@ const ogImageUrl = `https://grov.dev${image}?v=2`;
     <title>{title}</title>
   </head>
   <body class="min-h-screen">
+    <Header />
     <slot />
     <script>
       import '../scripts/scroll-reveals';

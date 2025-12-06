@@ -57,3 +57,6 @@ coverage/
 # Misc
 *.tgz
 .vercel
+
+scripts/deploy-*.sh
+scripts/build-dashboard.sh

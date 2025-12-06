@@ -23,6 +23,100 @@ import {
 import type { ParsedSession } from '../lib/jsonl-parser.js';
 
 /**
+ * Group of steps that share the same Claude response (reasoning)
+ * Used to reconstruct full context when sending to Haiku
+ */
+interface ReasoningGroup {
+  reasoning: string;
+  actions: Array<{
+    type: string;
+    files: string[];
+    folders: string[];
+    command?: string;
+  }>;
+  allFiles: string[];
+  allFolders: string[];
+}
+
+/**
+ * Group steps by reasoning (non-NULL starts a group, NULLs continue it)
+ * Steps from the same Claude response share identical reasoning, stored only on the first.
+ */
+function groupStepsByReasoning(steps: StepRecord[]): ReasoningGroup[] {
+  const groups: ReasoningGroup[] = [];
+  let currentGroup: ReasoningGroup | null = null;
+
+  for (const step of steps) {
+    if (step.reasoning && step.reasoning.length > 0) {
+      // Step with reasoning = start new group
+      if (currentGroup) {
+        groups.push(currentGroup);
+      }
+      currentGroup = {
+        reasoning: step.reasoning,
+        actions: [{
+          type: step.action_type,
+          files: step.files || [],
+          folders: step.folders || [],
+          command: step.command ?? undefined,
+        }],
+        allFiles: [...(step.files || [])],
+        allFolders: [...(step.folders || [])],
+      };
+    } else if (currentGroup) {
+      // Step without reasoning = continue current group
+      currentGroup.actions.push({
+        type: step.action_type,
+        files: step.files || [],
+        folders: step.folders || [],
+        command: step.command ?? undefined,
+      });
+      currentGroup.allFiles.push(...(step.files || []));
+      currentGroup.allFolders.push(...(step.folders || []));
+    }
+    // Edge case: step without reasoning and no current group = skip (shouldn't happen with new code)
+  }
+
+  // Push last group
+  if (currentGroup) {
+    groups.push(currentGroup);
+  }
+
+  return groups;
+}
+
+/**
+ * Format grouped steps for Haiku prompt
+ * Provides structured XML with reasoning + associated actions and files
+ */
+function formatGroupsForHaiku(groups: ReasoningGroup[]): string {
+  if (groups.length === 0) {
+    return '';
+  }
+
+  return groups.map((g, i) => {
+    const actionLines = g.actions.map(a => {
+      let line = `- ${a.type}`;
+      if (a.files.length > 0) line += `: ${a.files.join(', ')}`;
+      if (a.command) line += ` (command: ${a.command.substring(0, 50)})`;
+      return line;
+    }).join('\n');
+
+    const uniqueFiles = [...new Set(g.allFiles)];
+
+    return `<response index="${i + 1}">
+<reasoning>
+${g.reasoning}
+</reasoning>
+<actions_performed>
+${actionLines}
+</actions_performed>
+<files_touched>${uniqueFiles.join(', ') || 'none'}</files_touched>
+</response>`;
+  }).join('\n\n###\n\n');
+}
+
+/**
  * Save session to team memory
  * Called on: task complete, subtask complete, session abandoned
  */
@@ -118,19 +212,26 @@ async function buildTaskFromSession(
 
   if (isReasoningExtractionAvailable()) {
     try {
-      // Collect reasoning from steps + final response
-      const stepsReasoning = steps
-        .map(s => s.reasoning)
-        .filter((r): r is string => !!r && r.length > 10);
+      // Group steps by reasoning to avoid duplicates and preserve action context
+      const groups = groupStepsByReasoning(steps);
+      let formattedSteps = formatGroupsForHaiku(groups);
 
-      // Include final response (contains the actual analysis/conclusion)
+      // Add final_response as separate section if exists and is different from grouped reasoning
       if (sessionState.final_response && sessionState.final_response.length > 100) {
-        stepsReasoning.push(sessionState.final_response);
+        const finalAlreadyIncluded = groups.some(g =>
+          g.reasoning.includes(sessionState.final_response!.substring(0, 100))
+        );
+        if (!finalAlreadyIncluded) {
+          if (formattedSteps.length > 0) {
+            formattedSteps += '\n\n###\n\n';
+          }
+          formattedSteps += `<final_response>\n${sessionState.final_response.substring(0, 8000)}\n</final_response>`;
+        }
       }
 
-      if (stepsReasoning.length > 0) {
+      if (formattedSteps.length > 50) {
         const extracted = await extractReasoningAndDecisions(
-          stepsReasoning,
+          formattedSteps,
           sessionState.original_goal || ''
         );
 

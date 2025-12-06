@@ -1919,9 +1919,28 @@ async function postProcessResponse(
   }
 
   // Save each action as a step (with reasoning from Claude's text)
+  // When multiple actions come from the same Claude response, they share identical reasoning.
+  // We store reasoning only on the first action and set NULL for subsequent ones to avoid duplication.
+  // At query time, we group steps by reasoning (non-NULL starts a group, NULLs continue it)
+  // and reconstruct the full context: reasoning + all associated files/actions.
+  let previousReasoning: string | null = null;
+
+  logger.info({ msg: 'DEDUP_DEBUG', actionsCount: actions.length, textContentLen: textContent.length });
+
   for (const action of actions) {
+    const currentReasoning = textContent.substring(0, 1000);
+    const isDuplicate = currentReasoning === previousReasoning;
+
+    logger.info({
+      msg: 'DEDUP_STEP',
+      actionType: action.actionType,
+      isDuplicate,
+      prevLen: previousReasoning?.length || 0,
+      currLen: currentReasoning.length
+    });
+
     // Detect key decisions based on action type and reasoning content
-    const isKeyDecision = detectKeyDecision(action, textContent);
+    const isKeyDecision = !isDuplicate && detectKeyDecision(action, textContent);
 
     createStep({
       session_id: activeSessionId,
@@ -1929,11 +1948,13 @@ async function postProcessResponse(
       files: action.files,
       folders: action.folders,
       command: action.command,
-      reasoning: textContent.substring(0, 1000),  // Claude's explanation (truncated)
+      reasoning: isDuplicate ? undefined : currentReasoning,
       drift_score: driftScore,
       is_validated: !skipSteps,
       is_key_decision: isKeyDecision,
     });
+
+    previousReasoning = currentReasoning;
 
     if (isKeyDecision) {
       logger.info({
@@ -2088,9 +2109,11 @@ function extractGoalFromMessages(messages: Array<{ role: string; content: unknow
       rawContent = textBlocks.join('\n');
     }
 
-    // Remove <system-reminder>...</system-reminder> tags
+    // Remove <system-reminder>...</system-reminder> tags (including orphaned tags from split content blocks)
     const cleanContent = rawContent
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .replace(/<\/system-reminder>/g, '')
+      .replace(/<system-reminder>[^<]*/g, '')
       .trim();
 
     // If we found valid text content, return it

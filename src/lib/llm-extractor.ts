@@ -932,79 +932,141 @@ export function isReasoningExtractionAvailable(): boolean {
 /**
  * Extract reasoning trace and decisions from steps
  * Called at task_complete to populate team memory with rich context
+ *
+ * @param formattedSteps - Pre-formatted XML string with grouped steps and actions
+ * @param originalGoal - The original task goal
  */
 export async function extractReasoningAndDecisions(
-  stepsReasoning: string[],
+  formattedSteps: string,
   originalGoal: string
 ): Promise<ExtractedReasoningAndDecisions> {
   const client = getAnthropicClient();
 
-  // Combine all steps reasoning into one text
-  const combinedReasoning = stepsReasoning
-    .filter(r => r && r.length > 10)
-    .join('\n\n---\n\n')
-    .substring(0, 8000);
-
-  if (combinedReasoning.length < 50) {
+  if (formattedSteps.length < 50) {
     return { reasoning_trace: [], decisions: [] };
   }
 
-  const prompt = `Extract CONCLUSIONS and KNOWLEDGE from Claude's work - NOT process descriptions.
+  const prompt = `<role>
+You are a Knowledge Engineer specialized in extracting reusable team knowledge from coding sessions.
 
-ORIGINAL GOAL:
-${originalGoal || 'Not specified'}
+Your output will be stored permanently in team memory and used to help developers in future sessions. Poor extractions waste storage and confuse future assistants. Excellent extractions save hours of repeated investigation.
+</role>
 
-CLAUDE'S RESPONSE:
-${combinedReasoning}
+<context>
+PROJECT GOAL: ${originalGoal || 'Not specified'}
 
-═══════════════════════════════════════════════════════════════
-EXTRACT ACTIONABLE CONCLUSIONS - NOT PROCESS
-═══════════════════════════════════════════════════════════════
+This extraction serves two purposes:
+1. Help future developers understand WHAT was discovered in this codebase
+2. Help future developers understand WHY certain decisions were made
+</context>
 
-GOOD examples (specific, reusable knowledge):
-- "Utility functions belong in frontend/lib/utils.ts - existing utils: cn(), formatDate(), debounce()"
-- "Auth tokens stored in localStorage with 15min expiry for long form sessions"
-- "API routes follow REST pattern in /api/v1/ with Zod validation"
-- "Database migrations go in prisma/migrations/ using prisma migrate"
+<session_data>
+${formattedSteps.substring(0, 8000)}
+</session_data>
 
-BAD examples (process descriptions - DO NOT EXTRACT THESE):
-- "Explored the codebase structure"
-- "Analyzed several approaches"
-- "Searched for utility directories"
-- "Looked at the file organization"
+<instructions>
 
-1. REASONING TRACE (conclusions and recommendations):
-   - WHAT was discovered or decided (specific file paths, patterns)
-   - WHY this is the right approach
-   - WHERE this applies in the codebase
-   - Max 10 entries, prioritize specific file/function recommendations
+We need TWO types of knowledge extracted:
 
-2. DECISIONS (architectural choices):
-   - Only significant choices that affect future work
-   - What was chosen and why
-   - Max 5 decisions
+TYPE A: CONCLUSIONS (Factual findings from the session)
 
-Return JSON:
+What this means:
+These are FACTS discovered during the session. Things that were explicitly found, read, or confirmed in the code. A new developer reading these should immediately know WHERE to find things and WHAT values/patterns exist.
+
+Must include:
+- Specific file paths (not just "auth files" but "src/lib/jwt.ts")
+- Specific values (not just "short expiry" but "1 hour access, 7 day refresh")
+- Specific patterns (not just "uses JWT" but "JWT with sub, email, type, teams payload")
+- Specific functions/classes (not just "middleware" but "requireAuth, optionalAuth preHandlers")
+
+Format: Start with "CONCLUSION: " prefix
+
+Good examples:
+- "CONCLUSION: JWT tokens stored in ~/.grov/credentials.json with 1hr access/7d refresh expiry"
+- "CONCLUSION: Auth middleware in src/routes/auth.ts exports requireAuth and optionalAuth preHandlers"
+- "CONCLUSION: Device flow polling interval is 5 seconds, endpoint /auth/device/poll"
+
+Bad examples:
+- "CONCLUSION: Found authentication files" (too vague, no paths)
+- "CONCLUSION: JWT is used for auth" (too generic, no specifics)
+- "CONCLUSION: Explored the codebase" (process description, not finding)
+
+
+TYPE B: INSIGHTS (Your analysis and inferences)
+
+What this means:
+These are YOUR observations that go BEYOND what was explicitly stated. Connections between different parts, patterns you identified, implications for future work. This is where YOU add value beyond just summarizing.
+
+Types of insights we value:
+
+1. CONNECTIONS - How do different files/modules relate?
+Example: "jwt.ts handles token creation, credentials.ts handles storage - separation of crypto operations from I/O"
+
+2. INFERENCES - What decisions were made implicitly?
+Example: "File storage in ~/.grov/ instead of env vars - implies single-user CLI design, not multi-tenant"
+
+3. PATTERNS - What architectural patterns emerge?
+Example: "All config files use 0600 permissions - security-conscious design for sensitive data"
+
+4. IMPLICATIONS - What does this mean for future development?
+Example: "1hr token expiry requires background refresh mechanism for long operations to avoid mid-task auth failures"
+
+Format: Start with "INSIGHT: " prefix
+
+Good examples:
+- "INSIGHT: Dual-file pattern (jwt.ts + credentials.ts) separates crypto from I/O, reducing attack surface"
+- "INSIGHT: Device Authorization Flow chosen over password flow - enables OAuth providers without storing secrets in CLI"
+- "INSIGHT: Teams array cached in JWT payload - avoids DB query per request but requires token refresh on team changes"
+
+Bad examples:
+- "INSIGHT: The code is well organized" (subjective, not actionable)
+- "INSIGHT: Authentication is important" (obvious, no value)
+- "INSIGHT: Files were read" (process description, not insight)
+
+</instructions>
+
+<output_format>
+Return a JSON object with this structure:
+
 {
   "reasoning_trace": [
-    "Utility functions belong in frontend/lib/utils.ts alongside cn(), formatDate(), debounce(), generateId()",
-    "Backend utilities go in backend/app/utils/ with domain-specific files like validation.py",
-    "The @/lib/utils import alias is configured for frontend utility access"
+    "CONCLUSION: [specific factual finding with file paths and values]",
+    "CONCLUSION: [another specific finding]",
+    "INSIGHT: [connection or inference you identified]",
+    "INSIGHT: [implication for future work]"
   ],
   "decisions": [
-    {"choice": "Add to existing utils.ts rather than new file", "reason": "Maintains established pattern, easier discoverability"},
-    {"choice": "Use frontend/lib/ over src/utils/", "reason": "Follows Next.js conventions used throughout project"}
+    {
+      "choice": "[What was chosen - be specific]",
+      "reason": "[Why - include whether this is factual or inferred]"
+    }
   ]
 }
 
-RESPONSE RULES:
-- English only
-- No emojis
-- Valid JSON only
-- Extract WHAT and WHERE, not just WHAT was done
-- If no specific conclusions found, return empty arrays`;
+Rules:
+1. ALWAYS include CONCLUSIONS first (the factual findings)
+2. ADD INSIGHTS where you can infer something not explicitly stated
+3. Use the prefixes "CONCLUSION: " and "INSIGHT: " for clarity
+4. Max 10 reasoning_trace entries - prioritize most valuable
+5. Max 5 decisions - only significant architectural choices
+6. If you cannot find specific file paths or values, re-read the input
+7. If you cannot add insights beyond conclusions, that's OK - conclusions alone are valuable
+8. NEVER include process descriptions ("explored", "searched", "looked at")
+9. English only, no emojis
+</output_format>
 
-  debugLLM('extractReasoningAndDecisions', `Analyzing ${stepsReasoning.length} steps, ${combinedReasoning.length} chars`);
+<validation>
+Before responding, verify:
+- Does each CONCLUSION contain a specific file path or value?
+- Does each INSIGHT add something NOT explicitly in the input?
+- Would a new developer find this useful without seeing the original session?
+- Did I avoid process descriptions?
+- Are the decisions about significant architectural choices?
+</validation>
+
+Return ONLY valid JSON, no markdown code blocks, no explanation.`;
+
+  debugLLM('extractReasoningAndDecisions', `Analyzing formatted steps, ${formattedSteps.length} chars`);
 
   try {
     const response = await client.messages.create({

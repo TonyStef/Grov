@@ -184,5 +184,14 @@ export async function getTeamInvitations(teamId: string) {
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false });
 
-  return invitations || [];
+  if (!invitations) return [];
+
+  // Flatten creator from array to single object (Supabase returns array for joins)
+  return invitations.map((inv: any) => ({
+    id: inv.id,
+    invite_code: inv.invite_code,
+    expires_at: inv.expires_at,
+    created_at: inv.created_at,
+    creator: inv.creator?.[0] || undefined,
+  }));
 }

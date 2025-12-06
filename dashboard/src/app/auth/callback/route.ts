@@ -18,9 +18,16 @@ function isValidRedirectPath(path: string): boolean {
 }
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const nextParam = searchParams.get('next') ?? '/dashboard';
+
+  // Use forwarded host header (set by Cloud Run/proxies) or fall back to request origin
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  const origin = forwardedHost
+    ? `${forwardedProto}://${forwardedHost}`
+    : new URL(request.url).origin;
 
   // Validate redirect path to prevent open redirect attacks
   const next = isValidRedirectPath(nextParam) ? nextParam : '/dashboard';

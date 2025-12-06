@@ -1562,6 +1562,11 @@ async function postProcessResponse(
           // Save to team memory and mark as completed (don't delete yet - keep for new_task detection)
           if (sessionInfo.currentSession) {
             try {
+              // Set final_response BEFORE saving so reasoning extraction has the data
+              updateSessionState(sessionInfo.currentSession.session_id, {
+                final_response: textContent.substring(0, 10000),
+              });
+
               await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete');
               markSessionCompleted(sessionInfo.currentSession.session_id);
               activeSessions.delete(sessionInfo.currentSession.session_id);

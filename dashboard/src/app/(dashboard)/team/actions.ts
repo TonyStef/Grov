@@ -118,8 +118,7 @@ export async function createInvite(teamId: string): Promise<ActionResult> {
     return { error: 'Failed to create invite. Please try again.' };
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const inviteUrl = `${baseUrl}/invite/${inviteCode}`;
+  const inviteUrl = `${process.env.APP_URL!}/invite/${inviteCode}`;
 
   revalidatePath('/team');
 

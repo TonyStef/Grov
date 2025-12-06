@@ -4,8 +4,16 @@ const nextConfig: NextConfig = {
   // Enable React strict mode
   reactStrictMode: true,
 
+  // Output standalone for Docker deployment
+  output: 'standalone',
+
   // Transpile shared package
   transpilePackages: ['@grov/shared'],
+
+  // Fix Turbopack workspace detection in Docker
+  turbopack: {
+    root: '..',
+  },
 
   // Image optimization
   images: {

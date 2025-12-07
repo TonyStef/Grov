@@ -1095,7 +1095,7 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
   try {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 800,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -1107,7 +1107,36 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
       return { reasoning_trace: [], decisions: [] };
     }
 
-    const result = JSON.parse(jsonMatch[0]) as HaikuExtractionResponse;
+    // Try to parse JSON, with repair attempts for common Haiku formatting issues
+    let result: HaikuExtractionResponse;
+    try {
+      result = JSON.parse(jsonMatch[0]) as HaikuExtractionResponse;
+    } catch (parseError) {
+      // Common fixes: trailing commas, unescaped newlines in strings
+      let repaired = jsonMatch[0]
+        .replace(/,\s*}/g, '}')  // trailing comma before }
+        .replace(/,\s*]/g, ']')  // trailing comma before ]
+        .replace(/\n/g, '\\n')   // unescaped newlines
+        .replace(/\r/g, '\\r')   // unescaped carriage returns
+        .replace(/\t/g, '\\t');  // unescaped tabs
+
+      try {
+        result = JSON.parse(repaired) as HaikuExtractionResponse;
+      } catch {
+        // Last resort: try to extract just knowledge_pairs array
+        const pairsMatch = jsonMatch[0].match(/"knowledge_pairs"\s*:\s*\[([\s\S]*?)\]/);
+        if (pairsMatch) {
+          try {
+            const pairs = JSON.parse(`[${pairsMatch[1].replace(/,\s*$/, '')}]`);
+            result = { knowledge_pairs: pairs, decisions: [] };
+          } catch {
+            throw parseError; // Re-throw original error
+          }
+        } else {
+          throw parseError;
+        }
+      }
+    }
 
     // Flatten knowledge_pairs into reasoning_trace (interleaved: conclusion, insight, conclusion, insight...)
     let reasoningTrace: string[] = [];

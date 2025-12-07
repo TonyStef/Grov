@@ -29,6 +29,31 @@ interface SidebarProps {
   initialTeams?: Team[];
 }
 
+function VersionFooter() {
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('https://registry.npmjs.org/grov/latest')
+      .then((res) => res.json())
+      .then((data) => setVersion(data.version))
+      .catch(() => setVersion(null));
+  }, []);
+
+  return (
+    <a
+      href="https://www.npmjs.com/package/grov"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block rounded-md bg-bg-2 p-3 transition-colors hover:bg-bg-3"
+    >
+      <p className="text-xs text-text-muted">Latest version</p>
+      <p className="font-mono text-xs text-accent-400">
+        {version ? `grov v${version}` : 'grov'}
+      </p>
+    </a>
+  );
+}
+
 export function Sidebar({ initialTeams }: SidebarProps) {
   const pathname = usePathname();
   const [isTeamMenuOpen, setIsTeamMenuOpen] = useState(false);
@@ -158,10 +183,7 @@ export function Sidebar({ initialTeams }: SidebarProps) {
 
       {/* Footer */}
       <div className="border-t border-border p-4">
-        <div className="rounded-md bg-bg-2 p-3">
-          <p className="text-xs text-text-muted">CLI connected</p>
-          <p className="font-mono text-xs text-accent-400">grov v0.2.3</p>
-        </div>
+        <VersionFooter />
       </div>
     </aside>
   );

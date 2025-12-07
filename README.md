@@ -36,7 +36,7 @@ Every time you start a new Claude Code session:
 
 Grov captures what Claude learns and injects it back on the next session.
 
-![grov status](docs/grov-status.jpeg)
+![grov demo](demo-converted.gif)
 
 ### What Gets Captured
 

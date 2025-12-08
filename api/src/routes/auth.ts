@@ -1,7 +1,6 @@
 // Authentication routes for device authorization flow
-// Handles CLI authentication via OAuth-like device flow
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type {
   DeviceFlowStartResponse,
   DeviceFlowPollRequest,
@@ -15,6 +14,11 @@ import { supabase } from '../db/client.js';
 import { randomBytes } from 'crypto';
 import { generateTokenPair, verifyToken } from '../lib/jwt.js';
 import { getUserTeams } from '../middleware/team.js';
+
+// Typed error response helper (Fastify Reply types don't include errors)
+function sendError(reply: FastifyReply, status: number, error: string) {
+  return reply.status(status).send({ error } as Record<string, unknown>);
+}
 
 // Generate random code (uppercase alphanumeric)
 function generateCode(length: number): string {
@@ -52,7 +56,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       if (error) {
         fastify.log.error(error);
-        return reply.status(500).send({ error: 'Failed to create device code' } as any);
+        return sendError(reply, 500, 'Failed to create device code');
       }
 
       return {
@@ -73,7 +77,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const { device_code } = request.body;
 
       if (!device_code) {
-        return reply.status(400).send({ error: 'device_code is required' } as any);
+        return sendError(reply, 400, 'device_code is required');
       }
 
       // Get device code record
@@ -108,7 +112,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       if (profileError || !profile) {
         fastify.log.error(profileError);
-        return reply.status(500).send({ error: 'Failed to get user profile' } as any);
+        return sendError(reply, 500, 'Failed to get user profile');
       }
 
       // Get user's teams for JWT cache
@@ -199,33 +203,33 @@ export default async function authRoutes(fastify: FastifyInstance) {
         return { success: false, error: 'Invalid user code' };
       }
 
-      // Check if device code exists and is not expired
-      const { data: deviceCode, error: checkError } = await supabase
-        .from('device_codes')
-        .select('*')
-        .eq('user_code', code.toUpperCase())
-        .single();
-
-      if (checkError || !deviceCode) {
-        return { success: false, error: 'Device code not found' };
-      }
-
-      if (new Date(deviceCode.expires_at) < new Date()) {
-        return { success: false, error: 'Device code has expired. Please run grov login again.' };
-      }
-
-      if (deviceCode.authorized) {
-        return { success: false, error: 'Device already authorized' };
-      }
-
-      // Authorize the device
-      const { error } = await supabase
+      // Atomic authorize: only succeeds if code exists, not expired, and not already authorized
+      const { data: authorizedCode, error: updateError } = await supabase
         .from('device_codes')
         .update({ authorized: true, user_id: userId })
-        .eq('user_code', code.toUpperCase());
+        .eq('user_code', code.toUpperCase())
+        .eq('authorized', false)
+        .gt('expires_at', new Date().toISOString())
+        .select()
+        .single();
 
-      if (error) {
-        fastify.log.error(error);
+      if (updateError || !authorizedCode) {
+        // Check why it failed to give appropriate error message
+        const { data: existingCode } = await supabase
+          .from('device_codes')
+          .select('authorized, expires_at')
+          .eq('user_code', code.toUpperCase())
+          .single();
+
+        if (!existingCode) {
+          return { success: false, error: 'Device code not found' };
+        }
+        if (existingCode.authorized) {
+          return { success: false, error: 'Device already authorized' };
+        }
+        if (new Date(existingCode.expires_at) < new Date()) {
+          return { success: false, error: 'Device code has expired. Please run grov login again.' };
+        }
         return { success: false, error: 'Failed to authorize device' };
       }
 
@@ -242,7 +246,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const { refresh_token } = request.body;
 
       if (!refresh_token) {
-        return reply.status(400).send({ error: 'refresh_token is required' } as any);
+        return sendError(reply, 400, 'refresh_token is required');
       }
 
       try {
@@ -250,16 +254,27 @@ export default async function authRoutes(fastify: FastifyInstance) {
         const payload = await verifyToken(refresh_token);
 
         if (payload.type !== 'refresh') {
-          return reply.status(401).send({ error: 'Invalid token type' } as any);
+          return sendError(reply, 401, 'Invalid token type');
+        }
+
+        // Verify user still exists (prevents refresh for deleted users)
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .eq('id', payload.sub)
+          .single();
+
+        if (profileError || !profile) {
+          return sendError(reply, 401, 'User account not found');
         }
 
         // Get user's current teams (may have changed since original token)
         const teams = await getUserTeams(payload.sub);
 
-        // Generate new token pair
+        // Generate new token pair with fresh email from database
         const tokens = await generateTokenPair({
-          sub: payload.sub,
-          email: payload.email,
+          sub: profile.id,
+          email: profile.email,
           teams,
         });
 
@@ -269,7 +284,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           expires_at: tokens.expires_at,
         };
       } catch {
-        return reply.status(401).send({ error: 'Invalid or expired refresh token' } as any);
+        return sendError(reply, 401, 'Invalid or expired refresh token');
       }
     }
   );

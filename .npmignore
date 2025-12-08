@@ -6,9 +6,12 @@ tsconfig.json
 .github/
 .vscode/
 .claude/
+.husky/
+scripts/
 *.log
 .env*
 .DS_Store
+.npmrc
 
 # Documentation (not needed in npm package)
 docs/

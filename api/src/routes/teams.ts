@@ -1,7 +1,6 @@
 // Team management routes
-// All routes require authentication
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type {
   Team,
   CreateTeamInput,
@@ -16,11 +15,19 @@ import { randomBytes } from 'crypto';
 import { requireAuth, getAuthenticatedUser } from '../middleware/auth.js';
 import { requireTeamMember, requireTeamAdmin } from '../middleware/team.js';
 
+// Typed error response helper
+function sendError(reply: FastifyReply, status: number, error: string) {
+  return reply.status(status).send({ error } as Record<string, unknown>);
+}
+
 // Rate limit configurations for team endpoints
 const teamRateLimits = {
-  createTeam: { max: 5, timeWindow: '1 minute' },     // 5 team creations per minute
-  createInvite: { max: 10, timeWindow: '1 minute' },  // 10 invites per minute
-  joinTeam: { max: 5, timeWindow: '1 minute' },       // 5 joins per minute
+  list: { max: 30, timeWindow: '1 minute' },
+  read: { max: 60, timeWindow: '1 minute' },
+  createTeam: { max: 5, timeWindow: '1 minute' },
+  createInvite: { max: 10, timeWindow: '1 minute' },
+  joinTeam: { max: 5, timeWindow: '1 minute' },
+  removeMember: { max: 10, timeWindow: '1 minute' },
 };
 
 // Generate invite code
@@ -40,7 +47,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // List user's teams
   fastify.get<{ Reply: TeamListResponse }>(
     '/',
-    { preHandler: [requireAuth] },
+    { preHandler: [requireAuth], config: { rateLimit: teamRateLimits.list } },
     async (request, reply) => {
       const user = getAuthenticatedUser(request);
 
@@ -60,7 +67,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       if (error) {
         fastify.log.error(error);
-        return reply.status(500).send({ error: 'Failed to fetch teams' } as any);
+        return sendError(reply, 500, 'Failed to fetch teams');
       }
 
       const teams = (data || []).map((item: any) => ({
@@ -96,17 +103,24 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
       if (teamError) {
         fastify.log.error(teamError);
         if (teamError.code === '23505') {
-          return reply.status(409).send({ error: 'Team slug already exists' } as any);
+          return sendError(reply, 409, 'Team slug already exists');
         }
-        return reply.status(500).send({ error: 'Failed to create team' } as any);
+        return sendError(reply, 500, 'Failed to create team');
       }
 
       // Add owner as member
-      await supabase.from('team_members').insert({
+      const { error: memberError } = await supabase.from('team_members').insert({
         team_id: team.id,
         user_id: user.id,
         role: 'owner',
       });
+
+      if (memberError) {
+        fastify.log.error(memberError);
+        // Rollback: delete the team we just created
+        await supabase.from('teams').delete().eq('id', team.id);
+        return sendError(reply, 500, 'Failed to create team');
+      }
 
       return team;
     }
@@ -115,7 +129,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Get team details
   fastify.get<{ Params: { id: string }; Reply: Team }>(
     '/:id',
-    { preHandler: [requireAuth, requireTeamMember] },
+    { preHandler: [requireAuth, requireTeamMember], config: { rateLimit: teamRateLimits.read } },
     async (request, reply) => {
       const { id } = request.params;
 
@@ -126,7 +140,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         .single();
 
       if (error || !data) {
-        return reply.status(404).send({ error: 'Team not found' } as any);
+        return sendError(reply, 404, 'Team not found');
       }
 
       return data;
@@ -154,7 +168,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       // Reject empty updates
       if (Object.keys(allowedUpdates).length === 0) {
-        return reply.status(400).send({ error: 'No valid fields to update' } as any);
+        return sendError(reply, 400, 'No valid fields to update');
       }
 
       const { data, error } = await supabase
@@ -166,7 +180,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       if (error) {
         fastify.log.error(error);
-        return reply.status(500).send({ error: 'Failed to update team' } as any);
+        return sendError(reply, 500, 'Failed to update team');
       }
 
       return data;
@@ -176,7 +190,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // List team members
   fastify.get<{ Params: { id: string }; Reply: TeamMembersResponse }>(
     '/:id/members',
-    { preHandler: [requireAuth, requireTeamMember] },
+    { preHandler: [requireAuth, requireTeamMember], config: { rateLimit: teamRateLimits.read } },
     async (request, reply) => {
       const { id } = request.params;
 
@@ -197,7 +211,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       if (error) {
         fastify.log.error(error);
-        return reply.status(500).send({ error: 'Failed to fetch members' } as any);
+        return sendError(reply, 500, 'Failed to fetch members');
       }
 
       const members = (data || []).map((item: any) => ({
@@ -233,7 +247,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       if (error) {
         fastify.log.error(error);
-        return reply.status(500).send({ error: 'Failed to create invitation' } as any);
+        return sendError(reply, 500, 'Failed to create invitation');
       }
 
       const dashboardUrl = process.env.DASHBOARD_URL || 'http://localhost:3000';
@@ -291,7 +305,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
   // Remove member
   fastify.delete<{ Params: { id: string; userId: string } }>(
     '/:id/members/:userId',
-    { preHandler: [requireAuth, requireTeamAdmin] },
+    { preHandler: [requireAuth, requireTeamAdmin], config: { rateLimit: teamRateLimits.removeMember } },
     async (request, reply) => {
       const { id, userId } = request.params;
       const user = getAuthenticatedUser(request);

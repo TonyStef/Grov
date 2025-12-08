@@ -1,0 +1,101 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run weekly on Sundays at midnight
+    - cron: '0 0 * * 0'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for thorough scanning
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run npm audit
+        run: pnpm audit --audit-level=high
+        continue-on-error: true  # Don't fail build, but report
+
+      - name: Check for known vulnerabilities
+        run: |
+          echo "Checking for critical vulnerabilities..."
+          VULNS=$(pnpm audit --json 2>/dev/null | jq '.metadata.vulnerabilities.critical // 0' || echo "0")
+          if [ "$VULNS" -gt 0 ]; then
+            echo "::error::Found $VULNS critical vulnerabilities!"
+            exit 1
+          fi
+          echo "No critical vulnerabilities found."
+
+  npm-package-check:
+    name: NPM Package Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Check package contents
+        run: |
+          echo "Files that would be published to npm:"
+          npm pack --dry-run 2>&1
+
+          echo ""
+          echo "Checking for sensitive files..."
+          npm pack --dry-run 2>&1 | grep -E '\.env|secret|password|credential|\.pem|\.key' && {
+            echo "::error::Potential sensitive files in npm package!"
+            exit 1
+          } || echo "No sensitive files detected in package."

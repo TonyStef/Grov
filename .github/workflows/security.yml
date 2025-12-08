@@ -97,7 +97,8 @@ jobs:
 
           echo ""
           echo "Checking for sensitive files..."
-          npm pack --dry-run 2>&1 | grep -E '\.env|secret|password|credential|\.pem|\.key' && {
+          # Only flag actual secret files, not source code that handles credentials
+          npm pack --dry-run 2>&1 | grep -E '\.env$|\.env\.|secrets\.json|\.pem$|\.key$|id_rsa|\.p12$' && {
             echo "::error::Potential sensitive files in npm package!"
             exit 1
           } || echo "No sensitive files detected in package."

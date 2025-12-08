@@ -76,9 +76,15 @@ function log(msg: string): void {
 // Track last messageCount per session to detect retries vs new turns
 const lastMessageCount = new Map<string, number>();
 
-// Cache injection content per session (MUST be identical across requests for cache preservation)
-// Stored in memory because session DB state doesn't exist on first request
-const cachedInjections = new Map<string, string>();
+// GLOBAL cache for team memory injection (ONE value per project, not per session)
+// Calculated ONCE on first request, reused for ALL subsequent requests
+// Invalidated only on: CLEAR/Summary (explicit), proxy restart
+// This ensures system prompt prefix stays CONSTANT for Anthropic cache preservation
+let globalTeamMemoryCache: { projectPath: string; content: string } | null = null;
+
+// Pending plan summary - triggers CLEAR-like reset after planning task completes
+// This ensures implementation phase starts fresh with planning context injected
+let pendingPlanClear: { projectPath: string; summary: string } | null = null;
 
 // ============================================
 // EXTENDED CACHE - Keep Anthropic cache alive during idle
@@ -126,7 +132,8 @@ function evictOldestCacheEntry(): void {
  * Send keep-alive request to Anthropic to refresh cache TTL.
  * CRITICAL: Uses raw string manipulation to preserve cache prefix matching.
  */
-async function sendExtendedCacheKeepAlive(sessionId: string, entry: ExtendedCacheEntry): Promise<void> {
+async function sendExtendedCacheKeepAlive(projectPath: string, entry: ExtendedCacheEntry): Promise<void> {
+  const projectName = projectPath.split('/').pop() || projectPath;
   let rawBodyStr = entry.rawBody.toString('utf-8');
 
   // 1. Find messages array and add "." message before closing bracket
@@ -182,7 +189,7 @@ async function sendExtendedCacheKeepAlive(sessionId: string, entry: ExtendedCach
     ? '{"role":"user","content":"."}'
     : ',{"role":"user","content":"."}';
 
-  log(`Extended cache: SEND keep-alive session=${sessionId.substring(0, 8)} msg_array_size=${messagesEnd - messagesStart}`);
+  log(`Extended cache: SEND keep-alive project=${projectName} msg_array_size=${messagesEnd - messagesStart}`);
 
   rawBodyStr = rawBodyStr.slice(0, messagesEnd) + keepAliveMsg + rawBodyStr.slice(messagesEnd);
 
@@ -214,7 +221,7 @@ async function sendExtendedCacheKeepAlive(sessionId: string, entry: ExtendedCach
   const cacheRead = usage?.cache_read_input_tokens || 0;
   const cacheCreate = usage?.cache_creation_input_tokens || 0;
   const inputTokens = usage?.input_tokens || 0;
-  log(`Extended cache: keep-alive for ${sessionId.substring(0, 8)} - cache_read=${cacheRead}, cache_create=${cacheCreate}, input=${inputTokens}`);
+  log(`Extended cache: keep-alive for ${projectName} - cache_read=${cacheRead}, cache_create=${cacheCreate}, input=${inputTokens}`);
 }
 
 /**
@@ -223,16 +230,17 @@ async function sendExtendedCacheKeepAlive(sessionId: string, entry: ExtendedCach
  */
 async function checkExtendedCache(): Promise<void> {
   const now = Date.now();
-  const sessionsToKeepAlive: Array<{ sessionId: string; entry: ExtendedCacheEntry }> = [];
+  const projectsToKeepAlive: Array<{ projectPath: string; entry: ExtendedCacheEntry }> = [];
 
-  // First pass: cleanup stale/maxed entries, collect sessions needing keep-alive
-  for (const [sessionId, entry] of extendedCache) {
+  // First pass: cleanup stale/maxed entries, collect projects needing keep-alive
+  for (const [projectPath, entry] of extendedCache) {
     const idleTime = now - entry.timestamp;
+    const projectName = projectPath.split('/').pop() || projectPath;
 
     // Stale cleanup: user left after 10 minutes
     if (idleTime > EXTENDED_CACHE_MAX_IDLE) {
-      extendedCache.delete(sessionId);
-      log(`Extended cache: cleared ${sessionId.substring(0, 8)} (stale)`);
+      extendedCache.delete(projectPath);
+      log(`Extended cache: cleared ${projectName} (stale)`);
       continue;
     }
 
@@ -243,26 +251,27 @@ async function checkExtendedCache(): Promise<void> {
 
     // Skip if already sent max keep-alives
     if (entry.keepAliveCount >= EXTENDED_CACHE_MAX_KEEPALIVES) {
-      extendedCache.delete(sessionId);
-      log(`Extended cache: cleared ${sessionId.substring(0, 8)} (max retries)`);
+      extendedCache.delete(projectPath);
+      log(`Extended cache: cleared ${projectName} (max retries)`);
       continue;
     }
 
-    sessionsToKeepAlive.push({ sessionId, entry });
+    projectsToKeepAlive.push({ projectPath, entry });
   }
 
   // Second pass: send all keep-alives in PARALLEL
   const keepAlivePromises: Promise<void>[] = [];
 
-  for (const { sessionId, entry } of sessionsToKeepAlive) {
-    const promise = sendExtendedCacheKeepAlive(sessionId, entry)
+  for (const { projectPath, entry } of projectsToKeepAlive) {
+    const projectName = projectPath.split('/').pop() || projectPath;
+    const promise = sendExtendedCacheKeepAlive(projectPath, entry)
       .then(() => {
         entry.timestamp = Date.now();
         entry.keepAliveCount++;
       })
       .catch((err) => {
-        extendedCache.delete(sessionId);
-        log(`Extended cache: cleared ${sessionId.substring(0, 8)} (error: ${err instanceof Error ? err.message : 'unknown'})`);
+        extendedCache.delete(projectPath);
+        log(`Extended cache: cleared ${projectName} (error: ${err instanceof Error ? err.message : 'unknown'})`);
       });
 
     keepAlivePromises.push(promise);
@@ -1010,6 +1019,8 @@ async function getOrCreateSession(
   };
   activeSessions.set(tempSessionId, sessionInfo);
 
+  // Note: team memory is now GLOBAL (not per session), no propagation needed
+
   logger.info({ msg: 'No existing session, will create after task analysis' });
 
   return { ...sessionInfo, isNew: true, currentSession: null, completedSession };
@@ -1087,6 +1098,39 @@ async function preProcessRequest(
   // Get session state
   const sessionState = getSessionState(sessionInfo.sessionId);
 
+  // === PLANNING CLEAR: Reset after planning task completes ===
+  // This ensures implementation phase starts fresh with planning context from team memory
+  if (pendingPlanClear && pendingPlanClear.projectPath === sessionInfo.projectPath) {
+    // 1. Empty messages array (fresh start)
+    modified.messages = [];
+
+    // 2. Inject planning summary into system prompt
+    appendToSystemPrompt(modified, pendingPlanClear.summary);
+
+    // 3. Rebuild team memory NOW (includes the just-saved planning task)
+    const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+    const teamContext = buildTeamMemoryContext(
+      sessionInfo.projectPath,
+      mentionedFiles,
+      sessionInfo.sessionId
+    );
+
+    if (teamContext) {
+      (modified as Record<string, unknown>).__grovInjection = teamContext;
+      (modified as Record<string, unknown>).__grovInjectionCached = false;
+      // Update cache with fresh team memory
+      globalTeamMemoryCache = { projectPath: sessionInfo.projectPath, content: teamContext };
+    }
+
+    // 4. Clear the pending plan (one-time use)
+    pendingPlanClear = null;
+
+    // 5. Clear tracking (fresh start)
+    sessionInjectionTracking.delete(sessionInfo.sessionId);
+
+    return modified;  // Skip other injections - this is a complete reset
+  }
+
   // === CLEAR MODE (100% threshold) ===
   // If token count exceeds threshold AND we have a pre-computed summary, apply CLEAR
   if (sessionState) {
@@ -1111,9 +1155,10 @@ async function preProcessRequest(
       // 3. Mark session as cleared
       markCleared(sessionInfo.sessionId);
 
-      // 4. Clear pending summary and invalidate team memory cache (new baseline)
+      // 4. Clear pending summary and invalidate GLOBAL team memory cache (new baseline)
       updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
-      cachedInjections.delete(sessionInfo.sessionId);
+      globalTeamMemoryCache = null;  // Force recalculation on next request
+      console.log(`[CACHE] Global team memory invalidated (CLEAR mode)`);
 
       // 5. Clear tracking (fresh start after CLEAR)
       sessionInjectionTracking.delete(sessionInfo.sessionId);
@@ -1127,29 +1172,37 @@ async function preProcessRequest(
   // === STATIC INJECTION: Team memory (PAST sessions only) ===
   // Cached per session - identical across all requests for cache preservation
 
-  const cachedTeamMemory = cachedInjections.get(sessionInfo.sessionId);
+  // GLOBAL cache: same team memory for ALL requests (regardless of sessionId changes)
+  // Only recalculate on: first request ever, CLEAR/Summary, project change, proxy restart
+  const isSameProject = globalTeamMemoryCache?.projectPath === sessionInfo.projectPath;
 
-  if (cachedTeamMemory) {
-    // Reuse cached team memory (constant for this session)
-    (modified as Record<string, unknown>).__grovInjection = cachedTeamMemory;
+  if (globalTeamMemoryCache && isSameProject) {
+    // Reuse GLOBAL cached team memory (constant for entire conversation)
+    (modified as Record<string, unknown>).__grovInjection = globalTeamMemoryCache.content;
     (modified as Record<string, unknown>).__grovInjectionCached = true;
-    logger.info({ msg: 'Using cached team memory', size: cachedTeamMemory.length });
+    console.log(`[CACHE] Using global team memory cache, size=${globalTeamMemoryCache.content.length}`);
   } else {
-    // First request: compute team memory from PAST sessions only
+    // First request OR project changed OR cache was invalidated: compute team memory
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-    // Pass currentSessionId to exclude current session data
     const teamContext = buildTeamMemoryContext(
       sessionInfo.projectPath,
       mentionedFiles,
-      sessionInfo.sessionId  // Exclude current session
+      sessionInfo.sessionId
     );
+
+    console.log(`[CACHE] Computing team memory (first/new), files=${mentionedFiles.length}, result=${teamContext ? teamContext.length : 'null'}`);
 
     if (teamContext) {
       (modified as Record<string, unknown>).__grovInjection = teamContext;
       (modified as Record<string, unknown>).__grovInjectionCached = false;
-      // Cache for future requests (stays constant)
-      cachedInjections.set(sessionInfo.sessionId, teamContext);
-      logger.info({ msg: 'Computed and cached team memory', size: teamContext.length });
+      // Store in GLOBAL cache - stays constant until CLEAR or restart
+      globalTeamMemoryCache = { projectPath: sessionInfo.projectPath, content: teamContext };
+      console.log(`[CACHE] Team memory cached globally`);
+    } else {
+      // No team memory available - clear global cache for this project
+      if (isSameProject) {
+        globalTeamMemoryCache = null;
+      }
     }
   }
 
@@ -1235,18 +1288,21 @@ async function postProcessResponse(
     const msgMatch = rawStr.match(/"messages"\s*:\s*\[/);
     const msgPos = msgMatch?.index ?? -1;
 
+    // Use projectPath as key (one entry per conversation, not per task)
+    const cacheKey = sessionInfo.projectPath;
+
     // Evict oldest if at capacity (only for NEW entries, not updates)
-    if (!extendedCache.has(sessionInfo.sessionId)) {
+    if (!extendedCache.has(cacheKey)) {
       evictOldestCacheEntry();
     }
 
-    extendedCache.set(sessionInfo.sessionId, {
+    extendedCache.set(cacheKey, {
       headers: extendedCacheData.headers,
       rawBody: extendedCacheData.rawBody,
       timestamp: Date.now(),
       keepAliveCount: 0,
     });
-    log(`Extended cache: CAPTURE session=${sessionInfo.sessionId.substring(0, 8)} size=${rawStr.length} sys=${hasSystem} tools=${hasTools} cache_ctrl=${hasCacheCtrl} msg_pos=${msgPos}`);
+    log(`Extended cache: CAPTURE project=${cacheKey.split('/').pop()} size=${rawStr.length} sys=${hasSystem} tools=${hasTools} cache_ctrl=${hasCacheCtrl} msg_pos=${msgPos}`);
   }
 
   // If not end_turn (tool_use in progress), skip task orchestration but keep session
@@ -1270,6 +1326,8 @@ async function postProcessResponse(
         promptCount: 1,
         projectPath: sessionInfo.projectPath,
       });
+
+      // Note: team memory is now GLOBAL (not per session), no propagation needed
     }
   } else if (isTaskAnalysisAvailable()) {
     // Use completed session for comparison if no active session
@@ -1358,6 +1416,8 @@ async function postProcessResponse(
               projectPath: sessionInfo.projectPath,
             });
 
+            // Note: team memory is now GLOBAL (not per session), no propagation needed
+
             // TASK LOG: Reactivate completed session
             taskLog('ORCHESTRATION_CONTINUE', {
               sessionId: activeSessionId,
@@ -1432,14 +1492,17 @@ async function postProcessResponse(
             keywordsCount: intentData.keywords.length,
           });
 
-          // Q&A AUTO-SAVE: If this is an information request with a substantive answer,
-          // save immediately since Q&A completes in a single turn
-          if (taskAnalysis.task_type === 'information' && textContent.length > 100) {
-            logger.info({ msg: 'Q&A detected - saving immediately', sessionId: newSessionId.substring(0, 8) });
+          // Q&A AUTO-SAVE: If this is an information request with a substantive answer
+          // AND no tool calls, save immediately since pure Q&A completes in a single turn.
+          // If there ARE tool calls (e.g., Read for "Analyze X"), wait for them to complete
+          // so steps get captured properly before saving.
+          if (taskAnalysis.task_type === 'information' && textContent.length > 100 && actions.length === 0) {
+            logger.info({ msg: 'Q&A detected (pure text) - saving immediately', sessionId: newSessionId.substring(0, 8) });
             taskLog('QA_AUTO_SAVE', {
               sessionId: newSessionId,
               goal: intentData.goal,
               responseLength: textContent.length,
+              toolCalls: 0,
             });
 
             // Store the response for reasoning extraction
@@ -1450,6 +1513,14 @@ async function postProcessResponse(
             // Save to team memory and mark complete
             await saveToTeamMemory(newSessionId, 'complete');
             markSessionCompleted(newSessionId);
+          } else if (taskAnalysis.task_type === 'information' && actions.length > 0) {
+            // Q&A with tool calls - don't auto-save, let it continue until task_complete
+            logger.info({ msg: 'Q&A with tool calls - waiting for completion', sessionId: newSessionId.substring(0, 8), toolCalls: actions.length });
+            taskLog('QA_DEFERRED', {
+              sessionId: newSessionId,
+              goal: intentData.goal,
+              toolCalls: actions.length,
+            });
           }
           break;
         }
@@ -1571,15 +1642,67 @@ async function postProcessResponse(
               markSessionCompleted(sessionInfo.currentSession.session_id);
               activeSessions.delete(sessionInfo.currentSession.session_id);
               lastDriftResults.delete(sessionInfo.currentSession.session_id);
-              logger.info({ msg: 'Task complete - saved to team memory, marked completed' });
 
               // TASK LOG: Task completed
               taskLog('ORCHESTRATION_TASK_COMPLETE', {
                 sessionId: sessionInfo.currentSession.session_id,
                 goal: sessionInfo.currentSession.original_goal,
               });
+
+              // PLANNING COMPLETE: Trigger CLEAR-like reset for implementation phase
+              // This ensures next request starts fresh with planning context from team memory
+              if (taskAnalysis.task_type === 'planning' && isSummaryAvailable()) {
+                try {
+                  const allSteps = getValidatedSteps(sessionInfo.currentSession.session_id);
+                  const planSummary = await generateSessionSummary(sessionInfo.currentSession, allSteps, 2000);
+
+                  // Store for next request to trigger CLEAR
+                  pendingPlanClear = {
+                    projectPath: sessionInfo.projectPath,
+                    summary: planSummary,
+                  };
+
+                  // Invalidate team memory cache so it rebuilds with the planning task
+                  globalTeamMemoryCache = null;
+                } catch {
+                  // Silent fail - planning CLEAR is optional enhancement
+                }
+              }
+
+              logger.info({ msg: 'Task complete - saved to team memory, marked completed' });
             } catch (err) {
               logger.info({ msg: 'Failed to save completed task', error: String(err) });
+            }
+          } else if (textContent.length > 100) {
+            // NEW: Handle "instant complete" - task that's new AND immediately complete
+            // This happens for simple Q&A when Haiku says task_complete without existing session
+            // Example: user asks clarification question, answer is provided in single turn
+            try {
+              const newSessionId = randomUUID();
+              const instantSession = createSessionState({
+                session_id: newSessionId,
+                project_path: sessionInfo.projectPath,
+                original_goal: taskAnalysis.current_goal || latestUserMessage.substring(0, 500),
+                task_type: 'main',
+              });
+
+              // Set final_response for reasoning extraction
+              updateSessionState(newSessionId, {
+                final_response: textContent.substring(0, 10000),
+              });
+
+              await saveToTeamMemory(newSessionId, 'complete');
+              markSessionCompleted(newSessionId);
+              logger.info({ msg: 'Instant complete - new task saved immediately', sessionId: newSessionId.substring(0, 8) });
+
+              // TASK LOG: Instant complete (new task that finished in one turn)
+              taskLog('ORCHESTRATION_TASK_COMPLETE', {
+                sessionId: newSessionId,
+                goal: taskAnalysis.current_goal || latestUserMessage.substring(0, 80),
+                source: 'instant_complete',
+              });
+            } catch (err) {
+              logger.info({ msg: 'Failed to save instant complete task', error: String(err) });
             }
           }
           return; // Done, no more processing needed
@@ -1919,9 +2042,28 @@ async function postProcessResponse(
   }
 
   // Save each action as a step (with reasoning from Claude's text)
+  // When multiple actions come from the same Claude response, they share identical reasoning.
+  // We store reasoning only on the first action and set NULL for subsequent ones to avoid duplication.
+  // At query time, we group steps by reasoning (non-NULL starts a group, NULLs continue it)
+  // and reconstruct the full context: reasoning + all associated files/actions.
+  let previousReasoning: string | null = null;
+
+  logger.info({ msg: 'DEDUP_DEBUG', actionsCount: actions.length, textContentLen: textContent.length });
+
   for (const action of actions) {
+    const currentReasoning = textContent.substring(0, 1000);
+    const isDuplicate = currentReasoning === previousReasoning;
+
+    logger.info({
+      msg: 'DEDUP_STEP',
+      actionType: action.actionType,
+      isDuplicate,
+      prevLen: previousReasoning?.length || 0,
+      currLen: currentReasoning.length
+    });
+
     // Detect key decisions based on action type and reasoning content
-    const isKeyDecision = detectKeyDecision(action, textContent);
+    const isKeyDecision = !isDuplicate && detectKeyDecision(action, textContent);
 
     createStep({
       session_id: activeSessionId,
@@ -1929,11 +2071,13 @@ async function postProcessResponse(
       files: action.files,
       folders: action.folders,
       command: action.command,
-      reasoning: textContent.substring(0, 1000),  // Claude's explanation (truncated)
+      reasoning: isDuplicate ? undefined : currentReasoning,
       drift_score: driftScore,
       is_validated: !skipSteps,
       is_key_decision: isKeyDecision,
     });
+
+    previousReasoning = currentReasoning;
 
     if (isKeyDecision) {
       logger.info({
@@ -2088,9 +2232,11 @@ function extractGoalFromMessages(messages: Array<{ role: string; content: unknow
       rawContent = textBlocks.join('\n');
     }
 
-    // Remove <system-reminder>...</system-reminder> tags
+    // Remove <system-reminder>...</system-reminder> tags (including orphaned tags from split content blocks)
     const cleanContent = rawContent
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .replace(/<\/system-reminder>/g, '')
+      .replace(/<system-reminder>[^<]*/g, '')
       .trim();
 
     // If we found valid text content, return it

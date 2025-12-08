@@ -1,7 +1,6 @@
 // Memory management routes
-// All routes require authentication and team membership
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type {
   Memory,
   MemoryListResponse,
@@ -13,19 +12,28 @@ import { supabase } from '../db/client.js';
 import { requireAuth, getAuthenticatedUser } from '../middleware/auth.js';
 import { requireTeamMember, requireTeamAdmin } from '../middleware/team.js';
 
+// Typed error response helper
+function sendError(reply: FastifyReply, status: number, error: string) {
+  return reply.status(status).send({ error } as Record<string, unknown>);
+}
+
 // Rate limit configurations for memory endpoints
 const memoryRateLimits = {
-  sync: { max: 20, timeWindow: '1 minute' }, // 20 sync requests per minute
+  list: { max: 60, timeWindow: '1 minute' },
+  read: { max: 60, timeWindow: '1 minute' },
+  sync: { max: 20, timeWindow: '1 minute' },
+  delete: { max: 10, timeWindow: '1 minute' },
 };
 
 /**
  * Sanitize search input to prevent PostgREST filter injection
- * Removes characters that have syntactic meaning in PostgREST filter expressions
+ * Uses whitelist approach - only allows safe characters
  */
 function sanitizeSearchInput(input: string): string {
-  // Remove PostgREST special characters: . , ( ) that could break filter syntax
-  // Keep % as it's useful for wildcard searching within ilike
-  return input.replace(/[.,()]/g, '');
+  return input
+    .replace(/[^a-zA-Z0-9\s\-_]/g, '')
+    .trim()
+    .substring(0, 100);
 }
 
 export default async function memoriesRoutes(fastify: FastifyInstance) {
@@ -36,7 +44,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
     Reply: MemoryListResponse;
   }>(
     '/:id/memories',
-    { preHandler: [requireAuth, requireTeamMember] },
+    { preHandler: [requireAuth, requireTeamMember], config: { rateLimit: memoryRateLimits.list } },
     async (request, reply) => {
       const { id } = request.params;
       const {
@@ -101,7 +109,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       if (error) {
         fastify.log.error(error);
-        return reply.status(500).send({ error: 'Failed to fetch memories' } as any);
+        return sendError(reply, 500, 'Failed to fetch memories');
       }
 
       const memories = data || [];
@@ -122,7 +130,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
   // Get single memory
   fastify.get<{ Params: { id: string; memoryId: string }; Reply: Memory }>(
     '/:id/memories/:memoryId',
-    { preHandler: [requireAuth, requireTeamMember] },
+    { preHandler: [requireAuth, requireTeamMember], config: { rateLimit: memoryRateLimits.read } },
     async (request, reply) => {
       const { id, memoryId } = request.params;
 
@@ -134,7 +142,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         .single();
 
       if (error || !data) {
-        return reply.status(404).send({ error: 'Memory not found' } as any);
+        return sendError(reply, 404, 'Memory not found');
       }
 
       return data;
@@ -155,53 +163,70 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
       const user = getAuthenticatedUser(request);
 
       if (!memories || !Array.isArray(memories)) {
-        return reply.status(400).send({ error: 'memories array is required' } as any);
+        return sendError(reply, 400, 'memories array is required');
       }
+
+      // Prepare all memories for batch upsert
+      const preparedMemories = memories.map(memory => ({
+        team_id: id,
+        user_id: user.id,
+        client_task_id: memory.client_task_id || null,
+        project_path: memory.project_path,
+        original_query: memory.original_query,
+        goal: memory.goal,
+        reasoning_trace: memory.reasoning_trace || [],
+        files_touched: memory.files_touched || [],
+        decisions: memory.decisions || [],
+        constraints: memory.constraints || [],
+        tags: memory.tags || [],
+        status: memory.status,
+        linked_commit: memory.linked_commit,
+      }));
 
       let synced = 0;
       let failed = 0;
       const errors: string[] = [];
 
-      for (const memory of memories) {
-        const { error } = await supabase.from('memories').upsert({
-          team_id: id,
-          user_id: user.id,
-          client_task_id: memory.client_task_id || null,
-          project_path: memory.project_path,
-          original_query: memory.original_query,
-          goal: memory.goal,
-          reasoning_trace: memory.reasoning_trace || [],
-          files_touched: memory.files_touched || [],
-          decisions: memory.decisions || [],
-          constraints: memory.constraints || [],
-          tags: memory.tags || [],
-          status: memory.status,
-          linked_commit: memory.linked_commit,
-        }, { onConflict: 'team_id,client_task_id' });
+      // Batch upsert (50 records at a time for safety)
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < preparedMemories.length; i += BATCH_SIZE) {
+        const batch = preparedMemories.slice(i, i + BATCH_SIZE);
+        const { error, count } = await supabase
+          .from('memories')
+          .upsert(batch, { onConflict: 'team_id,client_task_id', count: 'exact' });
 
         if (error) {
           fastify.log.error(error);
-          failed++;
-          errors.push(`Failed to sync memory: ${memory.original_query?.substring(0, 50)}`);
+          failed += batch.length;
+          errors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1} failed: ${error.message}`);
         } else {
-          synced++;
+          synced += count ?? batch.length;
         }
       }
 
-      fastify.log.info(`Synced ${synced} memories for team ${id} by user ${user.email}`);
+      fastify.log.info(`Synced ${synced}/${synced + failed} memories for team ${id} by user ${user.email}`);
 
-      return {
+      const response = {
         synced,
         failed,
         errors: errors.length > 0 ? errors : undefined,
       };
+
+      // Return appropriate status code based on results
+      if (failed > 0 && synced === 0) {
+        return reply.status(500).send(response);
+      }
+      if (failed > 0) {
+        return reply.status(207).send(response);
+      }
+      return response;
     }
   );
 
   // Delete memory (admin only)
   fastify.delete<{ Params: { id: string; memoryId: string } }>(
     '/:id/memories/:memoryId',
-    { preHandler: [requireAuth, requireTeamAdmin] },
+    { preHandler: [requireAuth, requireTeamAdmin], config: { rateLimit: memoryRateLimits.delete } },
     async (request, reply) => {
       const { id, memoryId } = request.params;
       const user = getAuthenticatedUser(request);

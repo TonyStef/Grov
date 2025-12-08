@@ -62,8 +62,12 @@ export async function requireTeamMember(
     });
   }
 
-  // Always verify team membership in database to ensure real-time access control
-  // This prevents access by users who have been removed from a team but still have a valid JWT
+  // Fast path: check JWT cache first (token expires in 1hr, acceptable staleness)
+  if (user.teams?.includes(teamId)) {
+    return;
+  }
+
+  // Slow path: verify in database for users not in JWT cache
   const membership = await getTeamMembership(user.id, teamId);
 
   if (!membership) {

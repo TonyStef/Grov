@@ -1,0 +1,5 @@
+#!/bin/sh
+# Pre-commit hook: scan for secrets before allowing commit
+
+# Run secret scanning
+./scripts/scan-secrets.sh

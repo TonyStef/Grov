@@ -14,6 +14,7 @@ import {
   type TriggerReason,
 } from '../lib/store.js';
 import { syncTask } from '../lib/cloud-sync.js';
+import { invalidateTeamMemoryCache } from './cache.js';
 import {
   extractReasoning,
   isLLMAvailable,
@@ -143,17 +144,26 @@ export async function saveToTeamMemory(
   const task = createTask(taskData);
 
   // Fire-and-forget cloud sync; never block capture path
+  // Cache invalidation happens AFTER sync completes (in .then()) to avoid race condition
   syncTask(task)
     .then((success) => {
       if (success) {
         markTaskSynced(task.id);
+        // Invalidate cache AFTER sync completes - ensures cloud has the data
+        // before next request fetches from cloud
+        invalidateTeamMemoryCache();
+        console.log(`[SYNC] Task ${task.id.substring(0, 8)} synced, cache invalidated`);
       } else {
         setTaskSyncError(task.id, 'Sync not enabled or team not configured');
+        console.log(`[SYNC] Task ${task.id.substring(0, 8)} sync skipped (not enabled)`);
+        // NOTE: Do NOT invalidate cache - data not in cloud
       }
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : 'Unknown sync error';
       setTaskSyncError(task.id, message);
+      console.error(`[SYNC] Task ${task.id.substring(0, 8)} sync failed: ${message}`);
+      // NOTE: Do NOT invalidate cache - data not in cloud
     });
 }
 

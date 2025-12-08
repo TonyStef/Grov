@@ -858,6 +858,12 @@ Do not rely on specific keywords in any language. The same intent can be express
 
 The conversation history and tool usage are your most important signals. What has the assistant been doing? What is the user trying to accomplish? Has that goal been achieved?
 
+CRITICAL - Q&A DURING PLANNING:
+If the current task_type is "planning" and the user asks a clarifying question (e.g., "how does X work?", "what about Y?", "clarify Z"), this is NOT a new information task. It is a CONTINUATION of the planning task. The user is gathering information to make a planning decision, not requesting standalone information.
+- If original task_type was planning → keep it as planning, action=continue
+- Only mark task_complete for planning when user explicitly confirms a final decision or asks to proceed with implementation
+- Asking to "write to file" or "document the plan" is NOT task_complete - it's still part of planning documentation
+
 When in doubt between continue and task_complete, ask yourself: Would it be valuable to save what we have so far? For information requests, yes, save each answer. For planning, only save when a decision is made. For implementation, only save when work is verified complete.
 
 RESPONSE RULES:
@@ -894,7 +900,7 @@ RESPONSE RULES:
       analysis.step_reasoning = assistantResponse.substring(0, 1000);
     }
 
-    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal=${analysis.current_goal?.substring(0, 50) || 'N/A'}`);
+    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal="${analysis.current_goal?.substring(0, 50) || 'N/A'}" reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
 
     return analysis;
   } catch (parseError) {

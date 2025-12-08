@@ -672,7 +672,12 @@ export function createTask(input: CreateTaskInput): Task {
 }
 
 /**
- * Get tasks for a project
+ * Get tasks for a project from LOCAL SQLite database
+ *
+ * Used by:
+ * - `grov status` command (CLI)
+ *
+ * For CLOUD injection, use fetchTeamMemories() from api-client.ts instead.
  */
 export function getTasksForProject(
   projectPath: string,
@@ -682,59 +687,6 @@ export function getTasksForProject(
 
   let sql = 'SELECT * FROM tasks WHERE project_path = ?';
   const params: (string | number)[] = [projectPath];
-
-  if (options.status) {
-    sql += ' AND status = ?';
-    params.push(options.status);
-  }
-
-  sql += ' ORDER BY created_at DESC';
-
-  if (options.limit) {
-    sql += ' LIMIT ?';
-    params.push(options.limit);
-  }
-
-  const stmt = database.prepare(sql);
-  const rows = stmt.all(...params) as Record<string, unknown>[];
-
-  return rows.map(rowToTask);
-}
-
-/**
- * Get tasks that touched specific files.
- * SECURITY: Uses json_each for proper array handling and escaped LIKE patterns.
- */
-// SECURITY: Maximum files per query to prevent SQL DoS
-const MAX_FILES_PER_QUERY = 100;
-
-export function getTasksByFiles(
-  projectPath: string,
-  files: string[],
-  options: { status?: TaskStatus; limit?: number } = {}
-): Task[] {
-  const database = initDatabase();
-
-  if (files.length === 0) {
-    return [];
-  }
-
-  // SECURITY: Limit file count to prevent SQL DoS via massive query generation
-  const limitedFiles = files.length > MAX_FILES_PER_QUERY
-    ? files.slice(0, MAX_FILES_PER_QUERY)
-    : files;
-
-  // Use json_each for proper array iteration with escaped LIKE patterns
-  const fileConditions = limitedFiles.map(() =>
-    "EXISTS (SELECT 1 FROM json_each(files_touched) WHERE value LIKE ? ESCAPE '\\')"
-  ).join(' OR ');
-
-  let sql = `SELECT * FROM tasks WHERE project_path = ? AND (${fileConditions})`;
-  // Escape LIKE special characters to prevent injection
-  const params: (string | number)[] = [
-    projectPath,
-    ...limitedFiles.map(f => `%${escapeLikePattern(f)}%`)
-  ];
 
   if (options.status) {
     sql += ' AND status = ?';
@@ -1771,50 +1723,6 @@ export function getKeyDecisionSteps(sessionId: string, limit: number = 5): StepR
 }
 
 /**
- * Get steps reasoning by file path (for proxy team memory injection)
- * Searches across sessions, returns file-level reasoning from steps table
- * @param excludeSessionId - Optional session ID to exclude (for filtering current session)
- */
-export function getStepsReasoningByPath(
-  filePath: string,
-  limit = 5,
-  excludeSessionId?: string
-): Array<{ file_path: string; reasoning: string; anchor?: string }> {
-  const database = initDatabase();
-
-  // Search steps where files JSON contains this path and reasoning exists
-  const pattern = `%"${escapeLikePattern(filePath)}"%`;
-
-  let sql = `
-    SELECT files, reasoning
-    FROM steps
-    WHERE files LIKE ? AND reasoning IS NOT NULL AND reasoning != ''
-  `;
-  const params: (string | number)[] = [pattern];
-
-  // Exclude current session if specified (for team memory from PAST sessions only)
-  if (excludeSessionId) {
-    sql += ` AND session_id != ?`;
-    params.push(excludeSessionId);
-  }
-
-  sql += ` ORDER BY timestamp DESC LIMIT ?`;
-  params.push(limit);
-
-  const rows = database.prepare(sql).all(...params) as Array<{ files: string; reasoning: string }>;
-
-  return rows.map(row => {
-    const files = safeJsonParse<string[]>(row.files, []);
-    // Find the matching file path from the files array
-    const matchedFile = files.find(f => f.includes(filePath)) || filePath;
-    return {
-      file_path: matchedFile,
-      reasoning: row.reasoning,
-    };
-  });
-}
-
-/**
  * Combined retrieval: runs all 4 queries and deduplicates (hook version)
  * Priority: key decisions > files > folders > keywords
  */
@@ -2041,6 +1949,26 @@ export function cleanupOldCompletedSessions(maxAgeMs: number = 86400000): number
   }
 
   return oldSessions.length;
+}
+
+/**
+ * Cleanup stale active sessions (no activity for maxAgeMs)
+ * Marks them as 'abandoned' so they won't be picked up by getActiveSessionForUser
+ * This prevents old sessions from being reused in fresh Claude sessions
+ * Returns number of sessions marked as abandoned
+ */
+export function cleanupStaleActiveSessions(maxAgeMs: number = 3600000): number {
+  const database = initDatabase();
+  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+  const now = new Date().toISOString();
+
+  const result = database.prepare(`
+    UPDATE session_states
+    SET status = 'abandoned', completed_at = ?
+    WHERE status = 'active' AND last_update < ?
+  `).run(now, cutoff);
+
+  return result.changes;
 }
 
 /**

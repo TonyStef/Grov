@@ -28,6 +28,7 @@ import {
   markSessionCompleted,
   getCompletedSessionForProject,
   cleanupOldCompletedSessions,
+  cleanupStaleActiveSessions,
   getKeyDecisions,
   getEditedFiles,
   type SessionState,
@@ -56,7 +57,13 @@ import {
   type TaskAnalysis,
   type ConversationMessage,
 } from '../lib/llm-extractor.js';
-import { buildTeamMemoryContext, extractFilesFromMessages } from './request-processor.js';
+import { extractFilesFromMessages, buildTeamMemoryContextCloud } from './request-processor.js';
+import { isSyncEnabled, getSyncTeamId } from '../lib/cloud-sync.js';
+import {
+  globalTeamMemoryCache,
+  invalidateTeamMemoryCache,
+  setTeamMemoryCache,
+} from './cache.js';
 import { saveToTeamMemory, cleanupSession } from './response-processor.js';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -76,11 +83,8 @@ function log(msg: string): void {
 // Track last messageCount per session to detect retries vs new turns
 const lastMessageCount = new Map<string, number>();
 
-// GLOBAL cache for team memory injection (ONE value per project, not per session)
-// Calculated ONCE on first request, reused for ALL subsequent requests
-// Invalidated only on: CLEAR/Summary (explicit), proxy restart
-// This ensures system prompt prefix stays CONSTANT for Anthropic cache preservation
-let globalTeamMemoryCache: { projectPath: string; content: string } | null = null;
+// NOTE: globalTeamMemoryCache moved to cache.ts to avoid circular dependencies
+// Import: globalTeamMemoryCache, invalidateTeamMemoryCache, setTeamMemoryCache from './cache.js'
 
 // Pending plan summary - triggers CLEAR-like reset after planning task completes
 // This ensures implementation phase starts fresh with planning context injected
@@ -271,7 +275,14 @@ async function checkExtendedCache(): Promise<void> {
       })
       .catch((err) => {
         extendedCache.delete(projectPath);
-        log(`Extended cache: cleared ${projectName} (error: ${err instanceof Error ? err.message : 'unknown'})`);
+        // Handle both Error instances and ForwardError objects
+        const errMsg = err instanceof Error
+          ? err.message
+          : (err && typeof err === 'object' && 'message' in err)
+            ? String(err.message)
+            : JSON.stringify(err);
+        const errType = err && typeof err === 'object' && 'type' in err ? ` [${err.type}]` : '';
+        log(`Extended cache: cleared ${projectName} (error${errType}: ${errMsg})`);
       });
 
     keepAlivePromises.push(promise);
@@ -1109,17 +1120,29 @@ async function preProcessRequest(
 
     // 3. Rebuild team memory NOW (includes the just-saved planning task)
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-    const teamContext = buildTeamMemoryContext(
-      sessionInfo.projectPath,
-      mentionedFiles,
-      sessionInfo.sessionId
-    );
+
+    // Use cloud-first approach if sync is enabled
+    let teamContext: string | null = null;
+    const teamId = getSyncTeamId();
+
+    if (isSyncEnabled() && teamId) {
+      console.log(`[INJECT] PLANNING_CLEAR: Using cloud team memory (teamId=${teamId.substring(0, 8)}...)`);
+      teamContext = await buildTeamMemoryContextCloud(
+        teamId,
+        sessionInfo.projectPath,
+        mentionedFiles
+      );
+    } else {
+      // Sync not enabled - no injection (cloud-first approach)
+      console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
+      teamContext = null;
+    }
 
     if (teamContext) {
       (modified as Record<string, unknown>).__grovInjection = teamContext;
       (modified as Record<string, unknown>).__grovInjectionCached = false;
       // Update cache with fresh team memory
-      globalTeamMemoryCache = { projectPath: sessionInfo.projectPath, content: teamContext };
+      setTeamMemoryCache(sessionInfo.projectPath, teamContext);
     }
 
     // 4. Clear the pending plan (one-time use)
@@ -1157,8 +1180,7 @@ async function preProcessRequest(
 
       // 4. Clear pending summary and invalidate GLOBAL team memory cache (new baseline)
       updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
-      globalTeamMemoryCache = null;  // Force recalculation on next request
-      console.log(`[CACHE] Global team memory invalidated (CLEAR mode)`);
+      invalidateTeamMemoryCache();  // Force recalculation on next request (CLEAR mode)
 
       // 5. Clear tracking (fresh start after CLEAR)
       sessionInjectionTracking.delete(sessionInfo.sessionId);
@@ -1184,11 +1206,23 @@ async function preProcessRequest(
   } else {
     // First request OR project changed OR cache was invalidated: compute team memory
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-    const teamContext = buildTeamMemoryContext(
-      sessionInfo.projectPath,
-      mentionedFiles,
-      sessionInfo.sessionId
-    );
+
+    // Use cloud-first approach if sync is enabled
+    let teamContext: string | null = null;
+    const teamId = getSyncTeamId();
+
+    if (isSyncEnabled() && teamId) {
+      console.log(`[INJECT] First/cache miss: Using cloud team memory (teamId=${teamId.substring(0, 8)}...)`);
+      teamContext = await buildTeamMemoryContextCloud(
+        teamId,
+        sessionInfo.projectPath,
+        mentionedFiles
+      );
+    } else {
+      // Sync not enabled - no injection (cloud-first approach)
+      console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
+      teamContext = null;
+    }
 
     console.log(`[CACHE] Computing team memory (first/new), files=${mentionedFiles.length}, result=${teamContext ? teamContext.length : 'null'}`);
 
@@ -1196,12 +1230,11 @@ async function preProcessRequest(
       (modified as Record<string, unknown>).__grovInjection = teamContext;
       (modified as Record<string, unknown>).__grovInjectionCached = false;
       // Store in GLOBAL cache - stays constant until CLEAR or restart
-      globalTeamMemoryCache = { projectPath: sessionInfo.projectPath, content: teamContext };
-      console.log(`[CACHE] Team memory cached globally`);
+      setTeamMemoryCache(sessionInfo.projectPath, teamContext);
     } else {
       // No team memory available - clear global cache for this project
       if (isSameProject) {
-        globalTeamMemoryCache = null;
+        invalidateTeamMemoryCache();
       }
     }
   }
@@ -1662,8 +1695,13 @@ async function postProcessResponse(
                     summary: planSummary,
                   };
 
-                  // Invalidate team memory cache so it rebuilds with the planning task
-                  globalTeamMemoryCache = null;
+                  // Cache invalidation happens in response-processor.ts after syncTask completes
+
+                  logger.info({
+                    msg: 'PLANNING_CLEAR triggered',
+                    sessionId: sessionInfo.currentSession.session_id.substring(0, 8),
+                    summaryLen: planSummary.length,
+                  });
                 } catch {
                   // Silent fail - planning CLEAR is optional enhancement
                 }
@@ -2358,6 +2396,13 @@ export async function startServer(options: { debug?: boolean } = {}): Promise<Fa
 
   // Cleanup old completed sessions (older than 24 hours)
   cleanupOldCompletedSessions();
+
+  // Cleanup stale active sessions (no activity for 1 hour)
+  // Prevents old sessions from being reused in fresh Claude sessions
+  const staleCount = cleanupStaleActiveSessions();
+  if (staleCount > 0) {
+    log(`Cleaned up ${staleCount} stale active session(s)`);
+  }
 
   // Start extended cache timer if enabled
   let extendedCacheTimer: NodeJS.Timeout | null = null;

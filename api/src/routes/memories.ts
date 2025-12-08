@@ -55,6 +55,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         to,
         status,
         user_id,
+        project_path,
         limit: limitStr = '20',
         cursor,
       } = request.query;
@@ -99,6 +100,10 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       if (user_id) {
         query = query.eq('user_id', user_id);
+      }
+
+      if (project_path) {
+        query = query.eq('project_path', project_path);
       }
 
       if (cursor) {
@@ -164,6 +169,12 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       if (!memories || !Array.isArray(memories)) {
         return sendError(reply, 400, 'memories array is required');
+      }
+
+      // Limit batch size to prevent abuse
+      const MAX_MEMORIES_PER_SYNC = 100;
+      if (memories.length > MAX_MEMORIES_PER_SYNC) {
+        return sendError(reply, 400, `Maximum ${MAX_MEMORIES_PER_SYNC} memories per sync`);
       }
 
       // Prepare all memories for batch upsert

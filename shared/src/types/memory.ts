@@ -58,6 +58,7 @@ export interface MemoryFilters {
   to?: string;
   status?: MemoryStatus;
   user_id?: string;
+  project_path?: string;
 }
 
 // Paginated memory list response

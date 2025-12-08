@@ -1,49 +1,78 @@
 // Request processor - handles context injection from team memory
 // Reference: plan_proxy_local.md Section 2.1
 
-import {
-  getTasksForProject,
-  getTasksByFiles,
-  getStepsReasoningByPath,
-  type Task,
-} from '../lib/store.js';
+import { type Task, type TaskStatus } from '../lib/store.js';
 import { truncate } from '../lib/utils.js';
+import { fetchTeamMemories } from '../lib/api-client.js';
+import type { Memory } from '@grov/shared';
 
 /**
- * Build context from team memory for injection (PAST sessions only)
- * Queries tasks and file_reasoning tables, excluding current session data
- * @param currentSessionId - Session ID to exclude (ensures only past session data)
+ * Build context from CLOUD team memory for injection
+ * Fetches memories from Supabase via API (cloud-first approach)
+ *
+ * @param teamId - Team UUID from sync configuration
+ * @param projectPath - Project path to filter by
+ * @param mentionedFiles - Files mentioned in user messages (optional boost)
+ * @returns Formatted context string or null if no memories found
  */
-export function buildTeamMemoryContext(
+export async function buildTeamMemoryContextCloud(
+  teamId: string,
   projectPath: string,
-  mentionedFiles: string[],
-  currentSessionId?: string
-): string | null {
-  // Get recent completed tasks for this project
-  const tasks = getTasksForProject(projectPath, {
-    status: 'complete',
-    limit: 10,
-  });
+  mentionedFiles: string[]
+): Promise<string | null> {
+  console.log(`[CLOUD] buildTeamMemoryContextCloud: teamId=${teamId.substring(0, 8)}..., projectPath=${projectPath}`);
 
-  // Get tasks that touched mentioned files
-  const fileTasks = mentionedFiles.length > 0
-    ? getTasksByFiles(projectPath, mentionedFiles, { status: 'complete', limit: 5 })
-    : [];
+  try {
+    // Fetch memories from cloud API
+    const memories = await fetchTeamMemories(teamId, projectPath, {
+      status: 'complete',
+      limit: 10,
+      files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
+    });
 
-  // Get file-level reasoning from steps table (PAST sessions only)
-  // Pass currentSessionId to exclude current session data
-  const fileReasonings = mentionedFiles.length > 0
-    ? mentionedFiles.flatMap(f => getStepsReasoningByPath(f, 3, currentSessionId))
-    : [];
+    if (memories.length === 0) {
+      console.log('[CLOUD] No memories found for project in cloud');
+      return null;
+    }
 
-  // Combine unique tasks
-  const allTasks = [...new Map([...tasks, ...fileTasks].map(t => [t.id, t])).values()];
+    console.log(`[CLOUD] Converting ${memories.length} memories to tasks for formatting`);
 
-  if (allTasks.length === 0 && fileReasonings.length === 0) {
-    return null;
+    // Convert Memory[] to Task[] format for the existing formatter
+    const tasks = memories.map(memoryToTask);
+
+    // Reuse existing formatter (no file-level reasoning from cloud yet)
+    const context = formatTeamMemoryContext(tasks, [], mentionedFiles);
+
+    console.log(`[CLOUD] Built team memory context: ${context.length} chars`);
+    return context;
+
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`[CLOUD] buildTeamMemoryContextCloud failed: ${errorMsg}`);
+    return null;  // Fail silent - don't block Claude Code
   }
+}
 
-  return formatTeamMemoryContext(allTasks, fileReasonings, mentionedFiles);
+/**
+ * Convert Memory (cloud format) to Task (local format)
+ * Used to reuse existing formatTeamMemoryContext function
+ */
+function memoryToTask(memory: Memory): Task {
+  return {
+    id: memory.id,
+    project_path: memory.project_path,
+    user: memory.user_id || undefined,
+    original_query: memory.original_query,
+    goal: memory.goal || undefined,
+    reasoning_trace: memory.reasoning_trace || [],
+    files_touched: memory.files_touched || [],
+    decisions: memory.decisions || [],
+    constraints: memory.constraints || [],
+    status: memory.status as TaskStatus,
+    tags: memory.tags || [],
+    linked_commit: memory.linked_commit || undefined,
+    created_at: memory.created_at,
+  };
 }
 
 /**

@@ -6,6 +6,8 @@ import { getAccessToken } from './credentials.js';
 import type {
   Team,
   TeamListResponse,
+  Memory,
+  MemoryListResponse,
   MemorySyncRequest,
   MemorySyncResponse,
   DeviceFlowStartResponse,
@@ -158,6 +160,66 @@ export async function syncMemories(
   }
 
   return response.data;
+}
+
+/**
+ * Fetch team memories from cloud (Supabase via API)
+ * Cloud equivalent of getTasksForProject() from store.ts
+ *
+ * @param teamId - Team UUID
+ * @param projectPath - Project path to filter by (exact match)
+ * @param options - Optional filters (files, status, limit)
+ * @returns Array of memories (empty array on error - fail silent)
+ */
+export async function fetchTeamMemories(
+  teamId: string,
+  projectPath: string,
+  options?: {
+    files?: string[];
+    status?: string;
+    limit?: number;
+  }
+): Promise<Memory[]> {
+  // Build query params
+  const params = new URLSearchParams();
+  params.set('project_path', projectPath);
+
+  if (options?.status) {
+    params.set('status', options.status);
+  }
+  if (options?.limit) {
+    params.set('limit', options.limit.toString());
+  }
+  if (options?.files && options.files.length > 0) {
+    // API expects multiple 'files' params for array
+    options.files.forEach(f => params.append('files', f));
+  }
+
+  const url = `/teams/${teamId}/memories?${params.toString()}`;
+
+  console.log(`[API] fetchTeamMemories: GET ${url}`);
+
+  try {
+    const response = await apiRequest<MemoryListResponse>('GET', url);
+
+    if (response.error) {
+      console.warn(`[API] fetchTeamMemories failed: ${response.error} (status: ${response.status})`);
+      return [];  // Fail silent - don't block Claude Code
+    }
+
+    if (!response.data || !response.data.memories) {
+      console.log('[API] fetchTeamMemories: No memories returned');
+      return [];
+    }
+
+    console.log(`[API] fetchTeamMemories: Got ${response.data.memories.length} memories`);
+    return response.data.memories;
+
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`[API] fetchTeamMemories exception: ${errorMsg}`);
+    return [];  // Fail silent - don't block Claude Code
+  }
 }
 
 // ============= Utility Functions =============

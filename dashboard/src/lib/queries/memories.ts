@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getAuthUser, verifyTeamMembership } from '@/lib/auth';
 import type { Memory } from '@grov/shared';
 
 export interface MemoryWithProfile extends Memory {
@@ -31,6 +32,14 @@ export interface DashboardStats {
   thisWeek: number;
 }
 
+interface MemoryFilesResult {
+  files_touched: string[] | null;
+}
+
+interface MemoryTagsResult {
+  tags: string[] | null;
+}
+
 /**
  * Get memories list with pagination and filters
  */
@@ -40,26 +49,19 @@ export async function getMemoriesList(
   limit: number = 20,
   cursor?: string
 ): Promise<MemoriesListResult> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     return { memories: [], cursor: null, has_more: false };
   }
 
-  // Verify team membership
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership) {
+  const isMember = await verifyTeamMembership(user.id, teamId);
+  if (!isMember) {
     return { memories: [], cursor: null, has_more: false };
   }
 
-  // Build query
+  const supabase = await createClient();
+
   let query = supabase
     .from('memories')
     .select(`
@@ -72,11 +74,9 @@ export async function getMemoriesList(
     `)
     .eq('team_id', teamId)
     .order('created_at', { ascending: false })
-    .limit(limit + 1); // Fetch one extra to check if there's more
+    .limit(limit + 1);
 
-  // Apply filters
   if (filters.search) {
-    // Sanitize search input - remove special characters
     const sanitized = filters.search.replace(/[.,()]/g, '').trim();
     if (sanitized) {
       query = query.or(`original_query.ilike.%${sanitized}%,goal.ilike.%${sanitized}%`);
@@ -117,7 +117,7 @@ export async function getMemoriesList(
   const has_more = memories.length > limit;
 
   if (has_more) {
-    memories.pop(); // Remove the extra item
+    memories.pop();
   }
 
   return {
@@ -144,58 +144,45 @@ export async function getRecentMemories(
  * Get dashboard statistics for a team
  */
 export async function getDashboardStats(teamId: string): Promise<DashboardStats> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     return { totalMemories: 0, teamMembers: 0, filesTouched: 0, thisWeek: 0 };
   }
 
-  // Verify team membership
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership) {
+  const isMember = await verifyTeamMembership(user.id, teamId);
+  if (!isMember) {
     return { totalMemories: 0, teamMembers: 0, filesTouched: 0, thisWeek: 0 };
   }
 
-  // Parallel queries for better performance
+  const supabase = await createClient();
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const [memoriesResult, membersResult, weekMemoriesResult, filesResult] = await Promise.all([
-    // Total memories count
     supabase
       .from('memories')
       .select('*', { count: 'exact', head: true })
       .eq('team_id', teamId),
 
-    // Team members count
     supabase
       .from('team_members')
       .select('*', { count: 'exact', head: true })
       .eq('team_id', teamId),
 
-    // This week's memories
     supabase
       .from('memories')
       .select('*', { count: 'exact', head: true })
       .eq('team_id', teamId)
       .gte('created_at', oneWeekAgo),
 
-    // Get unique files touched
     supabase
       .from('memories')
       .select('files_touched')
       .eq('team_id', teamId),
   ]);
 
-  // Calculate unique files
   const allFiles = new Set<string>();
-  filesResult.data?.forEach((m: any) => {
+  (filesResult.data as MemoryFilesResult[] | null)?.forEach((m) => {
     if (m.files_touched && Array.isArray(m.files_touched)) {
       m.files_touched.forEach((f: string) => allFiles.add(f));
     }
@@ -213,10 +200,11 @@ export async function getDashboardStats(teamId: string): Promise<DashboardStats>
  * Get a single memory by ID
  */
 export async function getMemory(memoryId: string): Promise<MemoryWithProfile | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return null;
+
+  const supabase = await createClient();
 
   const { data: memory, error } = await supabase
     .from('memories')
@@ -233,15 +221,8 @@ export async function getMemory(memoryId: string): Promise<MemoryWithProfile | n
 
   if (error || !memory) return null;
 
-  // Verify user is a member of the memory's team
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('team_id', memory.team_id)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership) return null;
+  const isMember = await verifyTeamMembership(user.id, memory.team_id);
+  if (!isMember) return null;
 
   return memory as MemoryWithProfile;
 }
@@ -250,28 +231,21 @@ export async function getMemory(memoryId: string): Promise<MemoryWithProfile | n
  * Get unique tags used in a team's memories
  */
 export async function getTeamTags(teamId: string): Promise<string[]> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return [];
 
-  // Verify membership
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
+  const isMember = await verifyTeamMembership(user.id, teamId);
+  if (!isMember) return [];
 
-  if (!membership) return [];
-
+  const supabase = await createClient();
   const { data } = await supabase
     .from('memories')
     .select('tags')
     .eq('team_id', teamId);
 
   const allTags = new Set<string>();
-  data?.forEach((m: any) => {
+  (data as MemoryTagsResult[] | null)?.forEach((m) => {
     if (m.tags && Array.isArray(m.tags)) {
       m.tags.forEach((t: string) => allTags.add(t));
     }

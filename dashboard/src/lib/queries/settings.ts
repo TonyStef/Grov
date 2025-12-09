@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getAuthUser, verifyTeamMembership } from '@/lib/auth';
 import type { Team, TeamSettings } from '@grov/shared';
 
 export interface UserWithPreferences {
@@ -36,14 +37,13 @@ const DEFAULT_TEAM_SETTINGS: TeamSettings = {
 
 /**
  * Get current user with preferences
- * Note: preferences are stored in localStorage for now (no DB column yet)
  */
 export async function getUserWithPreferences(): Promise<UserWithPreferences | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
@@ -61,8 +61,6 @@ export async function getUserWithPreferences(): Promise<UserWithPreferences | nu
     };
   }
 
-  // For now, preferences come from the profile if it exists, otherwise defaults
-  // Once we add the preferences column, we'll read from profile.preferences
   return {
     id: profile.id,
     email: profile.email,
@@ -77,22 +75,14 @@ export async function getUserWithPreferences(): Promise<UserWithPreferences | nu
  * Get team with settings
  */
 export async function getTeamWithSettings(teamId: string): Promise<TeamWithSettings | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return null;
 
-  // Verify membership
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
+  const isMember = await verifyTeamMembership(user.id, teamId);
+  if (!isMember) return null;
 
-  if (!membership) return null;
-
-  // Get team with settings
+  const supabase = await createClient();
   const { data: team } = await supabase
     .from('teams')
     .select('*')
@@ -101,7 +91,6 @@ export async function getTeamWithSettings(teamId: string): Promise<TeamWithSetti
 
   if (!team) return null;
 
-  // Merge with defaults for any missing settings
   const settings: TeamSettings = {
     ...DEFAULT_TEAM_SETTINGS,
     ...(team.settings || {}),
@@ -117,11 +106,11 @@ export async function getTeamWithSettings(teamId: string): Promise<TeamWithSetti
  * Check if user is admin/owner of a team
  */
 export async function isTeamAdmin(teamId: string): Promise<boolean> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return false;
 
+  const supabase = await createClient();
   const { data: membership } = await supabase
     .from('team_members')
     .select('role')

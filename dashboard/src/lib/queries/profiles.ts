@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getAuthUser } from '@/lib/auth';
 
 export interface CurrentUser {
   id: string;
@@ -12,11 +13,11 @@ export interface CurrentUser {
  * Get the current authenticated user's profile
  */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data: profile, error } = await supabase
     .from('profiles')
     .select('*')
@@ -24,7 +25,6 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     .single();
 
   if (error || !profile) {
-    // Return basic info from auth if profile doesn't exist
     return {
       id: user.id,
       email: user.email || '',
@@ -41,7 +41,6 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
  * Check if user is authenticated
  */
 export async function isAuthenticated(): Promise<boolean> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   return !!user;
 }

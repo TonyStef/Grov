@@ -1,7 +1,8 @@
 ---
 // Header with navigation and prominent CTAs
-import pkg from '../../../package.json';
-const version = `v${pkg.version}`;
+// Version injected at build time from npm registry
+declare const __APP_VERSION__: string;
+const version = `v${__APP_VERSION__}`;
 ---
 
 <header id="site-header" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">

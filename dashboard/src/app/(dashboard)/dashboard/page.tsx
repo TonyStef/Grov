@@ -1,26 +1,16 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Brain, ChevronRight } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
 import { getUserTeams } from '@/lib/queries/teams';
 import { getDashboardStats, getRecentMemories } from '@/lib/queries/memories';
 import { getCurrentUser } from '@/lib/queries/profiles';
 import { formatRelativeDate, truncate, getInitials } from '@/lib/utils';
-import { NoTeamState } from '@/components/ui/empty-state';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
 };
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-
-  if (!authUser) {
-    return null; // Middleware should handle this
-  }
-
-  // Get user and teams
   const [currentUser, teams] = await Promise.all([
     getCurrentUser(),
     getUserTeams(),

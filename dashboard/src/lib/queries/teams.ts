@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import type { Team, TeamMember } from '@grov/shared';
+import { getAuthUser, verifyTeamMembership } from '@/lib/auth';
+import type { Team, TeamMember, TeamRole } from '@grov/shared';
 
 export interface TeamWithMemberCount extends Team {
   member_count: number;
@@ -11,16 +12,42 @@ export interface TeamMemberWithProfile extends TeamMember {
   avatar_url: string | null;
 }
 
+interface ProfileData {
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+}
+
+interface TeamMemberQueryResult {
+  team_id: string;
+  user_id: string;
+  role: TeamRole;
+  joined_at: string;
+  profile: ProfileData | ProfileData[] | null;
+}
+
+interface TeamInvitationQueryResult {
+  id: string;
+  invite_code: string;
+  expires_at: string;
+  created_at: string;
+  created_by: string;
+  creator: Array<{
+    email: string;
+    full_name: string | null;
+  }> | null;
+}
+
 /**
  * Get all teams the current user is a member of
  */
 export async function getUserTeams(): Promise<TeamWithMemberCount[]> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return [];
 
-  // Get teams where user is a member
+  const supabase = await createClient();
+
   const { data: memberships, error: membershipError } = await supabase
     .from('team_members')
     .select('team_id')
@@ -30,7 +57,6 @@ export async function getUserTeams(): Promise<TeamWithMemberCount[]> {
 
   const teamIds = memberships.map(m => m.team_id);
 
-  // Get team details
   const { data: teams, error: teamsError } = await supabase
     .from('teams')
     .select('*')
@@ -38,44 +64,34 @@ export async function getUserTeams(): Promise<TeamWithMemberCount[]> {
 
   if (teamsError || !teams) return [];
 
-  // Get member counts for each team
-  const teamsWithCounts: TeamWithMemberCount[] = [];
+  const { data: allMembers } = await supabase
+    .from('team_members')
+    .select('team_id')
+    .in('team_id', teamIds);
 
-  for (const team of teams) {
-    const { count } = await supabase
-      .from('team_members')
-      .select('*', { count: 'exact', head: true })
-      .eq('team_id', team.id);
+  const countMap = new Map<string, number>();
+  allMembers?.forEach(m => {
+    countMap.set(m.team_id, (countMap.get(m.team_id) || 0) + 1);
+  });
 
-    teamsWithCounts.push({
-      ...team,
-      member_count: count || 0,
-    });
-  }
-
-  return teamsWithCounts;
+  return teams.map(team => ({
+    ...team,
+    member_count: countMap.get(team.id) || 0,
+  }));
 }
 
 /**
  * Get team by ID (if user is a member)
  */
 export async function getTeam(teamId: string): Promise<Team | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return null;
 
-  // Verify membership
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
+  const isMember = await verifyTeamMembership(user.id, teamId);
+  if (!isMember) return null;
 
-  if (!membership) return null;
-
-  // Get team
+  const supabase = await createClient();
   const { data: team } = await supabase
     .from('teams')
     .select('*')
@@ -89,22 +105,14 @@ export async function getTeam(teamId: string): Promise<Team | null> {
  * Get all members of a team (with profile info)
  */
 export async function getTeamMembers(teamId: string): Promise<TeamMemberWithProfile[]> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return [];
 
-  // Verify user is a member of this team first
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
+  const isMember = await verifyTeamMembership(user.id, teamId);
+  if (!isMember) return [];
 
-  if (!membership) return [];
-
-  // Get all members with profile data
+  const supabase = await createClient();
   const { data: members, error } = await supabase
     .from('team_members')
     .select(`
@@ -123,27 +131,29 @@ export async function getTeamMembers(teamId: string): Promise<TeamMemberWithProf
 
   if (error || !members) return [];
 
-  // Flatten profile data into member
-  return members.map((member: any) => ({
-    team_id: member.team_id,
-    user_id: member.user_id,
-    role: member.role,
-    joined_at: member.joined_at,
-    email: member.profile?.email || '',
-    full_name: member.profile?.full_name || null,
-    avatar_url: member.profile?.avatar_url || null,
-  }));
+  return (members as TeamMemberQueryResult[]).map((member) => {
+    const profile = Array.isArray(member.profile) ? member.profile[0] : member.profile;
+    return {
+      team_id: member.team_id,
+      user_id: member.user_id,
+      role: member.role,
+      joined_at: member.joined_at,
+      email: profile?.email || '',
+      full_name: profile?.full_name || null,
+      avatar_url: profile?.avatar_url || null,
+    };
+  });
 }
 
 /**
  * Get current user's role in a team
  */
 export async function getUserRoleInTeam(teamId: string): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data: membership } = await supabase
     .from('team_members')
     .select('role')
@@ -158,15 +168,14 @@ export async function getUserRoleInTeam(teamId: string): Promise<string | null> 
  * Get pending invitations for a team
  */
 export async function getTeamInvitations(teamId: string) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) return [];
 
-  // Verify user is admin/owner
   const role = await getUserRoleInTeam(teamId);
   if (!role || !['owner', 'admin'].includes(role)) return [];
 
+  const supabase = await createClient();
   const { data: invitations } = await supabase
     .from('team_invitations')
     .select(`
@@ -186,8 +195,7 @@ export async function getTeamInvitations(teamId: string) {
 
   if (!invitations) return [];
 
-  // Flatten creator from array to single object (Supabase returns array for joins)
-  return invitations.map((inv: any) => ({
+  return (invitations as TeamInvitationQueryResult[]).map((inv) => ({
     id: inv.id,
     invite_code: inv.invite_code,
     expires_at: inv.expires_at,

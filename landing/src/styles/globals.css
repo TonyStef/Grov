@@ -2,44 +2,47 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  /* Custom colors */
-  --color-grov-black: #09090b;
-  --color-grov-surface: #18181b;
-  --color-grov-surface-elevated: #27272a;
-  --color-grov-border: #3f3f46;
-  --color-grov-text: #fafafa;
+  /* Custom colors - Muted/Soft palette */
+  --color-grov-black: #0a0a0b;
+  --color-grov-surface: #111113;
+  --color-grov-surface-elevated: #1a1a1d;
+  --color-grov-border: #27272a;
+  --color-grov-border-hover: #3f3f46;
+  --color-grov-text: #e4e4e7;
   --color-grov-text-secondary: #a1a1aa;
   --color-grov-text-muted: #71717a;
-  --color-grov-accent: #10b981;
-  --color-grov-accent-hover: #34d399;
+  --color-grov-accent: #22c55e;
+  --color-grov-accent-hover: #4ade80;
+  --color-grov-accent-muted: #16a34a;
+  --color-grov-accent-bg: rgba(34, 197, 94, 0.08);
 
   /* Custom fonts */
   --font-sans: 'Satoshi', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', Consolas, monospace;
 
-  /* Custom font sizes */
-  --text-hero: 4.5rem;
+  /* Custom font sizes - Refined scale */
+  --text-hero: 4rem;
   --text-hero--line-height: 1.1;
-  --text-hero--letter-spacing: -0.02em;
+  --text-hero--letter-spacing: -0.03em;
   --text-hero--font-weight: 700;
 
-  --text-hero-mobile: 3rem;
+  --text-hero-mobile: 2.5rem;
   --text-hero-mobile--line-height: 1.15;
-  --text-hero-mobile--letter-spacing: -0.02em;
+  --text-hero-mobile--letter-spacing: -0.03em;
   --text-hero-mobile--font-weight: 700;
 
-  --text-section: 3rem;
+  --text-section: 2.5rem;
   --text-section--line-height: 1.2;
-  --text-section--letter-spacing: -0.02em;
+  --text-section--letter-spacing: -0.03em;
   --text-section--font-weight: 700;
 
-  --text-section-mobile: 2rem;
+  --text-section-mobile: 1.75rem;
   --text-section-mobile--line-height: 1.25;
-  --text-section-mobile--letter-spacing: -0.02em;
+  --text-section-mobile--letter-spacing: -0.03em;
   --text-section-mobile--font-weight: 700;
 
-  --text-subhead: 1.5rem;
-  --text-subhead--line-height: 1.4;
+  --text-subhead: 1.25rem;
+  --text-subhead--line-height: 1.5;
   --text-subhead--font-weight: 400;
 
   --text-body-lg: 1.125rem;
@@ -81,22 +84,7 @@
     position: relative;
   }
 
-  /* Vignette effect - subtle darkening at edges */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: radial-gradient(
-      ellipse at center,
-      transparent 0%,
-      transparent 50%,
-      rgba(0, 0, 0, 0.4) 100%
-    );
-    pointer-events: none;
-    z-index: 9998;
-  }
-
-  /* Film grain overlay - subtle texture */
+  /* Subtle grain overlay - reduced for cleaner look */
   body::after {
     content: '';
     position: fixed;
@@ -104,7 +92,7 @@
     background-image: url('/grain-texture.svg');
     background-repeat: repeat;
     background-size: 200px 200px;
-    opacity: 0.025;
+    opacity: 0.015;
     pointer-events: none;
     mix-blend-mode: overlay;
     z-index: 9999;
@@ -119,37 +107,31 @@
   .btn-primary {
     @apply inline-flex items-center justify-center px-6 py-3
            bg-grov-accent text-grov-black font-medium rounded-lg
-           transition-all duration-200 ease-out
+           transition-all duration-150 ease-out
            hover:bg-grov-accent-hover hover:-translate-y-0.5;
-    box-shadow:
-      0 0 20px rgba(16, 185, 129, 0.25),
-      0 0 40px rgba(16, 185, 129, 0.1);
-    /* Safari mobile fixes */
+    box-shadow: 0 4px 16px rgba(34, 197, 94, 0.2);
     -webkit-user-select: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
 
   .btn-primary:hover {
-    box-shadow:
-      0 0 30px rgba(16, 185, 129, 0.4),
-      0 0 60px rgba(16, 185, 129, 0.15);
+    box-shadow: 0 8px 24px rgba(34, 197, 94, 0.25);
   }
 
   .btn-secondary {
     @apply inline-flex items-center justify-center px-6 py-3
            bg-transparent text-grov-text font-medium rounded-lg
            border border-grov-border
-           transition-all duration-200 ease-out
-           hover:border-grov-accent hover:bg-grov-surface;
-    /* Safari mobile fixes */
+           transition-all duration-150 ease-out
+           hover:border-grov-border-hover hover:bg-grov-surface;
     -webkit-user-select: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
 
   .btn-secondary:hover {
-    box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   }
 
   .code-block {
@@ -158,14 +140,14 @@
            overflow-x-auto;
   }
 
-  /* Syntax highlighting with glow effects */
+  /* Syntax highlighting - subtle glow */
   .code-block .json-key,
   .code-block span[class*="text-grov-accent"] {
-    text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+    text-shadow: 0 0 8px rgba(34, 197, 94, 0.3);
   }
 
   .syntax-glow {
-    text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+    text-shadow: 0 0 8px rgba(34, 197, 94, 0.3);
   }
 
   .card {
@@ -179,18 +161,16 @@
   }
 
   .card-highlight {
-    @apply border-grov-accent;
+    @apply border-grov-accent bg-grov-surface;
     box-shadow:
-      0 0 0 1px #10b981,
-      0 0 40px rgba(16, 185, 129, 0.08),
-      0 0 80px rgba(16, 185, 129, 0.04);
+      0 0 0 1px #22c55e,
+      0 0 24px rgba(34, 197, 94, 0.06);
   }
 
   .card-highlight:hover {
     box-shadow:
-      0 0 0 1px #10b981,
-      0 0 50px rgba(16, 185, 129, 0.12),
-      0 0 100px rgba(16, 185, 129, 0.06);
+      0 0 0 1px #22c55e,
+      0 0 32px rgba(34, 197, 94, 0.1);
   }
 }
 

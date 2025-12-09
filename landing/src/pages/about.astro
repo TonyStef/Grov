@@ -1,0 +1,101 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="About | Grov"
+  description="The story behind Grov - building collective AI memory for engineering teams."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-3xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Our Story</span>
+        </div>
+        <h1 class="text-section font-bold text-grov-text mb-4">
+          About Grov
+        </h1>
+      </div>
+
+      <!-- Content -->
+      <div class="prose prose-invert prose-lg max-w-none">
+        <div class="space-y-8 text-grov-text-secondary">
+
+          <section class="card p-8">
+            <h2 class="text-xl font-bold text-grov-text mb-4">The Problem We Saw</h2>
+            <p>
+              Every time you start a new Claude Code session, you watch the same thing happen:
+              Claude explores your codebase from scratch. It reads files it's read before.
+              It rediscovers patterns you've already established. You burn tokens and time
+              on redundant exploration.
+            </p>
+            <p class="mt-4">
+              We measured it: a typical task takes 10+ minutes, 7%+ extra token usage,
+              and 3+ explore agents just to understand the codebase. Every. Single. Time.
+            </p>
+          </section>
+
+          <section class="card p-8">
+            <h2 class="text-xl font-bold text-grov-text mb-4">Our Solution</h2>
+            <p>
+              Grov captures what Claude learns and injects it back on the next session.
+              Not just file lists — actual reasoning. Architectural decisions, patterns,
+              the "why" behind the code.
+            </p>
+            <p class="mt-4">
+              The result: Claude skips the exploration phase and gets straight to work.
+              Your AI remembers what it learned. You ship faster.
+            </p>
+          </section>
+
+          <section class="card p-8">
+            <h2 class="text-xl font-bold text-grov-text mb-4">Our Mission</h2>
+            <p>
+              We believe AI-assisted development should get better over time, not start
+              from zero every session. Grov is building collective AI memory — for
+              individuals, for teams, for entire organizations.
+            </p>
+            <p class="mt-4">
+              When one person on your team figures something out, everyone's AI should
+              benefit. That's the future we're building.
+            </p>
+          </section>
+
+          <section class="card p-8">
+            <h2 class="text-xl font-bold text-grov-text mb-4">Open Source First</h2>
+            <p>
+              Grov is open source under the Apache 2.0 license. We believe in transparency,
+              community contribution, and giving developers control over their tools.
+            </p>
+            <p class="mt-4">
+              The core product is free. Team sync and advanced features help us sustain
+              development while keeping the fundamentals accessible to everyone.
+            </p>
+          </section>
+
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <div class="mt-16 text-center">
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a href="/#install" class="btn-primary">
+            Get Started
+          </a>
+          <a
+            href="https://github.com/TonyStef/Grov"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-secondary"
+          >
+            View on GitHub
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

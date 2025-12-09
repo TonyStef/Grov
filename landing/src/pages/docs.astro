@@ -1,0 +1,167 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Documentation | Grov"
+  description="Learn how to install, configure, and use Grov for AI memory."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-4xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Documentation</span>
+        </div>
+        <h1 class="text-section font-bold text-grov-text mb-4">
+          Get Started with Grov
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary max-w-xl mx-auto">
+          Everything you need to install, configure, and use Grov.
+        </p>
+      </div>
+
+      <!-- Quick Start -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Quick Start</h2>
+        <div class="space-y-6">
+          <div>
+            <div class="flex items-center gap-3 mb-3">
+              <span class="w-6 h-6 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">1</span>
+              <span class="font-medium text-grov-text">Install globally</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-accent">npm install -g grov</code>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center gap-3 mb-3">
+              <span class="w-6 h-6 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">2</span>
+              <span class="font-medium text-grov-text">Configure (one-time)</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-accent">grov init</code>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center gap-3 mb-3">
+              <span class="w-6 h-6 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">3</span>
+              <span class="font-medium text-grov-text">Start the proxy</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-accent">grov proxy</code>
+            </div>
+          </div>
+        </div>
+        <p class="mt-6 text-grov-text-secondary">
+          Then use Claude Code normally in another terminal. That's it.
+        </p>
+      </section>
+
+      <!-- Commands Reference -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Commands</h2>
+        <div class="space-y-4">
+          {[
+            { cmd: "grov init", desc: "Configure proxy URL (one-time setup)" },
+            { cmd: "grov proxy", desc: "Start the proxy (required for each session)" },
+            { cmd: "grov proxy-status", desc: "Show active sessions" },
+            { cmd: "grov status", desc: "Show captured tasks" },
+            { cmd: "grov login", desc: "Login to cloud dashboard" },
+            { cmd: "grov sync", desc: "Sync memories to team dashboard" },
+            { cmd: "grov disable", desc: "Disable grov" },
+          ].map((item) => (
+            <div class="flex items-start gap-4 py-3 border-b border-grov-border last:border-0">
+              <code class="font-mono text-sm text-grov-accent whitespace-nowrap">{item.cmd}</code>
+              <span class="text-sm text-grov-text-secondary">{item.desc}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <!-- Advanced Features -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Advanced Features</h2>
+
+        <div class="space-y-6">
+          <div>
+            <h3 class="font-medium text-grov-text mb-2">Anti-Drift Detection</h3>
+            <p class="text-sm text-grov-text-secondary mb-3">
+              Grov monitors Claude's actions and corrects if it drifts from your goal.
+            </p>
+            <div class="code-block">
+              <code class="text-grov-accent">grov drift-test "refactor the auth system" --goal "fix login bug"</code>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-medium text-grov-text mb-2">Extended Cache</h3>
+            <p class="text-sm text-grov-text-secondary mb-3">
+              Keep Anthropic's prompt cache alive during idle periods.
+            </p>
+            <div class="code-block">
+              <code class="text-grov-accent">grov proxy --extended-cache</code>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-medium text-grov-text mb-2">Team Sync</h3>
+            <p class="text-sm text-grov-text-secondary mb-3">
+              Share memories across your engineering team.
+            </p>
+            <div class="code-block">
+              <code class="text-grov-accent">grov sync --enable --team YOUR_TEAM_ID</code>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Environment Variables -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Environment Variables</h2>
+        <div class="code-block">
+          <pre class="text-sm"><code><span class="text-grov-text-muted"># Required for drift detection and LLM extraction</span>
+<span class="text-grov-accent">export ANTHROPIC_API_KEY</span>=sk-ant-...
+
+<span class="text-grov-text-muted"># Optional</span>
+<span class="text-grov-accent">export GROV_DRIFT_MODEL</span>=claude-sonnet-4-20250514
+<span class="text-grov-accent">export PROXY_HOST</span>=127.0.0.1
+<span class="text-grov-accent">export PROXY_PORT</span>=8080</code></pre>
+        </div>
+      </section>
+
+      <!-- More Help -->
+      <div class="text-center">
+        <p class="text-grov-text-secondary mb-4">
+          Need more help?
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="https://github.com/TonyStef/Grov#readme"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-secondary"
+          >
+            Full README
+          </a>
+          <a href="/faq" class="btn-secondary">
+            FAQ
+          </a>
+          <a
+            href="https://github.com/TonyStef/Grov/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-secondary"
+          >
+            Report Issue
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

@@ -1,0 +1,187 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Limitations | Grov"
+  description="Security and transparency are non-negotiable for developer tools. Here's what Grov can and can't do today."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-3xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Transparency</span>
+        </div>
+        <h1 class="text-section font-bold text-grov-text mb-6">
+          Security and transparency are non-negotiable for developer tools.
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary">
+          We believe you deserve to know exactly what Grov can and can't do. Here's the honest picture.
+        </p>
+      </div>
+
+      <!-- What's Ready -->
+      <section class="card p-8 mb-6">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="w-8 h-8 rounded-full bg-grov-accent/20 flex items-center justify-center">
+            <svg class="w-4 h-4 text-grov-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h2 class="text-xl font-bold text-grov-text">What's Ready</h2>
+        </div>
+        <ul class="space-y-4">
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">Memory capture & injection</strong> — Reasoning is extracted from sessions and injected into future ones</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">Anti-drift detection</strong> — Monitors Claude's actions and corrects when it strays from your goal</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">Extended prompt cache</strong> — Keeps Anthropic's cache alive during idle periods</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">Team sync</strong> — Share memories across your team via cloud dashboard</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">Local-first storage</strong> — SQLite database on your machine by default</span>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Current Limitations -->
+      <section class="card p-8 mb-6 border-yellow-500/30">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center">
+            <svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 class="text-xl font-bold text-grov-text">Current Limitations</h2>
+        </div>
+        <ul class="space-y-4">
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-yellow-500 mt-1">•</span>
+            <span><strong class="text-grov-text">Claude Code only</strong> — Currently optimized for Claude Code. Other AI assistants not yet supported.</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-yellow-500 mt-1">•</span>
+            <span><strong class="text-grov-text">No semantic search yet</strong> — Memory retrieval is basic. Embedding-based search coming soon.</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-yellow-500 mt-1">•</span>
+            <span><strong class="text-grov-text">No VS Code extension</strong> — CLI only for now. IDE integration is on the roadmap.</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-yellow-500 mt-1">•</span>
+            <span><strong class="text-grov-text">No self-hosted enterprise yet</strong> — Cloud-only for teams. On-premise deployment coming later.</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-yellow-500 mt-1">•</span>
+            <span><strong class="text-grov-text">API key required for extraction</strong> — LLM-based extraction needs an Anthropic API key on free tier.</span>
+          </li>
+        </ul>
+      </section>
+
+      <!-- What's Coming -->
+      <section class="card p-8 mb-6">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+          </div>
+          <h2 class="text-xl font-bold text-grov-text">Roadmap</h2>
+        </div>
+        <div class="space-y-6">
+          <div>
+            <h3 class="font-mono text-sm text-grov-accent mb-2">v0.6 — Smart Retrieval</h3>
+            <p class="text-sm text-grov-text-secondary">Embedding-based semantic search, relevance scoring, auto-tagging by domain</p>
+          </div>
+          <div>
+            <h3 class="font-mono text-sm text-grov-accent mb-2">v0.7 — IDE Integration</h3>
+            <p class="text-sm text-grov-text-secondary">VS Code extension, Cursor support, inline memory suggestions</p>
+          </div>
+          <div>
+            <h3 class="font-mono text-sm text-grov-accent mb-2">v1.0 — Enterprise</h3>
+            <p class="text-sm text-grov-text-secondary">Self-hosted deployment, SSO/SAML, SOC 2 compliance, on-premise option</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Security Practices -->
+      <section class="card p-8">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="w-8 h-8 rounded-full bg-grov-accent/20 flex items-center justify-center">
+            <svg class="w-4 h-4 text-grov-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h2 class="text-xl font-bold text-grov-text">Security Practices</h2>
+        </div>
+        <ul class="space-y-4">
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">Local by default</strong> — All data stays on your machine unless you enable team sync</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">No code storage</strong> — We store reasoning and metadata, never your actual source code</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">Open source</strong> — Full source code available on GitHub for audit</span>
+          </li>
+          <li class="flex items-start gap-3 text-grov-text-secondary">
+            <span class="text-grov-accent mt-1">•</span>
+            <span><strong class="text-grov-text">You own your data</strong> — Export or delete anytime. No lock-in.</span>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Contribute -->
+      <section class="card card-highlight p-8 mt-6">
+        <div class="flex flex-col sm:flex-row items-center gap-6">
+          <div class="w-12 h-12 rounded-full bg-grov-accent/20 flex items-center justify-center flex-shrink-0">
+            <svg class="w-6 h-6 text-grov-accent" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+          </div>
+          <div class="text-center sm:text-left flex-1">
+            <h2 class="text-xl font-bold text-grov-text mb-2">Want to help?</h2>
+            <p class="text-grov-text-secondary">
+              Grov is open source. Help us build the future of AI memory — contribute code, report bugs, or suggest features.
+            </p>
+          </div>
+          <a
+            href="https://github.com/TonyStef/Grov"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-primary whitespace-nowrap"
+          >
+            Contribute on GitHub
+          </a>
+        </div>
+      </section>
+
+      <!-- CTA -->
+      <div class="mt-12 text-center">
+        <p class="text-grov-text-secondary mb-4">
+          Questions about security or limitations?
+        </p>
+        <a href="mailto:stefvirgil2006@gmail.com" class="btn-secondary">
+          Contact Us
+        </a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

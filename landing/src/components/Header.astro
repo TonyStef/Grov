@@ -1,20 +1,137 @@
 ---
-// Header with logo and login link
+// Header with navigation and prominent CTAs
+import pkg from '../../../package.json';
+const version = `v${pkg.version}`;
 ---
 
-<header class="fixed top-0 left-0 right-0 z-50 px-6 py-4">
-  <div class="max-w-5xl mx-auto flex items-center justify-between">
-    <!-- Logo -->
-    <a href="/" class="opacity-80 hover:opacity-100 transition-opacity">
+<header id="site-header" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <!-- Logo with version -->
+    <a href="/" class="flex items-center gap-3 opacity-90 hover:opacity-100 transition-opacity">
       <img src="/logo.png" alt="Grov" class="h-8 w-auto" />
+      <span class="hidden sm:inline font-mono text-xs text-grov-accent px-2 py-0.5 bg-grov-accent-bg rounded-full border border-grov-accent/20">
+        {version}
+      </span>
     </a>
 
-    <!-- Login -->
-    <a
-      href="https://app.grov.dev"
-      class="text-small text-grov-text-muted hover:text-grov-text transition-colors"
-    >
-      Login
-    </a>
+    <!-- Desktop Navigation -->
+    <nav class="hidden md:flex items-center gap-8">
+      <a href="/pricing" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+        Pricing
+      </a>
+      <a href="/docs" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+        Docs
+      </a>
+      <a href="/blog" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+        Blog
+      </a>
+      <a href="/socials" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+        Community
+      </a>
+      <a href="/limitations" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+        Limitations
+      </a>
+    </nav>
+
+    <!-- CTAs -->
+    <div class="flex items-center gap-4">
+      <a
+        href="https://app.grov.dev"
+        class="hidden sm:inline font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors"
+      >
+        Login
+      </a>
+      <a
+        href="https://app.grov.dev/login"
+        class="btn-primary text-sm py-2 px-4"
+      >
+        Get Started
+      </a>
+
+      <!-- Mobile Menu Button -->
+      <button
+        id="mobile-menu-btn"
+        class="md:hidden p-2 text-grov-text-secondary hover:text-grov-text transition-colors"
+        aria-label="Toggle menu"
+        aria-expanded="false"
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path id="menu-icon" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16" />
+          <path id="close-icon" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile Menu -->
+  <div id="mobile-menu" class="hidden md:hidden border-t border-grov-border bg-grov-black/95 backdrop-blur-lg">
+    <nav class="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-4">
+      <a href="/pricing" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+        Pricing
+      </a>
+      <a href="/docs" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+        Docs
+      </a>
+      <a href="/blog" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+        Blog
+      </a>
+      <a href="/socials" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+        Community
+      </a>
+      <a href="/limitations" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+        Limitations
+      </a>
+      <div class="pt-4 border-t border-grov-border">
+        <a href="https://app.grov.dev" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2 block">
+          Login
+        </a>
+      </div>
+    </nav>
   </div>
 </header>
+
+<script>
+  // Header scroll behavior
+  const header = document.getElementById('site-header');
+  let lastScroll = 0;
+
+  function updateHeader() {
+    const currentScroll = window.scrollY;
+
+    if (currentScroll > 50) {
+      header?.classList.add('bg-grov-black/95', 'backdrop-blur-lg', 'border-b', 'border-grov-border');
+    } else {
+      header?.classList.remove('bg-grov-black/95', 'backdrop-blur-lg', 'border-b', 'border-grov-border');
+    }
+
+    lastScroll = currentScroll;
+  }
+
+  window.addEventListener('scroll', updateHeader, { passive: true });
+  updateHeader();
+
+  // Mobile menu toggle
+  const menuBtn = document.getElementById('mobile-menu-btn');
+  const mobileMenu = document.getElementById('mobile-menu');
+  const menuIcon = document.getElementById('menu-icon');
+  const closeIcon = document.getElementById('close-icon');
+
+  menuBtn?.addEventListener('click', () => {
+    const isExpanded = menuBtn.getAttribute('aria-expanded') === 'true';
+
+    menuBtn.setAttribute('aria-expanded', String(!isExpanded));
+    mobileMenu?.classList.toggle('hidden');
+    menuIcon?.classList.toggle('hidden');
+    closeIcon?.classList.toggle('hidden');
+  });
+
+  // Close mobile menu on link click
+  mobileMenu?.querySelectorAll('a').forEach(link => {
+    link.addEventListener('click', () => {
+      mobileMenu?.classList.add('hidden');
+      menuBtn?.setAttribute('aria-expanded', 'false');
+      menuIcon?.classList.remove('hidden');
+      closeIcon?.classList.add('hidden');
+    });
+  });
+</script>

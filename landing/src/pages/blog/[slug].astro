@@ -1,0 +1,216 @@
+---
+import { getCollection, type CollectionEntry } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+import Footer from '../../components/Footer.astro';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map((post) => ({
+    params: { slug: post.slug },
+    props: { post },
+  }));
+}
+
+type Props = {
+  post: CollectionEntry<'blog'>;
+};
+
+const { post } = Astro.props;
+const { Content } = await post.render();
+
+function formatDate(date: Date) {
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
+
+// Estimate reading time (rough: 200 words per minute)
+const wordCount = post.body.split(/\s+/).length;
+const readingTime = Math.ceil(wordCount / 200);
+---
+
+<Layout
+  title={`${post.data.title} | Grov Blog`}
+  description={post.data.description}
+  image={post.data.image}
+>
+  <main class="pt-24 pb-16 px-6">
+    <article class="max-w-3xl mx-auto">
+
+      <!-- Back link -->
+      <a href="/blog" class="inline-flex items-center gap-2 text-sm text-grov-text-muted hover:text-grov-text transition-colors mb-8">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to Blog
+      </a>
+
+      <!-- Header -->
+      <header class="mb-12">
+        <!-- Tags -->
+        {post.data.tags && (
+          <div class="flex flex-wrap gap-2 mb-6">
+            {post.data.tags.map((tag: string) => (
+              <span class="px-3 py-1 bg-grov-accent-bg text-grov-accent text-xs font-mono rounded-full">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <!-- Title -->
+        <h1 class="text-section font-bold text-grov-text mb-6">
+          {post.data.title}
+        </h1>
+
+        <!-- Description -->
+        <p class="text-xl text-grov-text-secondary mb-8">
+          {post.data.description}
+        </p>
+
+        <!-- Meta -->
+        <div class="flex flex-wrap items-center gap-4 text-sm text-grov-text-muted font-mono pb-8 border-b border-grov-border">
+          <span>By {post.data.author}</span>
+          <span>•</span>
+          <time datetime={post.data.pubDate.toISOString()}>
+            {formatDate(post.data.pubDate)}
+          </time>
+          <span>•</span>
+          <span>~{readingTime} min read</span>
+        </div>
+      </header>
+
+      <!-- Featured Image -->
+      {post.data.image && (
+        <div class="mb-12 rounded-xl overflow-hidden border border-grov-border">
+          <img
+            src={post.data.image}
+            alt={post.data.title}
+            class="w-full"
+          />
+        </div>
+      )}
+
+      <!-- Content -->
+      <div class="prose prose-invert prose-lg max-w-none">
+        <Content />
+      </div>
+
+      <!-- Footer -->
+      <footer class="mt-16 pt-8 border-t border-grov-border">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+          <div>
+            <p class="text-sm text-grov-text-muted mb-2">Written by</p>
+            <p class="font-medium text-grov-text">{post.data.author}</p>
+          </div>
+          <div class="flex gap-4">
+            <a
+              href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(post.data.title)}&url=${encodeURIComponent(`https://grov.dev/blog/${post.slug}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn-secondary text-sm py-2 px-4"
+            >
+              Share on X
+            </a>
+          </div>
+        </div>
+      </footer>
+    </article>
+  </main>
+  <Footer />
+</Layout>
+
+<style is:global>
+  /* Blog prose styling */
+  .prose {
+    color: var(--color-grov-text-secondary);
+  }
+
+  .prose h2 {
+    color: var(--color-grov-text);
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+  }
+
+  .prose h3 {
+    color: var(--color-grov-text);
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .prose p {
+    margin-bottom: 1.5rem;
+    line-height: 1.75;
+  }
+
+  .prose strong {
+    color: var(--color-grov-text);
+    font-weight: 600;
+  }
+
+  .prose a {
+    color: var(--color-grov-accent);
+    text-decoration: none;
+  }
+
+  .prose a:hover {
+    text-decoration: underline;
+  }
+
+  .prose ul, .prose ol {
+    margin-bottom: 1.5rem;
+    padding-left: 1.5rem;
+  }
+
+  .prose li {
+    margin-bottom: 0.5rem;
+  }
+
+  .prose blockquote {
+    border-left: 3px solid var(--color-grov-accent);
+    padding-left: 1.5rem;
+    margin: 2rem 0;
+    font-style: italic;
+    color: var(--color-grov-text-secondary);
+  }
+
+  .prose pre {
+    background: var(--color-grov-surface);
+    border: 1px solid var(--color-grov-border);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+  }
+
+  .prose code {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+
+  .prose :not(pre) > code {
+    background: var(--color-grov-surface);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.875em;
+  }
+
+  .prose img {
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-grov-border);
+    margin: 2rem 0;
+  }
+
+  .prose hr {
+    border: none;
+    border-top: 1px solid var(--color-grov-border);
+    margin: 3rem 0;
+  }
+</style>

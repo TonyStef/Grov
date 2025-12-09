@@ -23,24 +23,19 @@ const currentUrl = new URL(Astro.url.pathname, Astro.site).href;
 ---
 
 <Layout title={`${title} | Grov`} description={description}>
-  <div class="bg-grov-black min-h-screen">
-    <!-- Back to home link -->
-    <nav class="border-b border-grov-surface">
-      <div class="max-w-4xl mx-auto px-6 py-6">
-        <a
-          href="/"
-          class="inline-flex items-center text-grov-text-secondary hover:text-grov-accent transition-colors font-mono text-sm"
-        >
-          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Back to home
-        </a>
-      </div>
-    </nav>
-
+  <div class="bg-grov-black min-h-screen pt-24">
     <!-- Article container -->
-    <article class="max-w-4xl mx-auto px-6 py-16">
+    <article class="max-w-4xl mx-auto px-6 py-8">
+      <!-- Back to blog link -->
+      <a
+        href="/blog"
+        class="inline-flex items-center text-grov-text-muted hover:text-grov-text transition-colors font-mono text-sm mb-8"
+      >
+        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to Blog
+      </a>
       <!-- Article header -->
       <header class="mb-16">
         <h1 class="text-hero font-bold text-grov-text mb-6 leading-tight">

@@ -1,0 +1,127 @@
+---
+import { getCollection } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+import Footer from '../../components/Footer.astro';
+
+const posts = (await getCollection('blog')).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
+
+function formatDate(date: Date) {
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
+---
+
+<Layout
+  title="Blog | Grov"
+  description="Updates, insights, and stories from the Grov team."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-4xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Blog</span>
+        </div>
+        <h1 class="text-section text-grov-text mb-4" style="font-family: var(--font-display);">
+          Latest Updates
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary max-w-xl mx-auto">
+          Insights, announcements, and stories from building Grov.
+        </p>
+      </div>
+
+      <!-- Blog Posts List -->
+      <div class="space-y-8">
+        {posts.map((post) => (
+          <article class="card p-0 overflow-hidden group">
+            <a href={`/blog/${post.slug}`} class="block">
+              {post.data.image && (
+                <div class="aspect-[2/1] overflow-hidden border-b border-grov-border">
+                  <img
+                    src={post.data.image}
+                    alt={post.data.title}
+                    class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
+              )}
+              <div class="p-8">
+                <!-- Tags -->
+                {post.data.tags && (
+                  <div class="flex flex-wrap gap-2 mb-4">
+                    {post.data.tags.slice(0, 3).map((tag: string) => (
+                      <span class="px-2 py-1 bg-grov-accent-bg text-grov-accent text-xs font-mono rounded">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <!-- Title -->
+                <h2 class="text-xl font-bold text-grov-text mb-3 group-hover:text-grov-accent transition-colors">
+                  {post.data.title}
+                </h2>
+
+                <!-- Description -->
+                <p class="text-grov-text-secondary mb-4 line-clamp-2">
+                  {post.data.description}
+                </p>
+
+                <!-- Meta -->
+                <div class="flex items-center gap-4 text-sm text-grov-text-muted font-mono">
+                  <span>By {post.data.author}</span>
+                  <span>•</span>
+                  <time datetime={post.data.pubDate.toISOString()}>
+                    {formatDate(post.data.pubDate)}
+                  </time>
+                </div>
+              </div>
+            </a>
+          </article>
+        ))}
+      </div>
+
+      <!-- Empty state -->
+      {posts.length === 0 && (
+        <div class="text-center py-16">
+          <p class="text-grov-text-muted">No posts yet. Check back soon!</p>
+        </div>
+      )}
+
+      <!-- Subscribe CTA -->
+      <div class="mt-16 card p-8 text-center">
+        <h2 class="text-xl font-bold text-grov-text mb-2">
+          Stay Updated
+        </h2>
+        <p class="text-grov-text-secondary mb-6">
+          Get notified when we publish new posts.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+          <input
+            type="email"
+            placeholder="you@example.com"
+            class="flex-1 px-4 py-3 bg-grov-surface-elevated border border-grov-border rounded-lg text-grov-text placeholder:text-grov-text-muted focus:outline-none focus:border-grov-accent"
+          />
+          <button type="submit" class="btn-primary whitespace-nowrap">
+            Subscribe
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>

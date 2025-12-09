@@ -1,0 +1,361 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Privacy Policy | Grov"
+  description="Privacy Policy for Grov - How we collect, use, and protect your data."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-3xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Legal</span>
+        </div>
+        <h1 class="text-section text-grov-text mb-6" style="font-family: var(--font-display);">
+          Privacy Policy
+        </h1>
+        <p class="text-sm text-grov-text-muted">
+          Last updated: December 9, 2025
+        </p>
+      </div>
+
+      <!-- Content -->
+      <div class="prose prose-invert prose-grov max-w-none space-y-8">
+
+        <!-- Introduction -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">1. Introduction</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            At Grov ("we", "us", "our"), we are committed to protecting your privacy and ensuring the security of your personal data. This Privacy Policy explains how we collect, use, store, and protect your information when you use our service.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            By using Grov, you agree to the collection and use of information in accordance with this policy. If you do not agree with this policy, please do not use our service.
+          </p>
+        </section>
+
+        <!-- Data Controller -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">2. Data Controller</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Grov is the data controller responsible for your personal data. For any questions or concerns about this Privacy Policy or our data practices, you can contact us at:
+          </p>
+          <p class="mt-4">
+            <a href="mailto:stefvirgil2006@gmail.com" class="text-grov-accent hover:text-grov-accent-hover transition-colors">
+              stefvirgil2006@gmail.com
+            </a>
+          </p>
+        </section>
+
+        <!-- Data We Collect -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">3. Data We Collect</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            We collect the following types of data to provide and improve our service:
+          </p>
+          
+          <h3 class="text-lg font-semibold text-grov-text mt-6 mb-3">Account Information</h3>
+          <ul class="space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Email address (via GitHub OAuth)</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Name and username (via GitHub OAuth)</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Profile picture (via GitHub OAuth)</span>
+            </li>
+          </ul>
+
+          <h3 class="text-lg font-semibold text-grov-text mt-6 mb-3">Memory Data</h3>
+          <ul class="space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Reasoning and context captured from your AI coding sessions</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Memories you create and share with your team</span>
+            </li>
+          </ul>
+
+          <h3 class="text-lg font-semibold text-grov-text mt-6 mb-3">Usage Data</h3>
+          <ul class="space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Session information and timestamps</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Feature usage and interaction data</span>
+            </li>
+          </ul>
+
+          <h3 class="text-lg font-semibold text-grov-text mt-6 mb-3">Payment Information</h3>
+          <ul class="space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Payment details are processed securely by Stripe</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>We do not store your full credit card information</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Legal Basis -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">4. Legal Basis for Processing</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Under the General Data Protection Regulation (GDPR), we process your personal data based on the following legal grounds:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Contract Performance:</strong> Processing necessary to provide you with the Grov service as agreed in our Terms of Service.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Legitimate Interests:</strong> Processing for our legitimate business interests, such as improving our service and ensuring security, where these do not override your rights.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Consent:</strong> Where you have given explicit consent for specific processing activities.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- How We Use Data -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">5. How We Use Your Data</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            We use your data for the following purposes:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Provide the Service:</strong> Capture, store, and inject AI memories into your coding sessions.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Team Synchronization:</strong> Sync memories across your team members (with your consent).</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Service Improvement:</strong> Analyze usage patterns to improve features and performance.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Communication:</strong> Send service-related notifications, updates, and support responses.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Security:</strong> Protect against unauthorized access and ensure service integrity.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Third-Party Processors -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">6. Third-Party Processors</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            We work with trusted third-party service providers to operate Grov. These processors are contractually bound to protect your data:
+          </p>
+          <ul class="mt-4 space-y-4 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Supabase:</strong> Database and authentication services. Data stored in the European Union.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Google Cloud Platform:</strong> Hosting and infrastructure services. Data stored in EU West 1 region.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Anthropic:</strong> AI processing for memory extraction and anti-drift features.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Stripe:</strong> Payment processing for Pro plan subscriptions. Stripe is PCI-DSS compliant.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Data Storage & Location -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">7. Data Storage & Location</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Your data is stored securely within the European Union:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Database:</strong> Supabase servers located in the EU</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Application Hosting:</strong> Google Cloud EU West 1 region</span>
+            </li>
+          </ul>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            We implement appropriate technical and organizational measures to protect your data against unauthorized access, alteration, disclosure, or destruction.
+          </p>
+        </section>
+
+        <!-- Data Retention -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">8. Data Retention</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            We retain your data for as long as your account is active or as needed to provide you with our service.
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Account Deletion:</strong> When you delete your account, we will delete your personal data within 30 days by default.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Custom Retention:</strong> You can customize your data retention period in your account settings.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Legal Obligations:</strong> We may retain certain data longer if required by law or to protect our legal interests.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Your Rights -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">9. Your Rights (GDPR)</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Under the GDPR, you have the following rights regarding your personal data:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Right of Access:</strong> Request a copy of the personal data we hold about you.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Right to Rectification:</strong> Request correction of inaccurate or incomplete data.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Right to Erasure:</strong> Request deletion of your personal data ("right to be forgotten").</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Right to Data Portability:</strong> Receive your data in a structured, commonly used format.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Right to Object:</strong> Object to processing based on legitimate interests.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Right to Withdraw Consent:</strong> Withdraw consent at any time where processing is based on consent.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Right to Lodge a Complaint:</strong> File a complaint with your local data protection supervisory authority.</span>
+            </li>
+          </ul>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            To exercise any of these rights, please contact us at <a href="mailto:stefvirgil2006@gmail.com" class="text-grov-accent hover:text-grov-accent-hover transition-colors">stefvirgil2006@gmail.com</a>.
+          </p>
+        </section>
+
+        <!-- Data Security -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">10. Data Security</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            We take the security of your data seriously and implement appropriate measures to protect it:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Encryption of data in transit (TLS/HTTPS) and at rest</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Secure authentication via GitHub OAuth</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Regular security audits and monitoring</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Access controls and principle of least privilege</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Secure infrastructure hosted on trusted cloud providers</span>
+            </li>
+          </ul>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            While we strive to protect your data, no method of transmission or storage is 100% secure. We cannot guarantee absolute security but commit to promptly addressing any security incidents.
+          </p>
+        </section>
+
+        <!-- Age Requirement -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">11. Age Requirement</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Grov is not intended for use by individuals under the age of 13. We do not knowingly collect personal data from children under 13. If you believe we have collected data from a child under 13, please contact us immediately and we will take steps to delete such information.
+          </p>
+        </section>
+
+        <!-- Changes to Policy -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">12. Changes to This Policy</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            We may update this Privacy Policy from time to time. For material changes, we will provide at least 30 days' notice before the new policy takes effect.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            We will notify you of changes by:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Updating the "Last updated" date at the top of this page</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Sending an email notification for significant changes</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Displaying a notice in the dashboard</span>
+            </li>
+          </ul>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            Your continued use of Grov after changes take effect constitutes acceptance of the updated policy.
+          </p>
+        </section>
+
+        <!-- Contact -->
+        <section class="card card-highlight p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">13. Contact</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            If you have any questions about this Privacy Policy or our data practices, please contact us at:
+          </p>
+          <p class="mt-4">
+            <a href="mailto:stefvirgil2006@gmail.com" class="text-grov-accent hover:text-grov-accent-hover transition-colors">
+              stefvirgil2006@gmail.com
+            </a>
+          </p>
+        </section>
+
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

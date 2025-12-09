@@ -1,0 +1,351 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Terms of Service | Grov"
+  description="Terms of Service for Grov - Collective AI memory for engineering teams."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-3xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Legal</span>
+        </div>
+        <h1 class="text-section text-grov-text mb-6" style="font-family: var(--font-display);">
+          Terms of Service
+        </h1>
+        <p class="text-sm text-grov-text-muted">
+          Last updated: December 9, 2025
+        </p>
+      </div>
+
+      <!-- Content -->
+      <div class="prose prose-invert prose-grov max-w-none space-y-8">
+
+        <!-- Introduction -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">1. Introduction & Acceptance</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Welcome to Grov ("Service", "we", "us", "our"). By accessing or using our service, you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, do not use the Service.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            We reserve the right to modify these Terms at any time. For material changes, we will provide at least 30 days' notice before the new terms take effect. Your continued use of the Service after changes constitutes acceptance of the modified Terms.
+          </p>
+        </section>
+
+        <!-- Description of Service -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">2. Description of Service</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Grov is an AI memory platform that captures reasoning from your AI coding sessions and injects relevant context into future sessions. The Service includes:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Memory capture and injection for AI coding assistants</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Anti-drift detection and correction</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Extended prompt cache preservation</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Team memory synchronization (cloud dashboard)</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Local-first data storage</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Account Registration -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">3. Account Registration</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            To use certain features of the Service, you must create an account via GitHub OAuth. You agree to:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Provide accurate and complete information</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Maintain the security of your account credentials</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Notify us immediately of any unauthorized access</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Accept responsibility for all activities under your account</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Plans and Pricing -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">4. Plans and Pricing</h2>
+          
+          <h3 class="text-lg font-semibold text-grov-text mt-6 mb-3">Free Plan</h3>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Available to solo developers and teams of up to 3 members. Includes all core features with team sync. Requires your own Anthropic API key for LLM-powered features.
+          </p>
+
+          <h3 class="text-lg font-semibold text-grov-text mt-6 mb-3">Pro Plan</h3>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Available for teams of 4 or more members at $25 per user per month. Includes all features plus our API key (no external key needed), priority support, and advanced analytics.
+          </p>
+
+          <h3 class="text-lg font-semibold text-grov-text mt-6 mb-3">Enterprise Plan</h3>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Custom pricing for organizations with advanced security and compliance needs. Includes everything in Pro plus self-hosted options, SSO/SAML, custom integrations, dedicated support, and SLA guarantees.
+          </p>
+        </section>
+
+        <!-- Payment Terms -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">5. Payment Terms</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            For paid plans, the following terms apply:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Billing:</strong> Payments are processed monthly via Stripe. You authorize us to charge your payment method on a recurring basis.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Price changes:</strong> We will provide at least 30 days' notice before any price increases take effect for existing customers.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Taxes:</strong> Prices are exclusive of applicable taxes, which will be added where required by law.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Refund Policy -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">6. Refund Policy</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            We want you to be satisfied with Grov. Our refund policy is as follows:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">14-day full refund:</strong> Request a full refund within 14 days of your initial purchase, no questions asked.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Prorated refunds:</strong> After 14 days, you may cancel anytime. No refunds for partial months, but you retain access until the end of your billing period.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span><strong class="text-grov-text">Termination by us:</strong> If we terminate your account for reasons other than Terms violations, you will receive a prorated refund for unused time.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Fair Use Policy -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">7. Fair Use Policy</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            To ensure quality service for all users, we reserve the right to limit or suspend accounts that exhibit excessive or abusive usage patterns that negatively impact service quality for other users.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            This includes, but is not limited to:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Abnormally high API consumption that significantly exceeds typical usage</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Automated or scripted abuse of the Service</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Actions that degrade performance for other users</span>
+            </li>
+          </ul>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            We will attempt to contact you before taking action, except in cases requiring immediate response to protect the Service.
+          </p>
+        </section>
+
+        <!-- User Responsibilities -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">8. User Responsibilities</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            You are responsible for:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Maintaining the confidentiality of your account credentials</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>All activities that occur under your account</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Ensuring your use complies with applicable laws and regulations</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>The content of memories you store and share with your team</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Prohibited Uses -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">9. Prohibited Uses</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            You agree not to use the Service to:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Engage in any illegal activities or violate any applicable laws</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Circumvent security measures, access controls, or usage limits</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Interfere with or disrupt the Service or servers</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Transmit malware, viruses, or harmful code</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Harass, abuse, or harm other users</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Share account credentials with unauthorized parties</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Use automated systems to abuse the Service</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Open Source -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">10. Open Source License</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            Grov is open source software licensed under the Apache License 2.0. You may view, modify, and distribute the source code in accordance with that license.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            However, these Terms of Service apply to your use of the hosted Service at grov.dev and app.grov.dev. The open source license governs the code; these Terms govern the hosted service.
+          </p>
+        </section>
+
+        <!-- Intellectual Property -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">11. Intellectual Property</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            <strong class="text-grov-text">Your data:</strong> You retain all rights to the memories and data you create and store using the Service. We do not claim ownership of your content.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            <strong class="text-grov-text">Our service:</strong> The Grov name, logo, and branding are our property. The Service infrastructure, excluding open source components, remains our intellectual property.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            <strong class="text-grov-text">License to operate:</strong> You grant us a limited license to store, process, and transmit your data solely to provide the Service to you and your team.
+          </p>
+        </section>
+
+        <!-- Termination -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">12. Termination</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            <strong class="text-grov-text">By you:</strong> You may cancel your account at any time through your account settings or by contacting us. Upon cancellation, you retain access until the end of your current billing period.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            <strong class="text-grov-text">By us:</strong> We reserve the right to suspend or terminate your account at our sole discretion, for any reason, including but not limited to:
+          </p>
+          <ul class="mt-4 space-y-2 text-grov-text-secondary">
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Violation of these Terms</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Conduct we deem harmful to other users or the Service</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Extended periods of inactivity</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-grov-accent mt-1">•</span>
+              <span>Any other reason at our discretion</span>
+            </li>
+          </ul>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            If we terminate your account for reasons other than Terms violations, you will receive a prorated refund for any unused paid time.
+          </p>
+        </section>
+
+        <!-- Limitation of Liability -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">13. Limitation of Liability</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, DATA, OR GOODWILL.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            OUR TOTAL LIABILITY FOR ANY CLAIMS ARISING FROM YOUR USE OF THE SERVICE SHALL NOT EXCEED THE AMOUNT YOU PAID US IN THE 12 MONTHS PRECEDING THE CLAIM.
+          </p>
+        </section>
+
+        <!-- Governing Law -->
+        <section class="card p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">14. Governing Law</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            These Terms shall be governed by and construed in accordance with the laws of the European Union and the applicable member state where we operate, without regard to conflict of law principles.
+          </p>
+          <p class="text-grov-text-secondary leading-relaxed mt-4">
+            Any disputes arising from these Terms or your use of the Service shall be resolved in the competent courts of the European Union.
+          </p>
+        </section>
+
+        <!-- Contact -->
+        <section class="card card-highlight p-8">
+          <h2 class="text-xl font-bold text-grov-text mb-4">15. Contact</h2>
+          <p class="text-grov-text-secondary leading-relaxed">
+            If you have any questions about these Terms of Service, please contact us at:
+          </p>
+          <p class="mt-4">
+            <a href="mailto:stefvirgil2006@gmail.com" class="text-grov-accent hover:text-grov-accent-hover transition-colors">
+              stefvirgil2006@gmail.com
+            </a>
+          </p>
+        </section>
+
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

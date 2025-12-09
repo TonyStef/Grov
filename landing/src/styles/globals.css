@@ -18,6 +18,7 @@
 
   /* Custom fonts */
   --font-sans: 'Satoshi', system-ui, sans-serif;
+  --font-display: 'Kola', 'Satoshi', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', Consolas, monospace;
 
   /* Custom font sizes - Refined scale */

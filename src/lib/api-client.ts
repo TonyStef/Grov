@@ -162,13 +162,18 @@ export async function syncMemories(
   return response.data;
 }
 
+// Security limits for API params
+const MAX_CONTEXT_LENGTH = 2000;  // Max chars for semantic search context
+const MAX_FILES_COUNT = 20;       // Max files for boost/filter
+
 /**
  * Fetch team memories from cloud (Supabase via API)
  * Cloud equivalent of getTasksForProject() from store.ts
+ * Supports hybrid search when context is provided
  *
  * @param teamId - Team UUID
  * @param projectPath - Project path to filter by (exact match)
- * @param options - Optional filters (files, status, limit)
+ * @param options - Optional filters (files, status, limit, context, current_files)
  * @returns Array of memories (empty array on error - fail silent)
  */
 export async function fetchTeamMemories(
@@ -178,6 +183,8 @@ export async function fetchTeamMemories(
     files?: string[];
     status?: string;
     limit?: number;
+    context?: string;        // User prompt for semantic search
+    current_files?: string[]; // Files for boost (1.2x multiplier)
   }
 ): Promise<Memory[]> {
   // Build query params
@@ -192,7 +199,17 @@ export async function fetchTeamMemories(
   }
   if (options?.files && options.files.length > 0) {
     // API expects multiple 'files' params for array
-    options.files.forEach(f => params.append('files', f));
+    options.files.slice(0, MAX_FILES_COUNT).forEach(f => params.append('files', f));
+  }
+
+  // Hybrid search params (with security limits)
+  if (options?.context) {
+    params.set('context', options.context.substring(0, MAX_CONTEXT_LENGTH));
+  }
+  if (options?.current_files && options.current_files.length > 0) {
+    // Comma-separated for current_files (boost)
+    const files = options.current_files.slice(0, MAX_FILES_COUNT);
+    params.set('current_files', files.join(','));
   }
 
   const url = `/teams/${teamId}/memories?${params.toString()}`;

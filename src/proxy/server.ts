@@ -57,7 +57,7 @@ import {
   type TaskAnalysis,
   type ConversationMessage,
 } from '../lib/llm-extractor.js';
-import { extractFilesFromMessages, buildTeamMemoryContextCloud } from './request-processor.js';
+import { extractFilesFromMessages, extractLastUserPrompt, buildTeamMemoryContextCloud } from './request-processor.js';
 import { isSyncEnabled, getSyncTeamId } from '../lib/cloud-sync.js';
 import {
   globalTeamMemoryCache,
@@ -1120,6 +1120,7 @@ async function preProcessRequest(
 
     // 3. Rebuild team memory NOW (includes the just-saved planning task)
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+    const userPrompt = extractLastUserPrompt(modified.messages || []);
 
     // Use cloud-first approach if sync is enabled
     let teamContext: string | null = null;
@@ -1130,7 +1131,8 @@ async function preProcessRequest(
       teamContext = await buildTeamMemoryContextCloud(
         teamId,
         sessionInfo.projectPath,
-        mentionedFiles
+        mentionedFiles,
+        userPrompt  // For hybrid semantic search
       );
     } else {
       // Sync not enabled - no injection (cloud-first approach)
@@ -1206,6 +1208,7 @@ async function preProcessRequest(
   } else {
     // First request OR project changed OR cache was invalidated: compute team memory
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+    const userPrompt = extractLastUserPrompt(modified.messages || []);
 
     // Use cloud-first approach if sync is enabled
     let teamContext: string | null = null;
@@ -1216,7 +1219,8 @@ async function preProcessRequest(
       teamContext = await buildTeamMemoryContextCloud(
         teamId,
         sessionInfo.projectPath,
-        mentionedFiles
+        mentionedFiles,
+        userPrompt  // For hybrid semantic search
       );
     } else {
       // Sync not enabled - no injection (cloud-first approach)

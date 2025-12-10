@@ -11,6 +11,7 @@ import type {
 import { supabase } from '../db/client.js';
 import { requireAuth, getAuthenticatedUser } from '../middleware/auth.js';
 import { requireTeamMember, requireTeamAdmin } from '../middleware/team.js';
+import { generateMemoryEmbedding, generateEmbedding, isEmbeddingEnabled } from '../lib/embeddings.js';
 
 // Typed error response helper
 function sendError(reply: FastifyReply, status: number, error: string) {
@@ -37,10 +38,15 @@ function sanitizeSearchInput(input: string): string {
 }
 
 export default async function memoriesRoutes(fastify: FastifyInstance) {
-  // List memories for a team
+  // List memories for a team (with optional hybrid search)
   fastify.get<{
     Params: { id: string };
-    Querystring: MemoryFilters & { limit?: string; cursor?: string };
+    Querystring: MemoryFilters & {
+      limit?: string;
+      cursor?: string;
+      context?: string;        // User prompt for semantic search
+      current_files?: string;  // Comma-separated file paths for boost
+    };
     Reply: MemoryListResponse;
   }>(
     '/:id/memories',
@@ -58,11 +64,62 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         project_path,
         limit: limitStr = '20',
         cursor,
+        context,
+        current_files,
       } = request.query;
 
       const limit = Math.min(parseInt(limitStr, 10), 100);
 
-      // Build query
+      // HYBRID SEARCH: If context provided and embeddings enabled, use semantic search
+      if (context && project_path && isEmbeddingEnabled()) {
+        fastify.log.info(`[SEARCH] Hybrid search: context="${context.substring(0, 50)}..." project=${project_path}`);
+
+        // Generate embedding for query
+        const queryEmbedding = await generateEmbedding(context);
+
+        if (queryEmbedding) {
+          // Parse current_files (comma-separated string → array)
+          const currentFilesArray = current_files
+            ? current_files.split(',').map(f => f.trim()).filter(Boolean)
+            : [];
+
+          // Convert embedding array to PostgreSQL vector string format
+          const embeddingStr = `[${queryEmbedding.join(',')}]`;
+
+          // Call hybrid_search_memories RPC function
+          const { data, error } = await supabase.rpc('hybrid_search_memories', {
+            p_team_id: id,
+            p_project_path: project_path,
+            p_query_embedding: embeddingStr,  // Send as PostgreSQL vector string format
+            p_query_text: context,
+            p_current_files: currentFilesArray,
+            p_similarity_threshold: 0.3,  // Lower threshold for more results
+            p_limit: Math.min(limit, 15), // Cap at 15 for hybrid search
+          });
+
+          if (error) {
+            fastify.log.error(`[SEARCH] Hybrid search failed: ${error.message}`);
+            // Fall through to regular query
+          } else if (data && data.length > 0) {
+            fastify.log.info(`[SEARCH] Hybrid search: ${data.length} results`);
+            return {
+              memories: data || [],
+              cursor: null, // Hybrid search doesn't support cursor pagination
+              has_more: false,
+            };
+          } else {
+            return {
+              memories: [],
+              cursor: null,
+              has_more: false,
+            };
+          }
+        } else {
+          fastify.log.warn('[SEARCH] Failed to generate query embedding, falling back to regular search');
+        }
+      }
+
+      // FALLBACK: Regular query (no semantic search)
       let query = supabase
         .from('memories')
         .select('*')
@@ -177,22 +234,47 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         return sendError(reply, 400, `Maximum ${MAX_MEMORIES_PER_SYNC} memories per sync`);
       }
 
-      // Prepare all memories for batch upsert
-      const preparedMemories = memories.map(memory => ({
-        team_id: id,
-        user_id: user.id,
-        client_task_id: memory.client_task_id || null,
-        project_path: memory.project_path,
-        original_query: memory.original_query,
-        goal: memory.goal,
-        reasoning_trace: memory.reasoning_trace || [],
-        files_touched: memory.files_touched || [],
-        decisions: memory.decisions || [],
-        constraints: memory.constraints || [],
-        tags: memory.tags || [],
-        status: memory.status,
-        linked_commit: memory.linked_commit,
-      }));
+      // Prepare all memories for batch upsert (with embeddings)
+      const embeddingsEnabled = isEmbeddingEnabled();
+      if (embeddingsEnabled) {
+        fastify.log.info(`[SYNC] Generating embeddings for ${memories.length} memories`);
+      }
+
+      const preparedMemories = await Promise.all(
+        memories.map(async (memory) => {
+          // Generate embedding if enabled
+          let embedding: number[] | null = null;
+          if (embeddingsEnabled) {
+            embedding = await generateMemoryEmbedding({
+              goal: memory.goal,
+              original_query: memory.original_query,
+              reasoning_trace: memory.reasoning_trace,
+              decisions: memory.decisions,
+            });
+          }
+
+          return {
+            team_id: id,
+            user_id: user.id,
+            client_task_id: memory.client_task_id || null,
+            project_path: memory.project_path,
+            original_query: memory.original_query,
+            goal: memory.goal,
+            reasoning_trace: memory.reasoning_trace || [],
+            files_touched: memory.files_touched || [],
+            decisions: memory.decisions || [],
+            constraints: memory.constraints || [],
+            tags: memory.tags || [],
+            status: memory.status,
+            linked_commit: memory.linked_commit,
+            // Add embedding (null if generation failed or disabled)
+            ...(embedding && { embedding }),
+          };
+        })
+      );
+
+      const withEmbeddings = preparedMemories.filter(m => 'embedding' in m).length;
+      fastify.log.info(`[SYNC] Prepared ${preparedMemories.length} memories (${withEmbeddings} with embeddings)`);
 
       let synced = 0;
       let failed = 0;

@@ -9,25 +9,31 @@ import type { Memory } from '@grov/shared';
 /**
  * Build context from CLOUD team memory for injection
  * Fetches memories from Supabase via API (cloud-first approach)
+ * Uses hybrid search (semantic + lexical) when userPrompt is provided
  *
  * @param teamId - Team UUID from sync configuration
  * @param projectPath - Project path to filter by
- * @param mentionedFiles - Files mentioned in user messages (optional boost)
+ * @param mentionedFiles - Files mentioned in user messages (for boost)
+ * @param userPrompt - User's prompt for semantic search (optional)
  * @returns Formatted context string or null if no memories found
  */
 export async function buildTeamMemoryContextCloud(
   teamId: string,
   projectPath: string,
-  mentionedFiles: string[]
+  mentionedFiles: string[],
+  userPrompt?: string
 ): Promise<string | null> {
-  console.log(`[CLOUD] buildTeamMemoryContextCloud: teamId=${teamId.substring(0, 8)}..., projectPath=${projectPath}`);
+  const hasContext = userPrompt && userPrompt.trim().length > 0;
+  console.log(`[CLOUD] buildTeamMemoryContextCloud: teamId=${teamId.substring(0, 8)}..., projectPath=${projectPath}, hasContext=${hasContext}`);
 
   try {
-    // Fetch memories from cloud API
+    // Fetch memories from cloud API (hybrid search if context provided)
     const memories = await fetchTeamMemories(teamId, projectPath, {
       status: 'complete',
-      limit: 10,
+      limit: 15, // Increased for hybrid search (RRF may filter some)
       files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
+      context: hasContext ? userPrompt : undefined,
+      current_files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
     });
 
     if (memories.length === 0) {
@@ -212,4 +218,45 @@ export function extractFilesFromMessages(
   }
 
   return [...new Set(files)];
+}
+
+/**
+ * Extract the last user prompt from messages for semantic search
+ * Returns clean text without system tags
+ */
+export function extractLastUserPrompt(
+  messages: Array<{ role: string; content: unknown }>
+): string | undefined {
+  // Find last user message
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+
+    let textContent = '';
+
+    // Handle string content
+    if (typeof msg.content === 'string') {
+      textContent = msg.content;
+    }
+
+    // Handle array content (Claude Code API format)
+    if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'text' && 'text' in block && typeof block.text === 'string') {
+          textContent += block.text + '\n';
+        }
+      }
+    }
+
+    // Strip system-reminder tags to get clean user content
+    const cleanContent = textContent
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+
+    if (cleanContent) {
+      return cleanContent;
+    }
+  }
+
+  return undefined;
 }

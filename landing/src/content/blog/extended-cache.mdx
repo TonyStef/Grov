@@ -1,0 +1,301 @@
+---
+title: "How We Eliminated Anthropic's 5-Minute Cache Tax"
+description: "A technical deep-dive into Grov's heartbeat proxy that keeps Anthropic's prompt cache alive indefinitely, saving you money and rate limits."
+pubDate: 2025-12-10
+author: Tony
+tags: ["engineering", "anthropic", "caching", "cost-optimization"]
+---
+
+Every time you pause to think while using Claude, you're paying a hidden tax.
+
+Anthropic's prompt cache has a 5-minute TTL. Pause for 6 minutes to analyze Claude's output, and your next prompt triggers full cache recreation. That's **12.5x more expensive** for the cached portion.
+
+We built a heartbeat proxy that eliminates this entirely.
+
+## The Problem: Anthropic's Cache Pricing
+
+Anthropic's prompt caching is powerful. You mark breakpoints with `cache_control`, and subsequent requests read from cache instead of reprocessing. The pricing difference is massive:
+
+| Token Type | Price | Rate Limit Impact |
+|------------|-------|-------------------|
+| `cache_creation_input_tokens` | 1.25x base | Counts toward ITPM |
+| `cache_read_input_tokens` | 0.1x base | **Does NOT count** |
+
+That's a **12.5x cost difference** between cache hit and cache miss.
+
+But there's a catch: the cache expires after **5 minutes of inactivity**.
+
+### The Real-World Scenario
+
+```
+9:00 AM - You send a complex prompt
+9:01 AM - Claude responds with a detailed implementation
+9:01 AM - You start reading, analyzing, thinking...
+9:07 AM - You send a follow-up question
+         → Cache expired. Full recreation. 12.5x cost penalty.
+```
+
+This happens constantly. Developers think. That's the job.
+
+## The Solution: Heartbeat Proxy
+
+The fix is conceptually simple: send a minimal "keep-alive" request every 4 minutes during idle periods. This refreshes the cache TTL without polluting your conversation.
+
+```
+grov proxy --extended-cache
+```
+
+When enabled, Grov:
+1. Detects when Claude finishes responding (`end_turn`)
+2. Stores the exact request bytes
+3. After 4 minutes of idle, sends a `"."` message to Anthropic
+4. Discards the response (it's just "." acknowledgment)
+5. Cache stays warm indefinitely
+
+The response is thrown away—it never enters your conversation. You just get the side effect: cache TTL refreshed.
+
+## Technical Implementation
+
+This sounds simple, but the implementation required solving several non-obvious problems.
+
+### Problem 1: JSON.parse Breaks the Cache
+
+Anthropic's cache uses **byte-exact prefix matching**. If even one byte changes in the prefix, cache miss.
+
+Our first attempt:
+
+```typescript
+// WRONG - breaks cache every time
+const body = JSON.parse(rawBody);
+body.messages.push({ role: 'user', content: '.' });
+const newBody = JSON.stringify(body);
+```
+
+The problem: `JSON.stringify()` removes whitespace and may reorder keys. Different bytes → cache miss → we just paid for cache recreation on our "keep-alive" request. Defeating the purpose entirely.
+
+The solution at `src/proxy/server.ts:135-194`:
+
+```typescript
+// CORRECT - preserves exact bytes
+let rawBodyStr = entry.rawBody.toString('utf-8');
+
+// Find messages array closing bracket using bracket-depth parsing
+const messagesMatch = rawBodyStr.match(/"messages"\s*:\s*\[/);
+// ... bracket depth tracking to find the ] ...
+
+// Insert minimal message before closing bracket
+const keepAliveMsg = messagesIsEmpty
+  ? '{"role":"user","content":"."}'
+  : ',{"role":"user","content":"."}';
+
+rawBodyStr = rawBodyStr.slice(0, messagesEnd) + keepAliveMsg + rawBodyStr.slice(messagesEnd);
+
+// Validate JSON without re-serializing
+JSON.parse(rawBodyStr);  // Throws if invalid, but we don't use the result
+```
+
+We manipulate the raw string directly, inserting our message at the exact byte position. The prefix stays identical.
+
+### Problem 2: Don't Touch max_tokens or stream
+
+Our second attempt modified `max_tokens` to reduce response size:
+
+```typescript
+// WRONG - breaks cache prefix
+body.max_tokens = 5;  // "Just give me a tiny response"
+body.stream = false;  // "Don't bother streaming"
+```
+
+Cache miss every time. Why?
+
+In the JSON body, `max_tokens` and `stream` appear **before** the cached content (system prompt, tools). Changing them changes the byte prefix.
+
+The solution: don't touch them. Claude responds briefly to `"."` anyway (~10-50 tokens), and our forwarder handles streaming transparently.
+
+From `src/proxy/server.ts:196-198`:
+```typescript
+// NOTE: We do NOT modify max_tokens or stream!
+// Keeping them identical preserves the cache prefix for byte-exact matching.
+// Claude will respond briefly to "." anyway, and forwarder handles streaming.
+```
+
+### Problem 3: fetch vs undici (401 Errors)
+
+Our third attempt used native `fetch`:
+
+```typescript
+// WRONG - different header format
+const response = await fetch(url, {
+  headers: entry.headers,
+  body: rawBodyStr,
+});
+// Result: 401 "OAuth not supported"
+```
+
+The problem: native `fetch` formats headers differently than `undici` (the HTTP client we use for regular requests). Anthropic's API rejected the authorization header.
+
+The solution at `src/proxy/server.ts:207-213`:
+
+```typescript
+// CORRECT - same HTTP client as regular requests
+const result = await forwardToAnthropic(
+  {},  // body not used when rawBody provided
+  entry.headers as Record<string, string | string[] | undefined>,
+  undefined,  // no logger
+  Buffer.from(rawBodyStr, 'utf-8')
+);
+```
+
+We reuse the exact same `forwardToAnthropic()` function that handles regular requests. Same undici client, same header handling, no surprises.
+
+### Problem 4: setInterval Keeps Node Alive
+
+```typescript
+// Start the timer
+setInterval(checkExtendedCache, 60_000);
+
+// User hits Ctrl+C
+// ... nothing happens. Process hangs.
+```
+
+`setInterval` holds a reference that prevents Node.js from exiting. You have to explicitly clear it.
+
+From `src/proxy/server.ts:2363-2402`:
+
+```typescript
+let extendedCacheTimer: NodeJS.Timeout | null = null;
+
+if (config.EXTENDED_CACHE_ENABLED) {
+  extendedCacheTimer = setInterval(checkExtendedCache, 60_000);
+
+  const cleanupExtendedCache = () => {
+    // 1. Stop the timer first
+    if (extendedCacheTimer) {
+      clearInterval(extendedCacheTimer);
+      extendedCacheTimer = null;
+    }
+
+    // 2. Clear sensitive data (headers contain API key)
+    for (const entry of extendedCache.values()) {
+      entry.rawBody = Buffer.alloc(0);
+    }
+    extendedCache.clear();
+
+    // 3. Exit cleanly
+    server.close().then(() => process.exit(0));
+  };
+
+  process.on('SIGTERM', cleanupExtendedCache);
+  process.on('SIGINT', cleanupExtendedCache);
+}
+```
+
+## The Cache Entry Structure
+
+Each active conversation gets an entry in memory (`src/proxy/server.ts:93-100`):
+
+```typescript
+interface ExtendedCacheEntry {
+  headers: Record<string, string>;  // Safe headers via buildSafeHeaders()
+  rawBody: Buffer;                  // Exact request bytes for prefix matching
+  timestamp: number;                // Last activity (for idle calculation)
+  keepAliveCount: number;           // Track attempts (max 2)
+}
+
+const extendedCache = new Map<string, ExtendedCacheEntry>();
+```
+
+Why `rawBody` as Buffer? Because we need the **exact bytes** that were sent to Anthropic. Any transformation loses the cache prefix.
+
+## Timing Logic
+
+The constants at `src/proxy/server.ts:103-106`:
+
+```typescript
+const EXTENDED_CACHE_IDLE_THRESHOLD = 4 * 60 * 1000;  // 4 minutes (under 5-min TTL)
+const EXTENDED_CACHE_MAX_IDLE = 10 * 60 * 1000;       // 10 minutes total
+const EXTENDED_CACHE_MAX_KEEPALIVES = 2;              // Max keep-alive attempts
+const EXTENDED_CACHE_MAX_ENTRIES = 100;               // Memory cap (LRU eviction)
+```
+
+The flow:
+
+```
+User sends prompt → Claude responds → end_turn
+                                        ↓
+                              Cache entry stored
+                              (headers + rawBody + timestamp)
+                                        ↓
+                              User thinking...
+                                        ↓
+              ┌────────────────────────────────────┐
+              │  Timer fires every 60 seconds      │
+              │            ↓                       │
+              │  For each entry:                   │
+              │    - Idle > 10 min? → Delete       │
+              │    - Idle < 4 min? → Skip          │
+              │    - keepAliveCount >= 2? → Delete │
+              │    - Otherwise: Send keep-alive    │
+              └────────────────────────────────────┘
+                              ↓
+                    Send "." to Anthropic
+                              ↓
+                    cache_read tokens (cache preserved!)
+                              ↓
+                    Update timestamp, increment count
+                              ↓
+                    Discard response
+                              ↓
+                    User returns whenever
+                              ↓
+                    Next prompt uses warm cache
+```
+
+Multiple sessions are processed in **parallel** using `Promise.all()` (`src/proxy/server.ts:263-282`). Sequential awaits would cause cascading delays.
+
+## Cost Analysis
+
+**Keep-alive cost:** ~$0.002 per request (mostly `cache_read` tokens from the preserved cache, plus minimal output for the "." response)
+
+**Cache recreation cost:** Depends on your context size. A typical Claude Code session with system prompt, tools, and conversation history can easily be 50k+ cached tokens. At 1.25x base price vs 0.1x, you're looking at $0.10-$0.50+ for recreation.
+
+**The hidden benefit:** `cache_read_input_tokens` don't count toward your ITPM (input tokens per minute) rate limit. Only `cache_creation_input_tokens` and regular `input_tokens` count. By keeping cache warm, you're also less likely to hit rate limits.
+
+## How to Enable
+
+```bash
+grov proxy --extended-cache
+```
+
+You'll see a consent notice:
+
+```
+Extended Cache Enabled
+   By using --extended-cache, you consent to Grov making
+   minimal keep-alive requests on your behalf to preserve
+   Anthropic's prompt cache during idle periods.
+```
+
+This is opt-in only. We're making API requests using your key, so explicit consent matters.
+
+## What We Learned
+
+Building this feature taught us several things about Anthropic's cache:
+
+1. **Byte-exact matching is unforgiving.** Even whitespace changes break it. Don't use JSON.parse/stringify on cached request bodies.
+
+2. **The prefix includes more than you think.** `max_tokens`, `stream`, and other "metadata" fields are part of the prefix if they appear before your cached content.
+
+3. **HTTP client details matter.** Header formatting differences between fetch and undici caused auth failures.
+
+4. **Always clean up your timers.** setInterval references prevent clean shutdown.
+
+5. **Parallel execution matters at scale.** With 10+ active sessions, sequential keep-alives add significant latency.
+
+The feature is stable and has been running in production. If you're tired of paying the 5-minute cache tax, give it a try.
+
+---
+
+**Source code:** [github.com/TonyStef/Grov](https://github.com/TonyStef/Grov)
+
+**Questions?** Open an issue or find me on [Twitter](https://x.com/VirgillSA).

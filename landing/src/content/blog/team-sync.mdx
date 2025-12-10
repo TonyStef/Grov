@@ -1,0 +1,355 @@
+---
+title: "Team Memory Sync: How Your AI Learns From Your Entire Team"
+description: "A technical deep-dive into how Grov captures reasoning from Claude Code sessions and shares it across your engineering team."
+pubDate: 2025-12-10
+author: Tony
+tags: ["engineering", "team-collaboration", "cloud-sync", "ai-memory"]
+---
+
+Developer A spends 30 minutes explaining the auth system to Claude. Developer B starts a session the next day and... explains the same auth system again.
+
+Every developer's Claude starts from zero. The institutional knowledge your team builds up with AI never compounds.
+
+We built Team Memory Sync to fix this.
+
+## What Gets Synced
+
+When a Claude Code session completes, Grov extracts and stores:
+
+```typescript
+// src/lib/store.ts:28-47
+interface Task {
+  id: string;
+  project_path: string;
+  original_query: string;           // What the user asked
+  goal?: string;                    // Extracted intent
+  reasoning_trace: string[];        // Why decisions were made
+  files_touched: string[];          // Which files were involved
+  decisions: Array<{
+    choice: string;
+    reason: string;
+  }>;
+  constraints: string[];            // Project-specific rules learned
+  status: 'complete' | 'partial' | 'abandoned';
+  tags: string[];
+  created_at: string;
+}
+```
+
+This isn't a chat log dump. It's structured knowledge: what was decided, why, and which files were involved.
+
+## The Sync Flow
+
+### 1. Local Capture
+
+When a session ends, Grov saves to local SQLite (`~/.grov/memory.db`). This happens regardless of whether cloud sync is enabled.
+
+```
+src/proxy/response-processor.ts:123-158
+
+saveToTeamMemory() triggers on:
+  - Task complete (Claude finished the work)
+  - Threshold (context getting full)
+  - Session abandoned (user left mid-task)
+```
+
+### 2. Fire-and-Forget Sync
+
+If cloud sync is enabled, Grov pushes to the API without blocking your session:
+
+```typescript
+// src/proxy/response-processor.ts:145-158
+// Fire-and-forget cloud sync; never block capture path
+syncTask(task)
+  .then((success) => {
+    if (success) {
+      markTaskSynced(task.id);
+    }
+  })
+  .catch(() => {
+    // Silent fail - local capture still works
+  });
+```
+
+Your Claude session is never slowed down by network issues. Local capture always succeeds. Cloud sync is best-effort.
+
+### 3. Batched Upload
+
+The sync uses batching with exponential backoff (`src/lib/cloud-sync.ts:10-14`):
+
+```typescript
+const SYNC_CONFIG = {
+  batchSize: 10,       // Memories per batch
+  retryAttempts: 3,    // Retry on failure
+  retryDelay: 1000,    // Base delay (doubles on each retry)
+};
+```
+
+### 4. Upsert to Supabase
+
+The API uses upsert with conflict detection (`api/src/routes/memories.ts:152-224`):
+
+```typescript
+await supabase
+  .from('memories')
+  .upsert(batch, { 
+    onConflict: 'team_id,client_task_id',  // No duplicates
+    count: 'exact' 
+  });
+```
+
+If the same task syncs twice (network retry, manual push), it updates rather than duplicates.
+
+## Setting Up Team Sync
+
+### 1. Login
+
+```bash
+grov login
+```
+
+This opens your browser for GitHub OAuth. The CLI uses device authorization flow - you get a code like `ABCD-1234`, enter it in the browser, and the CLI receives tokens automatically.
+
+Tokens are stored in `~/.grov/credentials.json` with 0600 permissions (owner read/write only).
+
+### 2. Create or Join a Team
+
+Visit [app.grov.dev](https://app.grov.dev) to:
+- Create a new team
+- Get invited to an existing team
+- Copy your team ID
+
+### 3. Enable Sync
+
+```bash
+grov sync --enable --team <team-uuid>
+```
+
+From this point, every completed session syncs automatically.
+
+### 4. Check Status
+
+```bash
+grov sync --status
+```
+
+Shows:
+- Whether sync is enabled
+- Which team you're syncing to
+- How many memories are synced vs pending
+
+### 5. Manual Push
+
+If you had sessions before enabling sync:
+
+```bash
+grov sync --push
+```
+
+Pushes all unsynced local memories to the cloud.
+
+## How Team Memory Gets Injected
+
+The real value isn't just storing memories - it's using them. When you start a new session, Grov injects relevant team knowledge.
+
+### Two-Tier Injection
+
+Grov uses a two-tier system (`src/proxy/server.ts:79-87`):
+
+**Tier 1: System Prompt (Static)**
+- Built once per project, cached globally
+- Contains team knowledge from past sessions
+- Doesn't change during a session (preserves Anthropic cache)
+
+**Tier 2: User Message (Dynamic)**
+- Appended per-request
+- Includes recently edited files, key decisions, drift corrections
+- Uses delta tracking to avoid duplicates
+
+### Building Team Context
+
+When a session starts (`src/proxy/request-processor.ts:17-47`):
+
+```typescript
+function buildTeamMemoryContext(
+  projectPath: string,
+  mentionedFiles: string[],
+  currentSessionId?: string  // Excluded from results
+): string | null {
+  // Get recent completed tasks (not current session)
+  const tasks = getTasksForProject(projectPath, { 
+    status: 'complete', 
+    limit: 10 
+  });
+  
+  // Get tasks that touched the same files
+  const fileTasks = getTasksByFiles(projectPath, mentionedFiles, { 
+    limit: 5 
+  });
+  
+  // Get file-level reasoning from past sessions
+  const fileReasonings = mentionedFiles.flatMap(f => 
+    getStepsReasoningByPath(f, 3, currentSessionId)
+  );
+  
+  return formatTeamMemoryContext(allTasks, fileReasonings);
+}
+```
+
+### What Claude Sees
+
+The injected context looks like this:
+
+```
+=== VERIFIED TEAM KNOWLEDGE (from previous sessions) ===
+
+IMPORTANT: This context has been verified. USE IT to answer directly.
+DO NOT launch Explore agents or re-investigate files mentioned below.
+
+File-level context:
+- src/lib/auth.ts: Handles JWT validation and token refresh
+- src/api/routes.ts: REST endpoints for memories API
+
+Related past tasks:
+- Implement user authentication
+  Files: auth.ts, routes.ts
+  Knowledge:
+    - JWT tokens expire after 1 hour
+    - Consider adding refresh token rotation
+  Decision: Use Supabase for auth (native integration)
+  Constraints: No external auth providers
+
+Files with existing context: auth.ts, routes.ts
+
+Answer the user's question using the knowledge above. Skip exploration.
+=== END VERIFIED TEAM KNOWLEDGE ===
+```
+
+Claude sees this as verified context and skips redundant exploration.
+
+## The Dashboard
+
+At [app.grov.dev](https://app.grov.dev), your team can:
+
+**Browse Memories**
+- Filter by search, tags, status, user, date range
+- See which files each memory touched
+- View the full reasoning trace
+
+**View Details**
+- Complete reasoning trace (step by step)
+- Files touched
+- Decisions with reasons
+- Constraints learned
+- Linked commits (if any)
+
+**Team Overview**
+- Total memories captured
+- Active team members
+- Files with most context
+- Recent activity
+
+## Security Model
+
+### Local by Default
+
+Without enabling sync, everything stays on your machine:
+- SQLite database in `~/.grov/memory.db`
+- Credentials in `~/.grov/credentials.json` (0600 permissions)
+- No network calls to our servers
+
+### What We Store
+
+When sync is enabled, we store:
+- Reasoning traces (why decisions were made)
+- File paths (which files were touched)
+- Decisions and constraints
+- Metadata (timestamps, tags, status)
+
+We do NOT store:
+- Your source code
+- File contents
+- API keys
+- Chat logs
+
+### Authentication
+
+- GitHub OAuth via Supabase
+- JWT tokens with 1-hour expiry
+- Automatic refresh (no re-login needed)
+- Team membership verified on each API call
+
+### Rate Limits
+
+The API has conservative limits (`api/src/routes/memories.ts:21-26`):
+
+```typescript
+const memoryRateLimits = {
+  list: { max: 60, timeWindow: '1 minute' },
+  sync: { max: 20, timeWindow: '1 minute' },
+  delete: { max: 10, timeWindow: '1 minute' },
+};
+```
+
+## End-to-End Flow
+
+```
+Developer A: "How does auth work?"
+              |
+              v
+    Claude explores, explains
+              |
+              v
+    Session ends (task_complete)
+              |
+              v
+    saveToTeamMemory()
+      - Extracts reasoning, files, decisions
+      - Saves to local SQLite
+      - Syncs to cloud (fire-and-forget)
+              |
+              v
+    Stored in Supabase (team memories table)
+              |
+              v
+Developer B starts new session
+              |
+              v
+    buildTeamMemoryContext()
+      - Queries local + cloud memories
+      - Finds auth-related past tasks
+      - Formats as verified context
+              |
+              v
+    Injected into system prompt
+              |
+              v
+    Claude: "Based on previous team sessions,
+             auth uses JWT with 1-hour expiry..."
+              |
+              v
+    No re-exploration needed
+```
+
+## What's Next
+
+Current limitations:
+- Retrieval is file-path based (no semantic search yet)
+- No fine-grained permissions (all team members see all memories)
+- Dashboard is read-only (no editing memories)
+
+Coming in future versions:
+- Embedding-based semantic search
+- Project/folder-level permissions
+- Memory editing and curation
+- Slack/Discord notifications
+
+For current limitations and roadmap, see the [limitations page](/limitations).
+
+---
+
+**Source code:** [github.com/TonyStef/Grov](https://github.com/TonyStef/Grov)
+
+**Dashboard:** [app.grov.dev](https://app.grov.dev)
+
+**Questions?** Open an issue or find me on [Twitter](https://x.com/VirgillSA).

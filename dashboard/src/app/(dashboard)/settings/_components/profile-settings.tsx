@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { LogOut } from 'lucide-react';
 import { updateProfile } from '../actions';
+import { createClient } from '@/lib/supabase/client';
 import type { UserWithPreferences } from '@/lib/queries/settings';
 
 interface ProfileSettingsProps {
@@ -10,8 +12,19 @@ interface ProfileSettingsProps {
 
 export function ProfileSettings({ user }: ProfileSettingsProps) {
   const [isPending, startTransition] = useTransition();
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [fullName, setFullName] = useState(user.full_name || '');
+
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('grov-'))
+      .forEach((key) => localStorage.removeItem(key));
+    window.location.href = '/login';
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -120,6 +133,21 @@ export function ProfileSettings({ user }: ProfileSettingsProps) {
             </button>
           </div>
         </form>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-1 p-6">
+        <h2 className="mb-2 text-lg font-medium">Session</h2>
+        <p className="mb-4 text-sm text-text-secondary">
+          Sign out of your account on this device.
+        </p>
+        <button
+          onClick={handleSignOut}
+          disabled={isSigningOut}
+          className="flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-2 hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <LogOut className="h-4 w-4" />
+          {isSigningOut ? 'Signing out...' : 'Sign out'}
+        </button>
       </div>
     </div>
   );

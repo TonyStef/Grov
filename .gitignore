@@ -60,3 +60,6 @@ coverage/
 
 scripts/deploy-*.sh
 scripts/build-dashboard.sh
+
+#Strix penetration tests
+strix_runs/

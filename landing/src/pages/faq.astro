@@ -1,0 +1,116 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+
+const faqs = [
+  {
+    question: "What is Grov?",
+    answer: "Grov is a collective AI memory tool for engineering teams. It captures reasoning from your Claude Code sessions and injects that context into future sessions, so your AI remembers what it learned and doesn't waste time re-exploring your codebase."
+  },
+  {
+    question: "How does Grov work?",
+    answer: "Grov runs as a local proxy that intercepts your Claude API calls. When Claude learns something about your codebase (architectural decisions, patterns, file locations), Grov captures that reasoning. On your next session, it automatically injects relevant context so Claude can skip the exploration phase."
+  },
+  {
+    question: "Is my data secure?",
+    answer: "Yes. By default, all data is stored locally on your machine in a SQLite database (~/.grov/memory.db). Your memories only leave your machine if you explicitly enable team sync. We never access your code or memories without your consent."
+  },
+  {
+    question: "What's included in the Pro plan?",
+    answer: "Pro includes full Claude API access — you don't need to bring your own Anthropic API key. Plus you get cloud sync, shared team context, priority support, and advanced analytics. It's designed for teams that want to collaborate on AI memory."
+  },
+  {
+    question: "Do I need my own Anthropic API key?",
+    answer: "For the Free plan, yes — you'll need your own Anthropic API key. For Pro, the API is included in your subscription, so you can just install Grov and start working immediately without managing external keys."
+  },
+  {
+    question: "How is Grov different from other context tools?",
+    answer: "Unlike tools that just save file lists or summaries, Grov captures actual reasoning — the 'why' behind decisions, not just the 'what'. It also includes anti-drift detection to keep Claude aligned with your goals, and extends prompt cache lifetime to save tokens."
+  },
+  {
+    question: "What's the anti-drift feature?",
+    answer: "Anti-drift monitors what Claude actually does (file edits, commands, explorations) and compares it to your original goal. If Claude starts drifting off-task, Grov can nudge, correct, intervene, or halt depending on severity. This keeps long sessions focused."
+  },
+  {
+    question: "Does Grov work with other AI tools?",
+    answer: "Currently, Grov is optimized for Claude Code. We're exploring support for other AI coding assistants — if you're interested in a specific integration, let us know on GitHub."
+  },
+  {
+    question: "Can I self-host Grov?",
+    answer: "The core Grov tool is open source and can be self-hosted. For Enterprise customers, we offer dedicated self-hosted deployments with additional features like SSO, custom integrations, and SLA guarantees."
+  },
+  {
+    question: "How do I get started?",
+    answer: "It's simple: npm install -g grov, then grov init to configure, and grov proxy to start. Keep the proxy running while you use Claude Code in another terminal. That's it — Grov handles the rest automatically."
+  }
+];
+---
+
+<Layout
+  title="FAQ | Grov"
+  description="Frequently asked questions about Grov - the collective AI memory tool for engineering teams."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-3xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <h1 class="text-section font-bold text-grov-text mb-4">
+          Frequently Asked Questions
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary">
+          Everything you need to know about Grov.
+        </p>
+      </div>
+
+      <!-- FAQ Items -->
+      <div class="space-y-4">
+        {faqs.map((faq, index) => (
+          <details class="group card p-0 cursor-pointer">
+            <summary class="flex items-center justify-between p-6 list-none">
+              <span class="font-medium text-grov-text pr-4">{faq.question}</span>
+              <svg
+                class="w-5 h-5 text-grov-text-muted transition-transform group-open:rotate-180 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </summary>
+            <div class="px-6 pb-6 pt-0 text-grov-text-secondary">
+              {faq.answer}
+            </div>
+          </details>
+        ))}
+      </div>
+
+      <!-- Contact CTA -->
+      <div class="mt-16 text-center">
+        <p class="text-grov-text-secondary mb-4">
+          Still have questions?
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="https://github.com/TonyStef/Grov/discussions"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-secondary"
+          >
+            Ask on GitHub
+          </a>
+          <a href="mailto:support@grov.dev" class="btn-secondary">
+            Contact Support
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  details summary::-webkit-details-marker {
+    display: none;
+  }
+</style>

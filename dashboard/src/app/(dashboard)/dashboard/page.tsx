@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Brain, ChevronRight } from 'lucide-react';
-import { getUserTeams } from '@/lib/queries/teams';
-import { getDashboardStats, getRecentMemories } from '@/lib/queries/memories';
-import { getCurrentUser } from '@/lib/queries/profiles';
+import { getDashboardData } from '@/lib/queries/dashboard-rpc';
 import { formatRelativeDate, truncate, getInitials } from '@/lib/utils';
 
 export const metadata: Metadata = {
@@ -11,29 +9,27 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const [currentUser, teams] = await Promise.all([
-    getCurrentUser(),
-    getUserTeams(),
-  ]);
+  // Single RPC call replaces ~12 sequential queries
+  const data = await getDashboardData();
 
-  // No team - show welcome screen
-  if (teams.length === 0) {
-    return <NoTeamDashboard userName={currentUser?.full_name} />;
+  // Handle auth error or no data
+  if (!data || !data.user) {
+    return <NoTeamDashboard userName={null} />;
   }
 
-  // Get stats and recent memories for first team
-  const team = teams[0];
-  const [stats, recentMemories] = await Promise.all([
-    getDashboardStats(team.id),
-    getRecentMemories(team.id, 5),
-  ]);
+  // No team - show welcome screen
+  if (!data.current_team || data.teams.length === 0) {
+    return <NoTeamDashboard userName={data.user.full_name} />;
+  }
+
+  const { user, current_team: team, stats, recent_memories: recentMemories } = data;
 
   return (
     <div className="animate-fade-in space-y-6">
       {/* Welcome */}
       <div>
         <h1 className="text-2xl font-semibold">
-          Welcome back{currentUser?.full_name ? `, ${currentUser.full_name.split(' ')[0]}` : ''}
+          Welcome back{user.full_name ? `, ${user.full_name.split(' ')[0]}` : ''}
         </h1>
         <p className="mt-1 text-text-secondary">
           {team.name}&apos;s collective AI memory
@@ -44,22 +40,22 @@ export default async function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Memories"
-          value={stats.totalMemories.toString()}
+          value={stats.total_memories.toString()}
           description="Captured reasoning"
         />
         <StatCard
           title="Team Members"
-          value={stats.teamMembers.toString()}
+          value={stats.team_members.toString()}
           description="Active contributors"
         />
         <StatCard
           title="Files Touched"
-          value={stats.filesTouched.toString()}
+          value={stats.files_touched.toString()}
           description="Across all sessions"
         />
         <StatCard
           title="This Week"
-          value={stats.thisWeek.toString()}
+          value={stats.this_week.toString()}
           description="New memories"
         />
       </div>

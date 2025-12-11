@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { getAuthUser, verifyTeamMembership } from '@/lib/auth';
 import type { Team, TeamMember, TeamRole } from '@grov/shared';
@@ -41,7 +42,7 @@ interface TeamInvitationQueryResult {
 /**
  * Get all teams the current user is a member of
  */
-export async function getUserTeams(): Promise<TeamWithMemberCount[]> {
+export const getUserTeams = cache(async (): Promise<TeamWithMemberCount[]> => {
   const user = await getAuthUser();
 
   if (!user) return [];
@@ -78,7 +79,7 @@ export async function getUserTeams(): Promise<TeamWithMemberCount[]> {
     ...team,
     member_count: countMap.get(team.id) || 0,
   }));
-}
+});
 
 /**
  * Get team by ID (if user is a member)

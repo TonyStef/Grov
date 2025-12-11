@@ -28,3 +28,9 @@ export {
   isAuthenticated,
   type CurrentUser,
 } from './profiles';
+
+// Dashboard RPC (optimized single-query fetch)
+export {
+  getDashboardData,
+  type DashboardRpcResponse,
+} from './dashboard-rpc';

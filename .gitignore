@@ -58,5 +58,8 @@ coverage/
 *.tgz
 .vercel
 
-scripts/deploy-*.sh
-scripts/build-dashboard.sh
+# Scripts (contain secrets)
+scripts/*.sh
+
+#Strix penetration tests
+strix_runs/

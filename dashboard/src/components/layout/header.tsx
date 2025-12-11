@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Command, Bell, User, LogOut, Settings } from 'lucide-react';
+import { Search, Command, Bell, LogOut, Settings } from 'lucide-react';
 import { CommandMenu } from './command-menu';
 import { createClient } from '@/lib/supabase/client';
 import { getInitials } from '@/lib/utils';
@@ -20,7 +20,10 @@ export function Header({ user }: HeaderProps) {
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push('/login');
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('grov-'))
+      .forEach((key) => localStorage.removeItem(key));
+    window.location.href = '/login';
   };
 
   return (
@@ -113,7 +116,7 @@ export function Header({ user }: HeaderProps) {
       </header>
 
       {/* Command Menu */}
-      <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />
+      <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} onSignOut={handleLogout} />
     </>
   );
 }

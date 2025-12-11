@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { getAuthUser } from '@/lib/auth';
 
@@ -12,7 +13,7 @@ export interface CurrentUser {
 /**
  * Get the current authenticated user's profile
  */
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const user = await getAuthUser();
 
   if (!user) return null;
@@ -35,7 +36,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   }
 
   return profile as CurrentUser;
-}
+});
 
 /**
  * Check if user is authenticated

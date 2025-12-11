@@ -1,0 +1,268 @@
+---
+title: "Planning to Implementation: How We Give Claude 195k Fresh Tokens"
+description: "A technical deep-dive into Grov's automatic context reset that preserves your planning decisions while giving Claude maximum tokens for implementation."
+pubDate: 2025-12-10
+author: Tony
+tags: ["engineering", "context-management", "claude-code", "productivity"]
+---
+
+Long planning sessions have a hidden cost: by the time you say "implement it", Claude might have 50k tokens left. Not enough for a complex implementation. And if you manually clear context, you lose all the planning decisions you just made.
+
+We built an automatic reset that solves both problems.
+
+## The Problem: Planning Eats Your Context
+
+A typical planning conversation looks like this:
+
+```
+User: How should we implement user authentication?
+Claude: [explores codebase, analyzes options...]
+Claude: Here are three approaches: JWT, sessions, or OAuth...
+
+User: What about refresh tokens?
+Claude: [more exploration, more analysis...]
+
+User: And how would that work with our existing middleware?
+Claude: [reads more files, explains integration...]
+
+... 30 minutes later ...
+
+User: OK, JWT with refresh tokens. Implement it.
+Claude: [has 50k tokens left, starts making mistakes]
+```
+
+The planning was valuable. Claude learned your codebase, explored tradeoffs, and you made informed decisions together. But now 75% of your context window is filled with exploration that's no longer needed.
+
+Your options:
+1. **Continue anyway** - Claude struggles with limited context
+2. **Manual /compact** - Loses nuance, you re-explain decisions
+3. **Start fresh session** - Loses everything, you re-explain from scratch
+
+None of these are good.
+
+## The Solution: Automatic Planning CLEAR
+
+When Grov detects your planning is complete, it automatically:
+
+1. Generates a 2k token summary of key decisions
+2. Clears the conversation (`messages = []`)
+3. Injects the summary into the system prompt
+4. Rebuilds team memory (includes the just-saved planning task)
+
+Result: Claude starts implementation with ~195k tokens available, but knows all your planning decisions.
+
+```
+grov proxy   # Just run the proxy normally - this is automatic
+```
+
+There's no flag to enable this. It happens automatically when conditions are met.
+
+## How It Works
+
+### Step 1: Task Type Detection
+
+Every response, Grov uses Claude Haiku to classify the conversation (`src/lib/llm-extractor.ts:730-771`):
+
+```typescript
+task_type: 'information' | 'planning' | 'implementation';
+```
+
+The classification logic at `src/lib/llm-extractor.ts:746-771`:
+
+```
+TYPE A - Information Request
+The user wants to learn or understand something.
+Examples: "How does the auth system work?", "What does this code do?"
+
+TYPE B - Planning or Decision Request  
+The user wants to figure out the best approach before taking action.
+Examples: "How should we implement authentication?", "What's the best way to handle caching?"
+
+TYPE C - Implementation Request
+The user wants actual changes made.
+Examples: "Fix the bug", "Add caching to the API"
+```
+
+### Step 2: Completion Detection
+
+Haiku also detects when a task is complete (`src/lib/llm-extractor.ts:793-810`):
+
+```
+For Planning Requests:
+The task is complete when a final decision or plan has been reached 
+and the user has confirmed it.
+
+Look for signals that indicate the user has made up their mind:
+- "OK, let's go with that"
+- "That sounds good, now implement it"  
+- "JWT with refresh tokens makes sense"
+```
+
+### Step 3: Trigger the CLEAR
+
+When both conditions are met (`task_type === 'planning'` AND `action === 'task_complete'`), the magic happens at `src/proxy/server.ts:1652-1670`:
+
+```typescript
+// PLANNING COMPLETE: Trigger CLEAR-like reset for implementation phase
+if (taskAnalysis.task_type === 'planning' && isSummaryAvailable()) {
+  const allSteps = getValidatedSteps(sessionInfo.currentSession.session_id);
+  const planSummary = await generateSessionSummary(sessionInfo.currentSession, allSteps, 2000);
+
+  // Store for next request to trigger CLEAR
+  pendingPlanClear = {
+    projectPath: sessionInfo.projectPath,
+    summary: planSummary,
+  };
+
+  // Invalidate team memory cache so it rebuilds with the planning task
+  globalTeamMemoryCache = null;
+}
+```
+
+The summary is stored in `pendingPlanClear`. On your next message ("implement it"), the CLEAR executes.
+
+### Step 4: Fresh Start with Context
+
+On the next request, at `src/proxy/server.ts:1101-1131`:
+
+```typescript
+if (pendingPlanClear && pendingPlanClear.projectPath === sessionInfo.projectPath) {
+  // 1. Empty messages array (fresh start)
+  modified.messages = [];
+
+  // 2. Inject planning summary into system prompt
+  appendToSystemPrompt(modified, pendingPlanClear.summary);
+
+  // 3. Rebuild team memory (includes the just-saved planning task)
+  const teamContext = buildTeamMemoryContext(
+    sessionInfo.projectPath,
+    mentionedFiles,
+    sessionInfo.sessionId
+  );
+
+  // 4. Clear the pending plan (one-time use)
+  pendingPlanClear = null;
+
+  return modified;  // Skip other injections - this is a complete reset
+}
+```
+
+The conversation is empty, but the system prompt contains your planning summary. Team memory is rebuilt fresh, including the planning task you just completed.
+
+## The Flow
+
+```
+User: "How should we implement auth?"
+                    |
+                    v
+        Claude explores, plans, discusses
+                    |
+                    v
+User: "OK, JWT with refresh tokens. Let's do that."
+                    |
+                    v
+        Haiku detects: task_type = "planning"
+                       action = "task_complete"
+                    |
+                    v
+        generateSessionSummary(2000 tokens)
+                    |
+                    v
+        pendingPlanClear = { summary }
+        globalTeamMemoryCache = null
+                    |
+                    v
+User: "Implement it"
+                    |
+                    v
+    +----------------------------------+
+    |  PLANNING CLEAR TRIGGERED        |
+    |                                  |
+    |  1. messages = []                |
+    |  2. System prompt += summary     |
+    |  3. Rebuild team memory          |
+    |  4. pendingPlanClear = null      |
+    +----------------------------------+
+                    |
+                    v
+        Claude implements with ~195k tokens
+        Knows: JWT, refresh tokens, your middleware
+        Doesn't have: 30 min of exploration baggage
+```
+
+## What's In The Summary
+
+The summary generated at `src/lib/llm-extractor.ts:531-600` includes:
+
+- **ORIGINAL GOAL** - What you set out to decide
+- **KEY DECISIONS** - The architectural choices made
+- **FILES MENTIONED** - Relevant parts of the codebase
+- **REASONING** - Why those decisions were made
+- **NEXT STEPS** - What needs to be implemented
+
+It's 2000 tokens of concentrated context, not 150k tokens of exploration logs.
+
+## Tips for Reliable Detection
+
+Since this feature relies on Haiku classifying your conversation correctly, here are tips to help it:
+
+**Explicit confirmation helps:**
+```
+// Good - clear signal
+"OK, let's go with JWT and refresh tokens"
+"That approach makes sense, implement it"
+"I've decided on option 2"
+
+// Less clear - might not trigger
+"cool"
+"ok"
+[just starts asking implementation questions]
+```
+
+**Planning language helps classification:**
+```
+// Clear planning signals
+"How should we..."
+"What's the best approach for..."
+"Let's figure out the architecture"
+"I need to decide between..."
+
+// Might be classified as implementation
+"Add authentication"
+"Fix the login"
+```
+
+The detection isn't perfect - Grov is version 0.5 and about two weeks old. For current limitations and what we're working on, see the [limitations page](/limitations).
+
+## Why Not Always CLEAR?
+
+You might wonder: why not CLEAR after every task?
+
+The answer is context continuity. For implementation tasks, you often want Claude to remember what it just did. "Now add tests for that" benefits from Claude knowing "that" refers to the auth module it just built.
+
+Planning is different. Once you've decided on an approach, the exploration process is noise. You want the decisions, not the journey.
+
+## Requirements
+
+- **API key required** - Summary generation uses Haiku, needs `ANTHROPIC_API_KEY`
+- **Proxy must be running** - `grov proxy`
+- **Works automatically** - No flags or configuration needed
+
+## What Happens If Detection Fails
+
+If Haiku misclassifies your planning as implementation, or doesn't detect completion:
+
+- No CLEAR happens
+- You continue with normal context
+- Planning still saves to team memory (so future sessions benefit)
+- You can manually start a new session if needed
+
+The feature fails gracefully. You're never worse off than without it.
+
+---
+
+**Source code:** [github.com/TonyStef/Grov](https://github.com/TonyStef/Grov)
+
+**Current limitations:** [grov.dev/limitations](/limitations)
+
+**Questions?** Open an issue or find me on [Twitter](https://x.com/VirgillSA).

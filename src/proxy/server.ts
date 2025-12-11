@@ -1090,6 +1090,14 @@ async function preProcessRequest(
 ): Promise<MessagesRequestBody> {
   const modified = { ...body };
 
+  // Skip warmup requests - Claude Code sends "Warmup" as health check
+  // No need to do semantic search or cache operations for these
+  const earlyUserPrompt = extractLastUserPrompt(modified.messages || []);
+  if (earlyUserPrompt === 'Warmup') {
+    console.log('[INJECT] Skipping warmup request (no search, no cache)');
+    return modified;
+  }
+
   // Detect request type: first, continuation, or retry
   const requestType = detectRequestType(modified.messages || [], sessionInfo.sessionId);
 
@@ -2411,50 +2419,69 @@ export async function startServer(options: { debug?: boolean } = {}): Promise<Fa
   // Start extended cache timer if enabled
   let extendedCacheTimer: NodeJS.Timeout | null = null;
 
+  // Track active connections for graceful shutdown
+  const activeConnections = new Set<import('net').Socket>();
+  let isShuttingDown = false;
+
+  // Graceful shutdown handler (works with or without extended cache)
+  const gracefulShutdown = () => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    log('Shutdown initiated...');
+
+    // 1. Stop extended cache timer if running
+    if (extendedCacheTimer) {
+      clearInterval(extendedCacheTimer);
+      extendedCacheTimer = null;
+      log('Extended cache: timer stopped');
+    }
+
+    // 2. Clear sensitive cache data
+    if (extendedCache.size > 0) {
+      log(`Extended cache: clearing ${extendedCache.size} entries`);
+      for (const entry of extendedCache.values()) {
+        for (const key of Object.keys(entry.headers)) {
+          entry.headers[key] = '';
+        }
+        entry.rawBody = Buffer.alloc(0);
+      }
+      extendedCache.clear();
+    }
+
+    // 3. Stop accepting new connections
+    server.close();
+
+    // 4. Grace period (500ms) then force close remaining connections
+    setTimeout(() => {
+      if (activeConnections.size > 0) {
+        log(`Force closing ${activeConnections.size} connection(s)`);
+        for (const socket of activeConnections) {
+          socket.destroy();
+        }
+      }
+      log('Goodbye!');
+      process.exit(0);
+    }, 500);
+  };
+
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
+
   if (config.EXTENDED_CACHE_ENABLED) {
     extendedCacheTimer = setInterval(checkExtendedCache, 60_000);
     log('Extended cache: enabled (keep-alive timer started)');
-
-    // Cleanup on shutdown - clear timer and sensitive data
-    const cleanupExtendedCache = () => {
-      log('Shutdown initiated...');
-
-      // 1. Stop the timer first
-      if (extendedCacheTimer) {
-        clearInterval(extendedCacheTimer);
-        extendedCacheTimer = null;
-        log('Extended cache: timer stopped');
-      }
-
-      // 2. Clear sensitive data
-      if (extendedCache.size > 0) {
-        log(`Extended cache: clearing ${extendedCache.size} entries`);
-        for (const entry of extendedCache.values()) {
-          for (const key of Object.keys(entry.headers)) {
-            entry.headers[key] = '';
-          }
-          entry.rawBody = Buffer.alloc(0);
-        }
-        extendedCache.clear();
-      }
-
-      // 3. Close server and exit
-      server.close().then(() => {
-        log('Server closed. Goodbye!');
-        process.exit(0);
-      }).catch(() => {
-        process.exit(1);
-      });
-    };
-
-    process.on('SIGTERM', cleanupExtendedCache);
-    process.on('SIGINT', cleanupExtendedCache);
   }
 
   try {
     await server.listen({
       host: config.HOST,
       port: config.PORT,
+    });
+
+    // Track connections for graceful shutdown
+    server.server.on('connection', (socket: import('net').Socket) => {
+      activeConnections.add(socket);
+      socket.on('close', () => activeConnections.delete(socket));
     });
 
     console.log(`Grov Proxy: http://${config.HOST}:${config.PORT} -> ${config.ANTHROPIC_BASE_URL}`);

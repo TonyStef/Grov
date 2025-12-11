@@ -23,25 +23,53 @@ export async function buildTeamMemoryContextCloud(
   mentionedFiles: string[],
   userPrompt?: string
 ): Promise<string | null> {
+  const startTime = Date.now();
   const hasContext = userPrompt && userPrompt.trim().length > 0;
-  console.log(`[CLOUD] buildTeamMemoryContextCloud: teamId=${teamId.substring(0, 8)}..., projectPath=${projectPath}, hasContext=${hasContext}`);
+  console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
+  console.log(`[CLOUD] buildTeamMemoryContextCloud START`);
+  console.log(`[CLOUD] Team: ${teamId.substring(0, 8)}...`);
+  console.log(`[CLOUD] Project: ${projectPath}`);
+  console.log(`[CLOUD] Prompt: "${hasContext ? userPrompt!.substring(0, 60) + '...' : 'N/A'}"`);
+  console.log(`[CLOUD] Files for boost: ${mentionedFiles.length > 0 ? mentionedFiles.join(', ') : 'none'}`);
 
   try {
     // Fetch memories from cloud API (hybrid search if context provided)
+    const fetchStart = Date.now();
     const memories = await fetchTeamMemories(teamId, projectPath, {
       status: 'complete',
-      limit: 15, // Increased for hybrid search (RRF may filter some)
+      limit: 5, // Max 5 memories for injection (Convex Combination scoring)
       files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
       context: hasContext ? userPrompt : undefined,
       current_files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
     });
+    const fetchTime = Date.now() - fetchStart;
 
     if (memories.length === 0) {
-      console.log('[CLOUD] No memories found for project in cloud');
+      console.log(`[CLOUD] No memories found (fetch took ${fetchTime}ms)`);
+      console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
       return null;
     }
 
-    console.log(`[CLOUD] Converting ${memories.length} memories to tasks for formatting`);
+    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
+    console.log(`[CLOUD] Fetched ${memories.length} memories in ${fetchTime}ms`);
+    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
+
+    // Log each memory with scores (if available from hybrid search)
+    for (let i = 0; i < memories.length; i++) {
+      const mem = memories[i] as unknown as Record<string, unknown>;
+      const semScore = typeof mem.semantic_score === 'number' ? (mem.semantic_score as number).toFixed(3) : '-';
+      const lexScore = typeof mem.lexical_score === 'number' ? (mem.lexical_score as number).toFixed(3) : '-';
+      const combScore = typeof mem.combined_score === 'number' ? (mem.combined_score as number).toFixed(3) : '-';
+      const boosted = mem.file_boost_applied ? '🚀' : '  ';
+      const query = String(memories[i].original_query || '').substring(0, 50);
+      const filesCount = memories[i].files_touched?.length || 0;
+      const reasoningCount = memories[i].reasoning_trace?.length || 0;
+
+      console.log(`[CLOUD] ${i + 1}. ${boosted} [${combScore}] sem=${semScore} lex=${lexScore} | files=${filesCount} reasoning=${reasoningCount}`);
+      console.log(`[CLOUD]    "${query}..."`);
+    }
+
+    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
 
     // Convert Memory[] to Task[] format for the existing formatter
     const tasks = memories.map(memoryToTask);
@@ -49,7 +77,14 @@ export async function buildTeamMemoryContextCloud(
     // Reuse existing formatter (no file-level reasoning from cloud yet)
     const context = formatTeamMemoryContext(tasks, [], mentionedFiles);
 
-    console.log(`[CLOUD] Built team memory context: ${context.length} chars`);
+    // Estimate tokens (~4 chars per token)
+    const estimatedTokens = Math.round(context.length / 4);
+    const totalTime = Date.now() - startTime;
+
+    console.log(`[CLOUD] Context built: ${context.length} chars (~${estimatedTokens} tokens)`);
+    console.log(`[CLOUD] Total time: ${totalTime}ms (fetch: ${fetchTime}ms, format: ${totalTime - fetchTime}ms)`);
+    console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
+
     return context;
 
   } catch (err) {
@@ -111,7 +146,7 @@ function formatTeamMemoryContext(
   // Inject up to 5 pairs (10 entries) per task for rich context
   if (tasks.length > 0) {
     lines.push('Related past tasks:');
-    for (const task of tasks.slice(0, 3)) { // Limit to 3 tasks to manage token budget
+    for (const task of tasks.slice(0, 5)) { // Limit to 5 tasks (Convex Combination top results)
       lines.push(`- ${truncate(task.original_query, 60)}`);
       if (task.files_touched.length > 0) {
         const fileList = task.files_touched.slice(0, 5).map(f => f.split('/').pop()).join(', ');

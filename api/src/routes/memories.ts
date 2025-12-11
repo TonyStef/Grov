@@ -72,42 +72,78 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       // HYBRID SEARCH: If context provided and embeddings enabled, use semantic search
       if (context && project_path && isEmbeddingEnabled()) {
-        fastify.log.info(`[SEARCH] Hybrid search: context="${context.substring(0, 50)}..." project=${project_path}`);
+        const searchStartTime = Date.now();
+        fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
+        fastify.log.info(`[SEARCH] Hybrid search START`);
+        fastify.log.info(`[SEARCH] Context: "${context.substring(0, 50)}..."`);
+        fastify.log.info(`[SEARCH] Project: ${project_path}`);
 
         // Generate embedding for query
+        const embeddingStart = Date.now();
         const queryEmbedding = await generateEmbedding(context);
+        const embeddingTime = Date.now() - embeddingStart;
 
         if (queryEmbedding) {
+          fastify.log.info(`[SEARCH] Embedding generated in ${embeddingTime}ms`);
+
           // Parse current_files (comma-separated string → array)
           const currentFilesArray = current_files
             ? current_files.split(',').map(f => f.trim()).filter(Boolean)
             : [];
 
+          fastify.log.info(`[SEARCH] Files for boost: ${currentFilesArray.length > 0 ? currentFilesArray.join(', ') : 'none'}`);
+
           // Convert embedding array to PostgreSQL vector string format
           const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
           // Call hybrid_search_memories RPC function
+          const rpcStart = Date.now();
           const { data, error } = await supabase.rpc('hybrid_search_memories', {
             p_team_id: id,
             p_project_path: project_path,
             p_query_embedding: embeddingStr,  // Send as PostgreSQL vector string format
             p_query_text: context,
             p_current_files: currentFilesArray,
-            p_similarity_threshold: 0.3,  // Lower threshold for more results
-            p_limit: Math.min(limit, 15), // Cap at 15 for hybrid search
+            p_similarity_threshold: 0.4,  // Semantic threshold (0.4 filters loosely related)
+            p_limit: 5, // Max 5 results for injection
           });
 
+          const rpcTime = Date.now() - rpcStart;
+          const totalTime = Date.now() - searchStartTime;
+
           if (error) {
-            fastify.log.error(`[SEARCH] Hybrid search failed: ${error.message}`);
+            fastify.log.error(`[SEARCH] Hybrid search FAILED: ${error.message} (${totalTime}ms)`);
+            fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
             // Fall through to regular query
           } else if (data && data.length > 0) {
-            fastify.log.info(`[SEARCH] Hybrid search: ${data.length} results`);
+            // Detailed logging for testing and monitoring
+            fastify.log.info(`[SEARCH] ───────────────────────────────────────────────`);
+            fastify.log.info(`[SEARCH] RPC completed in ${rpcTime}ms`);
+            fastify.log.info(`[SEARCH] Results: ${data.length} memories`);
+            fastify.log.info(`[SEARCH] ───────────────────────────────────────────────`);
+
+            for (const mem of data) {
+              const memAny = mem as Record<string, unknown>;
+              const semScore = typeof memAny.semantic_score === 'number' ? memAny.semantic_score.toFixed(3) : 'N/A';
+              const lexScore = typeof memAny.lexical_score === 'number' ? memAny.lexical_score.toFixed(3) : 'N/A';
+              const combScore = typeof memAny.combined_score === 'number' ? memAny.combined_score.toFixed(3) : 'N/A';
+              const boosted = memAny.file_boost_applied ? '🚀' : '  ';
+              const query = String(memAny.original_query || '').substring(0, 45);
+
+              fastify.log.info(`[SEARCH] ${boosted} Score: ${combScore} (sem: ${semScore}, lex: ${lexScore}) "${query}..."`);
+            }
+            fastify.log.info(`[SEARCH] ───────────────────────────────────────────────`);
+            fastify.log.info(`[SEARCH] TOTAL TIME: ${totalTime}ms (embed: ${embeddingTime}ms, rpc: ${rpcTime}ms)`);
+            fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
+
             return {
               memories: data || [],
               cursor: null, // Hybrid search doesn't support cursor pagination
               has_more: false,
             };
           } else {
+            fastify.log.info(`[SEARCH] 0 results for "${context.substring(0, 40)}..." (${totalTime}ms)`);
+            fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
             return {
               memories: [],
               cursor: null,

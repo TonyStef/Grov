@@ -5,7 +5,6 @@ import { existsSync, mkdirSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
-import type { ClaudeAction } from './session-parser.js';
 
 /**
  * Escape LIKE pattern special characters to prevent SQL injection.
@@ -228,52 +227,7 @@ export interface CreateDriftLogInput {
   recovery_plan?: Record<string, unknown>;
 }
 
-// File reasoning change types
-export type ChangeType = 'read' | 'write' | 'edit' | 'create' | 'delete';
-
-// File-level reasoning with location anchoring
-export interface FileReasoning {
-  id: string;
-  task_id?: string;
-  file_path: string;
-  anchor?: string;
-  line_start?: number;
-  line_end?: number;
-  code_hash?: string;
-  change_type?: ChangeType;
-  reasoning: string;
-  created_at: string;
-}
-
-// Input for creating file reasoning
-export interface CreateFileReasoningInput {
-  task_id?: string;
-  file_path: string;
-  anchor?: string;
-  line_start?: number;
-  line_end?: number;
-  code_hash?: string;
-  change_type?: ChangeType;
-  reasoning: string;
-}
-
 let db: Database.Database | null = null;
-
-// PERFORMANCE: Statement cache to avoid re-preparing frequently used queries
-const statementCache = new Map<string, Database.Statement>();
-
-/**
- * Get a cached prepared statement or create a new one.
- * PERFORMANCE: Avoids overhead of re-preparing the same SQL.
- */
-function getCachedStatement(database: Database.Database, sql: string): Database.Statement {
-  let stmt = statementCache.get(sql);
-  if (!stmt) {
-    stmt = database.prepare(sql);
-    statementCache.set(sql, stmt);
-  }
-  return stmt;
-}
 
 /**
  * Initialize the database connection and create tables
@@ -601,8 +555,6 @@ export function closeDatabase(): void {
   if (db) {
     db.close();
     db = null;
-    // PERFORMANCE: Clear statement cache when database is closed
-    statementCache.clear();
   }
 }
 
@@ -704,28 +656,6 @@ export function getTasksForProject(
   const rows = stmt.all(...params) as Record<string, unknown>[];
 
   return rows.map(rowToTask);
-}
-
-/**
- * Get a task by ID
- */
-export function getTaskById(id: string): Task | null {
-  const database = initDatabase();
-
-  const stmt = database.prepare('SELECT * FROM tasks WHERE id = ?');
-  const row = stmt.get(id) as Record<string, unknown> | undefined;
-
-  return row ? rowToTask(row) : null;
-}
-
-/**
- * Update a task's status
- */
-export function updateTaskStatus(id: string, status: TaskStatus): void {
-  const database = initDatabase();
-
-  const stmt = database.prepare('UPDATE tasks SET status = ? WHERE id = ?');
-  stmt.run(status, id);
 }
 
 /**
@@ -1026,34 +956,6 @@ export function deleteSessionState(sessionId: string): void {
 }
 
 /**
- * Get active sessions for a project
- */
-export function getActiveSessionsForProject(projectPath: string): SessionState[] {
-  const database = initDatabase();
-
-  const stmt = database.prepare(
-    "SELECT * FROM session_states WHERE project_path = ? AND status = 'active' ORDER BY start_time DESC"
-  );
-  const rows = stmt.all(projectPath) as Record<string, unknown>[];
-
-  return rows.map(rowToSessionState);
-}
-
-/**
- * Get child sessions (subtasks and parallel tasks) for a parent session
- */
-export function getChildSessions(parentSessionId: string): SessionState[] {
-  const database = initDatabase();
-
-  const stmt = database.prepare(
-    'SELECT * FROM session_states WHERE parent_session_id = ? ORDER BY start_time DESC'
-  );
-  const rows = stmt.all(parentSessionId) as Record<string, unknown>[];
-
-  return rows.map(rowToSessionState);
-}
-
-/**
  * Get active session for a specific user in a project
  */
 export function getActiveSessionForUser(projectPath: string, userId?: string): SessionState | null {
@@ -1195,179 +1097,6 @@ export function updateSessionDrift(
     now,
     sessionId
   );
-}
-
-/**
- * Check if a session should be flagged for review
- * Returns true if: status=drifted OR warnings>=3 OR avg_score<6
- */
-export function shouldFlagForReview(sessionId: string): boolean {
-  const session = getSessionState(sessionId);
-  if (!session) return false;
-
-  // Check number of warnings
-  const warnings = session.drift_warnings || [];
-  if (warnings.length >= 3) {
-    return true;
-  }
-
-  // Check drift history for average score
-  const history = session.drift_history || [];
-  if (history.length >= 2) {
-    const totalScore = history.reduce((sum, e) => sum + e.score, 0);
-    const avgScore = totalScore / history.length;
-    if (avgScore < 6) {
-      return true;
-    }
-  }
-
-  // Check if any HALT level drift occurred
-  if (history.some(e => e.level === 'halt')) {
-    return true;
-  }
-
-  // Check current escalation level
-  if (session.escalation_count >= 2) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Get drift summary for a session (used by capture)
- */
-export function getDriftSummary(sessionId: string): {
-  totalEvents: number;
-  resolved: boolean;
-  finalScore: number | null;
-  hadHalt: boolean;
-} {
-  const session = getSessionState(sessionId);
-  const history = session?.drift_history || [];
-  if (!session || history.length === 0) {
-    return { totalEvents: 0, resolved: true, finalScore: null, hadHalt: false };
-  }
-
-  const lastEvent = history[history.length - 1];
-  return {
-    totalEvents: history.length,
-    resolved: lastEvent.score >= 8,
-    finalScore: lastEvent.score,
-    hadHalt: history.some(e => e.level === 'halt')
-  };
-}
-
-// ============================================
-// FILE REASONING CRUD OPERATIONS
-// ============================================
-
-/**
- * Create a new file reasoning entry
- */
-export function createFileReasoning(input: CreateFileReasoningInput): FileReasoning {
-  const database = initDatabase();
-
-  const fileReasoning: FileReasoning = {
-    id: randomUUID(),
-    task_id: input.task_id,
-    file_path: input.file_path,
-    anchor: input.anchor,
-    line_start: input.line_start,
-    line_end: input.line_end,
-    code_hash: input.code_hash,
-    change_type: input.change_type,
-    reasoning: input.reasoning,
-    created_at: new Date().toISOString()
-  };
-
-  const stmt = database.prepare(`
-    INSERT INTO file_reasoning (
-      id, task_id, file_path, anchor, line_start, line_end,
-      code_hash, change_type, reasoning, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  stmt.run(
-    fileReasoning.id,
-    fileReasoning.task_id || null,
-    fileReasoning.file_path,
-    fileReasoning.anchor || null,
-    fileReasoning.line_start || null,
-    fileReasoning.line_end || null,
-    fileReasoning.code_hash || null,
-    fileReasoning.change_type || null,
-    fileReasoning.reasoning,
-    fileReasoning.created_at
-  );
-
-  return fileReasoning;
-}
-
-/**
- * Get file reasoning entries for a task
- */
-export function getFileReasoningForTask(taskId: string): FileReasoning[] {
-  const database = initDatabase();
-
-  const stmt = database.prepare(
-    'SELECT * FROM file_reasoning WHERE task_id = ? ORDER BY created_at DESC'
-  );
-  const rows = stmt.all(taskId) as Record<string, unknown>[];
-
-  return rows.map(rowToFileReasoning);
-}
-
-/**
- * Get file reasoning entries by file path
- */
-export function getFileReasoningByPath(filePath: string, limit = 10): FileReasoning[] {
-  const database = initDatabase();
-
-  const stmt = database.prepare(
-    'SELECT * FROM file_reasoning WHERE file_path = ? ORDER BY created_at DESC LIMIT ?'
-  );
-  const rows = stmt.all(filePath, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToFileReasoning);
-}
-
-/**
- * Get file reasoning entries matching a pattern (for files in a project).
- * SECURITY: Uses escaped LIKE patterns to prevent injection.
- */
-export function getFileReasoningByPathPattern(
-  pathPattern: string,
-  limit = 20
-): FileReasoning[] {
-  const database = initDatabase();
-
-  // Escape LIKE special characters to prevent injection
-  const escapedPattern = escapeLikePattern(pathPattern);
-  const stmt = database.prepare(
-    "SELECT * FROM file_reasoning WHERE file_path LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?"
-  );
-  const rows = stmt.all(`%${escapedPattern}%`, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToFileReasoning);
-}
-
-/**
- * Convert database row to FileReasoning object
- */
-function rowToFileReasoning(row: Record<string, unknown>): FileReasoning {
-  return {
-    id: row.id as string,
-    task_id: row.task_id as string | undefined,
-    file_path: row.file_path as string,
-    anchor: row.anchor as string | undefined,
-    line_start: row.line_start as number | undefined,
-    line_end: row.line_end as number | undefined,
-    code_hash: row.code_hash as string | undefined,
-    change_type: row.change_type as ChangeType | undefined,
-    reasoning: row.reasoning as string,
-    created_at: row.created_at as string
-  };
 }
 
 /**
@@ -1555,26 +1284,6 @@ export function updateRecentStepsReasoning(sessionId: string, reasoning: string,
 }
 
 /**
- * Get relevant steps (key decisions and write/edit actions) - proxy version
- * Reference: plan_proxy_local.md Section 2.2
- */
-export function getRelevantStepsSimple(sessionId: string, limit = 20): StepRecord[] {
-  const database = initDatabase();
-
-  const stmt = database.prepare(`
-    SELECT * FROM steps
-    WHERE session_id = ?
-    AND (is_key_decision = 1 OR action_type IN ('edit', 'write', 'bash'))
-    AND is_validated = 1
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `);
-  const rows = stmt.all(sessionId, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToStep);
-}
-
-/**
  * Convert database row to StepRecord object (proxy version - all fields)
  */
 function rowToStep(row: Record<string, unknown>): StepRecord {
@@ -1597,46 +1306,6 @@ function rowToStep(row: Record<string, unknown>): StepRecord {
   };
 }
 
-// ============================================
-// STEPS CRUD (Hook uses these)
-// ============================================
-
-/**
- * Save a Claude action as a step (hook version - uses ClaudeAction)
- */
-export function saveStep(
-  sessionId: string,
-  action: ClaudeAction,
-  driftScore: number,
-  isKeyDecision: boolean = false,
-  keywords: string[] = []
-): void {
-  const database = initDatabase();
-
-  // Extract folders from files
-  const folders = [...new Set(
-    action.files
-      .map(f => f.split('/').slice(0, -1).join('/'))
-      .filter(f => f.length > 0)
-  )];
-
-  database.prepare(`
-    INSERT INTO steps (id, session_id, action_type, files, folders, command, drift_score, is_key_decision, keywords, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    randomUUID(),
-    sessionId,
-    action.type,
-    JSON.stringify(action.files),
-    JSON.stringify(folders),
-    action.command || null,
-    driftScore,
-    isKeyDecision ? 1 : 0,
-    JSON.stringify(keywords),
-    action.timestamp
-  );
-}
-
 /**
  * Update last_checked_at timestamp for a session
  */
@@ -1645,135 +1314,6 @@ export function updateLastChecked(sessionId: string, timestamp: number): void {
   database.prepare(`
     UPDATE session_states SET last_checked_at = ? WHERE session_id = ?
   `).run(timestamp, sessionId);
-}
-
-// ============================================
-// 4-QUERY RETRIEVAL (Hook uses these - from deep_dive.md)
-// ============================================
-
-/**
- * Get steps that touched specific files
- */
-export function getStepsByFiles(sessionId: string, files: string[], limit: number = 5): StepRecord[] {
-  if (files.length === 0) return [];
-
-  const database = initDatabase();
-  const placeholders = files.map(() => `files LIKE ?`).join(' OR ');
-  const patterns = files.map(f => `%"${escapeLikePattern(f)}"%`);
-
-  const rows = database.prepare(`
-    SELECT * FROM steps
-    WHERE session_id = ? AND drift_score >= 5 AND (${placeholders})
-    ORDER BY timestamp DESC LIMIT ?
-  `).all(sessionId, ...patterns, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToStepRecord);
-}
-
-/**
- * Get steps that touched specific folders
- */
-export function getStepsByFolders(sessionId: string, folders: string[], limit: number = 5): StepRecord[] {
-  if (folders.length === 0) return [];
-
-  const database = initDatabase();
-  const placeholders = folders.map(() => `folders LIKE ?`).join(' OR ');
-  const patterns = folders.map(f => `%"${escapeLikePattern(f)}"%`);
-
-  const rows = database.prepare(`
-    SELECT * FROM steps
-    WHERE session_id = ? AND drift_score >= 5 AND (${placeholders})
-    ORDER BY timestamp DESC LIMIT ?
-  `).all(sessionId, ...patterns, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToStepRecord);
-}
-
-/**
- * Get steps matching keywords
- */
-export function getStepsByKeywords(sessionId: string, keywords: string[], limit: number = 5): StepRecord[] {
-  if (keywords.length === 0) return [];
-
-  const database = initDatabase();
-  const conditions = keywords.map(() => `keywords LIKE ?`).join(' OR ');
-  const patterns = keywords.map(k => `%"${escapeLikePattern(k)}"%`);
-
-  const rows = database.prepare(`
-    SELECT * FROM steps
-    WHERE session_id = ? AND drift_score >= 5 AND (${conditions})
-    ORDER BY timestamp DESC LIMIT ?
-  `).all(sessionId, ...patterns, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToStepRecord);
-}
-
-/**
- * Get key decision steps
- */
-export function getKeyDecisionSteps(sessionId: string, limit: number = 5): StepRecord[] {
-  const database = initDatabase();
-  const rows = database.prepare(`
-    SELECT * FROM steps
-    WHERE session_id = ? AND is_key_decision = 1
-    ORDER BY timestamp DESC LIMIT ?
-  `).all(sessionId, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToStepRecord);
-}
-
-/**
- * Combined retrieval: runs all 4 queries and deduplicates (hook version)
- * Priority: key decisions > files > folders > keywords
- */
-export function getRelevantSteps(
-  sessionId: string,
-  currentFiles: string[],
-  currentFolders: string[],
-  keywords: string[],
-  limit: number = 10
-): StepRecord[] {
-  const byFiles = getStepsByFiles(sessionId, currentFiles, 5);
-  const byFolders = getStepsByFolders(sessionId, currentFolders, 5);
-  const byKeywords = getStepsByKeywords(sessionId, keywords, 5);
-  const keyDecisions = getKeyDecisionSteps(sessionId, 5);
-
-  const seen = new Set<string>();
-  const results: StepRecord[] = [];
-
-  // Priority order: key decisions > files > folders > keywords
-  for (const step of [...keyDecisions, ...byFiles, ...byFolders, ...byKeywords]) {
-    if (!seen.has(step.id)) {
-      seen.add(step.id);
-      results.push(step);
-      if (results.length >= limit) break;
-    }
-  }
-
-  return results;
-}
-
-/**
- * Convert database row to StepRecord (hook version - basic fields)
- */
-function rowToStepRecord(row: Record<string, unknown>): StepRecord {
-  return {
-    id: row.id as string,
-    session_id: row.session_id as string,
-    action_type: row.action_type as StepActionType,
-    files: safeJsonParse<string[]>(row.files, []),
-    folders: safeJsonParse<string[]>(row.folders, []),
-    command: row.command as string | undefined,
-    reasoning: row.reasoning as string | undefined,
-    drift_score: (row.drift_score as number) || 0,
-    drift_type: row.drift_type as DriftType | undefined,
-    is_key_decision: Boolean(row.is_key_decision),
-    is_validated: Boolean(row.is_validated),
-    correction_given: row.correction_given as string | undefined,
-    correction_level: row.correction_level as CorrectionLevel | undefined,
-    keywords: safeJsonParse<string[]>(row.keywords, []),
-    timestamp: row.timestamp as number
-  };
 }
 
 // ============================================
@@ -1818,20 +1358,6 @@ export function logDriftEvent(input: CreateDriftLogInput): DriftLogEntry {
   );
 
   return entry;
-}
-
-/**
- * Get drift log for a session
- */
-export function getDriftLog(sessionId: string, limit = 50): DriftLogEntry[] {
-  const database = initDatabase();
-
-  const stmt = database.prepare(
-    'SELECT * FROM drift_log WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?'
-  );
-  const rows = stmt.all(sessionId, limit) as Record<string, unknown>[];
-
-  return rows.map(rowToDriftLogEntry);
 }
 
 /**

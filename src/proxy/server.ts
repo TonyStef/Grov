@@ -624,21 +624,6 @@ function appendToSystemPrompt(
 }
 
 /**
- * Get system prompt as string (for reading)
- */
-function getSystemPromptText(body: MessagesRequestBody): string {
-  if (typeof body.system === 'string') {
-    return body.system;
-  } else if (Array.isArray(body.system)) {
-    return body.system
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n');
-  }
-  return '';
-}
-
-/**
  * Inject text into raw body string WITHOUT re-serializing
  * This preserves the original formatting/whitespace for cache compatibility
  *
@@ -2183,54 +2168,6 @@ function extractTextContent(response: AnthropicResponse): string {
     .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
     .map(block => block.text)
     .join('\n');
-}
-
-/**
- * Detect task completion from response text
- * Returns trigger type or null
- */
-function detectTaskCompletion(text: string): 'complete' | 'subtask' | null {
-  const lowerText = text.toLowerCase();
-
-  // Strong completion indicators
-  const completionPhrases = [
-    'task is complete',
-    'task complete',
-    'implementation is complete',
-    'implementation complete',
-    'successfully implemented',
-    'all changes have been made',
-    'finished implementing',
-    'completed the implementation',
-    'done with the implementation',
-    'completed all the',
-    'all tests pass',
-    'build succeeds',
-  ];
-
-  for (const phrase of completionPhrases) {
-    if (lowerText.includes(phrase)) {
-      return 'complete';
-    }
-  }
-
-  // Subtask completion indicators
-  const subtaskPhrases = [
-    'step complete',
-    'phase complete',
-    'finished this step',
-    'moving on to',
-    'now let\'s',
-    'next step',
-  ];
-
-  for (const phrase of subtaskPhrases) {
-    if (lowerText.includes(phrase)) {
-      return 'subtask';
-    }
-  }
-
-  return null;
 }
 
 /**

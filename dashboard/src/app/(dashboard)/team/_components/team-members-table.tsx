@@ -1,15 +1,16 @@
 'use client';
 
-import { MoreVertical, Shield, Crown, User } from 'lucide-react';
+import { Shield, Crown, User } from 'lucide-react';
 import { formatRelativeDate, getInitials } from '@/lib/utils';
 import type { TeamMemberWithProfile } from '@/lib/queries/teams';
+import { MemberActionsMenu } from './member-actions-menu';
 
 interface TeamMembersTableProps {
   members: TeamMemberWithProfile[];
   currentUserId: string;
   userRole: string | null;
-  onRemoveMember?: (userId: string) => void;
-  onChangeRole?: (userId: string, role: string) => void;
+  onRemoveMember: (userId: string) => void;
+  onChangeRole: (userId: string, role: 'admin' | 'member') => void;
 }
 
 const roleConfig = {
@@ -35,6 +36,7 @@ export function TeamMembersTable({
   currentUserId,
   userRole,
   onRemoveMember,
+  onChangeRole,
 }: TeamMembersTableProps) {
   const canManageMembers = userRole === 'owner' || userRole === 'admin';
 
@@ -98,13 +100,12 @@ export function TeamMembersTable({
                 {canManageMembers && (
                   <td className="px-6 py-4">
                     {canRemove && (
-                      <button
-                        onClick={() => onRemoveMember?.(member.user_id)}
-                        className="rounded p-1 text-text-muted hover:bg-bg-2 hover:text-text-primary"
-                        title="Remove member"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </button>
+                      <MemberActionsMenu
+                        memberRole={member.role}
+                        isOwner={userRole === 'owner'}
+                        onChangeRole={(role) => onChangeRole(member.user_id, role)}
+                        onRemove={() => onRemoveMember(member.user_id)}
+                      />
                     )}
                   </td>
                 )}

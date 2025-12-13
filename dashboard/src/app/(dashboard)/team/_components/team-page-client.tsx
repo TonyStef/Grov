@@ -10,7 +10,8 @@ import { PendingInvitations } from './pending-invitations';
 import { EmptyTeamState } from './empty-team-state';
 import { CreateTeamModal } from './create-team-modal';
 import { InviteMemberModal } from './invite-member-modal';
-import { removeMember, cancelInvite } from '../actions';
+import { ConfirmModal } from './confirm-modal';
+import { removeMember, cancelInvite, changeRole } from '../actions';
 
 interface Invitation {
   id: string;
@@ -42,8 +43,14 @@ export function TeamPageClient({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'remove' | 'cancel-invite';
+    id: string;
+    name?: string;
+  } | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // No team - show empty state
   if (!team) {
     return (
       <>
@@ -59,27 +66,50 @@ export function TeamPageClient({
     );
   }
 
-  const handleRemoveMember = async (userId: string) => {
-    if (!confirm('Are you sure you want to remove this member from the team?')) {
-      return;
-    }
+  const handleRemoveMember = (userId: string) => {
+    const member = members.find((m) => m.user_id === userId);
+    setConfirmAction({
+      type: 'remove',
+      id: userId,
+      name: member?.full_name || member?.email,
+    });
+  };
 
-    const result = await removeMember(team.id, userId);
+  const handleChangeRole = async (userId: string, newRole: 'admin' | 'member') => {
+    setIsProcessing(true);
+    const result = await changeRole(team.id, userId, newRole);
+    setIsProcessing(false);
+
     if (result.error) {
-      alert(result.error);
+      setError(result.error);
+      setTimeout(() => setError(null), 3000);
     } else {
       router.refresh();
     }
   };
 
-  const handleCancelInvite = async (inviteId: string) => {
-    if (!confirm('Are you sure you want to cancel this invitation?')) {
-      return;
+  const handleCancelInvite = (inviteId: string) => {
+    setConfirmAction({ type: 'cancel-invite', id: inviteId });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+
+    setIsProcessing(true);
+    let result;
+
+    if (confirmAction.type === 'remove') {
+      result = await removeMember(team.id, confirmAction.id);
+    } else {
+      result = await cancelInvite(confirmAction.id);
     }
 
-    const result = await cancelInvite(inviteId);
+    setIsProcessing(false);
+    setConfirmAction(null);
+
     if (result.error) {
-      alert(result.error);
+      setError(result.error);
+      setTimeout(() => setError(null), 3000);
     } else {
       router.refresh();
     }
@@ -105,6 +135,7 @@ export function TeamPageClient({
         currentUserId={currentUserId}
         userRole={userRole}
         onRemoveMember={handleRemoveMember}
+        onChangeRole={handleChangeRole}
       />
 
       {canManage && (
@@ -122,10 +153,33 @@ export function TeamPageClient({
         teamId={team.id}
       />
 
-      {/* Toast for link copied */}
+      <ConfirmModal
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={handleConfirmAction}
+        isLoading={isProcessing}
+        title={
+          confirmAction?.type === 'remove'
+            ? 'Remove Team Member'
+            : 'Cancel Invitation'
+        }
+        description={
+          confirmAction?.type === 'remove'
+            ? `Are you sure you want to remove ${confirmAction.name || 'this member'} from the team? They will lose access to all team resources.`
+            : 'Are you sure you want to cancel this invitation? The invite link will no longer work.'
+        }
+        confirmText={confirmAction?.type === 'remove' ? 'Remove' : 'Cancel Invite'}
+      />
+
       {linkCopied && (
         <div className="fixed bottom-4 right-4 rounded-md bg-success px-4 py-2 text-sm font-medium text-bg-0 shadow-lg animate-fade-in">
           Invite link copied to clipboard!
+        </div>
+      )}
+
+      {error && (
+        <div className="fixed bottom-4 right-4 rounded-md bg-error px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-in">
+          {error}
         </div>
       )}
     </div>

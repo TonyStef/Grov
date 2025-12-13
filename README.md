@@ -20,7 +20,7 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-Grov captures reasoning from your Claude Code sessions and injects it into future sessions. Your AI remembers what it learned.
+Grov gives your team a shared AI memory.
 
 ## The Problem
 

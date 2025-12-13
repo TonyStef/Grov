@@ -100,7 +100,7 @@ grov sync --enable --team ID  # Enable sync for a team
 
 Once enabled, memories automatically sync to [app.grov.dev](https://app.grov.dev) where your team can:
 - Browse all captured reasoning
-- Search across sessions
+- **Hybrid search** - semantic (AI understands meaning) + lexical (keyword matching)
 - Invite team members
 - See who learned what
 
@@ -209,7 +209,7 @@ YOU MAY SKIP EXPLORE AGENTS for files mentioned above.
 - [x] Anti-drift detection & correction
 - [x] Team sync (cloud backend)
 - [x] Web dashboard
-- [ ] Semantic search
+- [x] Hybrid search (semantic + lexical)
 - [ ] VS Code extension
 
 ## Contributing

@@ -1,14 +1,11 @@
-// LLM-based extraction using OpenAI GPT-3.5-turbo for reasoning summaries
-// and Anthropic Claude Haiku for drift detection
+// LLM-based extraction using Anthropic Claude Haiku for drift detection
 
-import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from 'dotenv';
 import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
-import type { ParsedSession } from './jsonl-parser.js';
-import type { TaskStatus, SessionState, StepRecord } from './store.js';
+import type { SessionState, StepRecord } from './store.js';
 import { debugLLM } from './debug.js';
 import { truncate } from './utils.js';
 
@@ -19,35 +16,7 @@ if (existsSync(grovEnvPath)) {
   config({ path: grovEnvPath });
 }
 
-// Extracted reasoning structure
-export interface ExtractedReasoning {
-  task: string;
-  goal: string;
-  reasoning_trace: string[];
-  files_touched: string[];
-  decisions: Array<{ choice: string; reason: string }>;
-  constraints: string[];
-  status: TaskStatus;
-  tags: string[];
-}
-
-let client: OpenAI | null = null;
 let anthropicClient: Anthropic | null = null;
-
-/**
- * Initialize the OpenAI client
- */
-function getClient(): OpenAI {
-  if (!client) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      // SECURITY: Generic error to avoid confirming API key mechanism exists
-      throw new Error('LLM extraction unavailable');
-    }
-    client = new OpenAI({ apiKey });
-  }
-  return client;
-}
 
 /**
  * Initialize the Anthropic client
@@ -61,13 +30,6 @@ function getAnthropicClient(): Anthropic {
     anthropicClient = new Anthropic({ apiKey });
   }
   return anthropicClient;
-}
-
-/**
- * Check if LLM extraction is available (OpenAI API key set)
- */
-export function isLLMAvailable(): boolean {
-  return !!process.env.OPENAI_API_KEY;
 }
 
 // ============================================
@@ -220,296 +182,6 @@ function createFallbackIntent(prompt: string): ExtractedIntent {
  */
 export function isIntentExtractionAvailable(): boolean {
   return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
-}
-
-/**
- * Check if Anthropic API is available (for drift detection)
- */
-export function isAnthropicAvailable(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY;
-}
-
-/**
- * Get the drift model to use (from env or default)
- */
-export function getDriftModel(): string {
-  return process.env.GROV_DRIFT_MODEL || 'claude-haiku-4-5';
-}
-
-/**
- * Extract structured reasoning from a parsed session using GPT-3.5-turbo
- */
-export async function extractReasoning(session: ParsedSession): Promise<ExtractedReasoning> {
-  const openai = getClient();
-
-  // Build session summary for the prompt
-  const sessionSummary = buildSessionSummary(session);
-
-  const response = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    max_tokens: 1024,
-    messages: [
-      {
-        role: 'system',
-        content: 'You are a helpful assistant that extracts structured information from coding sessions. Always respond with valid JSON only, no explanation.'
-      },
-      {
-        role: 'user',
-        content: `Analyze this Claude Code session and extract a structured reasoning summary.
-
-SESSION DATA:
-${sessionSummary}
-
-Extract the following as JSON:
-{
-  "task": "Brief description (1 sentence)",
-  "goal": "The underlying problem being solved",
-  "reasoning_trace": [
-    "Be SPECIFIC: include file names, function names, line numbers when relevant",
-    "Format: '[Action] [target] to/for [purpose]'",
-    "Example: 'Read auth.ts:47 to understand token refresh logic'",
-    "Example: 'Fixed null check in validateToken() - was causing silent failures'",
-    "NOT: 'Investigated auth' or 'Fixed bug'"
-  ],
-  "decisions": [{"choice": "What was decided", "reason": "Why this over alternatives"}],
-  "constraints": ["Discovered limitations, rate limits, incompatibilities"],
-  "status": "complete|partial|question|abandoned",
-  "tags": ["relevant", "domain", "tags"]
-}
-
-IMPORTANT for reasoning_trace:
-- Each entry should be ACTIONABLE information for future developers
-- Include specific file:line references when possible
-- Explain WHY not just WHAT (e.g., "Chose JWT over sessions because stateless scales better")
-- Bad: "Fixed the bug" / Good: "Fixed race condition in UserService.save() - was missing await"
-
-Status definitions:
-- "complete": Task was finished, implementation done
-- "partial": Work started but not finished
-- "question": Claude asked a question and is waiting for user response
-- "abandoned": User interrupted or moved to different topic
-
-RESPONSE RULES:
-- English only (translate if input is in other language)
-- No emojis
-- Valid JSON only`
-      }
-    ]
-  });
-
-  // Parse the response
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error('No response from OpenAI');
-  }
-
-  try {
-    // SECURITY: Parse to plain object first, then sanitize prototype pollution
-    const rawParsed = JSON.parse(content) as Record<string, unknown>;
-
-    // SECURITY: Prevent prototype pollution from LLM-generated JSON
-    // An attacker could manipulate LLM to return {"__proto__": {"isAdmin": true}}
-    const pollutionKeys = ['__proto__', 'constructor', 'prototype'];
-    for (const key of pollutionKeys) {
-      if (key in rawParsed) {
-        delete rawParsed[key];
-      }
-    }
-
-    const extracted = rawParsed as Partial<ExtractedReasoning>;
-
-    // SECURITY: Validate types to prevent LLM injection attacks
-    const safeTask = typeof extracted.task === 'string' ? extracted.task : '';
-    const safeGoal = typeof extracted.goal === 'string' ? extracted.goal : '';
-    const safeTrace = Array.isArray(extracted.reasoning_trace)
-      ? extracted.reasoning_trace.filter((t): t is string => typeof t === 'string')
-      : [];
-    const safeDecisions = Array.isArray(extracted.decisions)
-      ? extracted.decisions.filter((d): d is { choice: string; reason: string } =>
-          d && typeof d === 'object' && typeof d.choice === 'string' && typeof d.reason === 'string')
-      : [];
-    const safeConstraints = Array.isArray(extracted.constraints)
-      ? extracted.constraints.filter((c): c is string => typeof c === 'string')
-      : [];
-    const safeTags = Array.isArray(extracted.tags)
-      ? extracted.tags.filter((t): t is string => typeof t === 'string')
-      : [];
-
-    // Fill defaults with validated values
-    return {
-      task: safeTask || session.userMessages[0]?.substring(0, 100) || 'Unknown task',
-      goal: safeGoal || safeTask || 'Unknown goal',
-      reasoning_trace: safeTrace,
-      files_touched: session.filesRead.concat(session.filesWritten),
-      decisions: safeDecisions,
-      constraints: safeConstraints,
-      status: validateStatus(extracted.status),
-      tags: safeTags
-    };
-  } catch (parseError) {
-    // If JSON parsing fails, return basic extraction
-    debugLLM('Failed to parse LLM response, using fallback');
-    return createFallbackExtraction(session);
-  }
-}
-
-/**
- * Classify just the task status (lighter weight than full extraction)
- */
-export async function classifyTaskStatus(session: ParsedSession): Promise<TaskStatus> {
-  const openai = getClient();
-
-  // Get last few exchanges for classification
-  const lastMessages = session.userMessages.slice(-2).join('\n---\n');
-  const lastAssistant = session.assistantMessages.slice(-1)[0] || '';
-
-  const response = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    max_tokens: 50,
-    messages: [
-      {
-        role: 'system',
-        content: 'Classify conversation state. Return ONLY one word: complete, partial, question, or abandoned.'
-      },
-      {
-        role: 'user',
-        content: `Last user message(s):
-${lastMessages}
-
-Last assistant response (truncated):
-${lastAssistant.substring(0, 500)}
-
-Files written: ${session.filesWritten.length}
-Files read: ${session.filesRead.length}
-
-Classification:`
-      }
-    ]
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    return 'partial';
-  }
-
-  return validateStatus(content.trim().toLowerCase());
-}
-
-/**
- * Build a summary of the session for the LLM prompt
- */
-function buildSessionSummary(session: ParsedSession): string {
-  const lines: string[] = [];
-
-  // User messages
-  lines.push('USER MESSAGES:');
-  session.userMessages.forEach((msg, i) => {
-    lines.push(`[${i + 1}] ${truncate(msg, 300)}`);
-  });
-  lines.push('');
-
-  // Files touched
-  lines.push('FILES READ:');
-  session.filesRead.slice(0, 10).forEach(f => lines.push(`  - ${f}`));
-  if (session.filesRead.length > 10) {
-    lines.push(`  ... and ${session.filesRead.length - 10} more`);
-  }
-  lines.push('');
-
-  lines.push('FILES WRITTEN/EDITED:');
-  session.filesWritten.forEach(f => lines.push(`  - ${f}`));
-  lines.push('');
-
-  // Tool usage summary
-  lines.push('TOOL USAGE:');
-  const toolCounts = session.toolCalls.reduce((acc, t) => {
-    acc[t.name] = (acc[t.name] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  Object.entries(toolCounts).forEach(([name, count]) => {
-    lines.push(`  - ${name}: ${count}x`);
-  });
-  lines.push('');
-
-  // Last assistant message (often contains summary/conclusion)
-  const lastAssistant = session.assistantMessages[session.assistantMessages.length - 1];
-  if (lastAssistant) {
-    lines.push('LAST ASSISTANT MESSAGE:');
-    lines.push(truncate(lastAssistant, 500));
-  }
-
-  return lines.join('\n');
-}
-
-/**
- * Create fallback extraction when LLM fails
- */
-function createFallbackExtraction(session: ParsedSession): ExtractedReasoning {
-  const filesTouched = [...new Set([...session.filesRead, ...session.filesWritten])];
-
-  return {
-    task: session.userMessages[0]?.substring(0, 100) || 'Unknown task',
-    goal: session.userMessages[0]?.substring(0, 100) || 'Unknown goal',
-    reasoning_trace: generateBasicTrace(session),
-    files_touched: filesTouched,
-    decisions: [],
-    constraints: [],
-    status: session.filesWritten.length > 0 ? 'complete' : 'partial',
-    tags: generateTagsFromFiles(filesTouched)
-  };
-}
-
-/**
- * Generate basic reasoning trace from tool usage
- */
-function generateBasicTrace(session: ParsedSession): string[] {
-  const trace: string[] = [];
-  const toolCounts = session.toolCalls.reduce((acc, t) => {
-    acc[t.name] = (acc[t.name] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  if (toolCounts['Read']) trace.push(`Read ${toolCounts['Read']} files`);
-  if (toolCounts['Write']) trace.push(`Wrote ${toolCounts['Write']} files`);
-  if (toolCounts['Edit']) trace.push(`Edited ${toolCounts['Edit']} files`);
-  if (toolCounts['Grep'] || toolCounts['Glob']) trace.push('Searched codebase');
-  if (toolCounts['Bash']) trace.push(`Ran ${toolCounts['Bash']} commands`);
-
-  return trace;
-}
-
-/**
- * Generate tags from file paths
- */
-function generateTagsFromFiles(files: string[]): string[] {
-  const tags = new Set<string>();
-
-  for (const file of files) {
-    const parts = file.split('/');
-    for (const part of parts) {
-      if (part && !part.includes('.') && part !== 'src' && part !== 'lib') {
-        tags.add(part.toLowerCase());
-      }
-    }
-    // Common patterns
-    if (file.includes('auth')) tags.add('auth');
-    if (file.includes('api')) tags.add('api');
-    if (file.includes('test')) tags.add('test');
-  }
-
-  return [...tags].slice(0, 10);
-}
-
-/**
- * Validate and normalize status
- */
-function validateStatus(status: string | undefined): TaskStatus {
-  const normalized = status?.toLowerCase().trim();
-  if (normalized === 'complete' || normalized === 'partial' ||
-      normalized === 'question' || normalized === 'abandoned') {
-    return normalized;
-  }
-  return 'partial'; // Default
 }
 
 // ============================================
@@ -858,6 +530,12 @@ Do not rely on specific keywords in any language. The same intent can be express
 
 The conversation history and tool usage are your most important signals. What has the assistant been doing? What is the user trying to accomplish? Has that goal been achieved?
 
+CRITICAL - Q&A DURING PLANNING:
+If the current task_type is "planning" and the user asks a clarifying question (e.g., "how does X work?", "what about Y?", "clarify Z"), this is NOT a new information task. It is a CONTINUATION of the planning task. The user is gathering information to make a planning decision, not requesting standalone information.
+- If original task_type was planning → keep it as planning, action=continue
+- Only mark task_complete for planning when user explicitly confirms a final decision or asks to proceed with implementation
+- Asking to "write to file" or "document the plan" is NOT task_complete - it's still part of planning documentation
+
 When in doubt between continue and task_complete, ask yourself: Would it be valuable to save what we have so far? For information requests, yes, save each answer. For planning, only save when a decision is made. For implementation, only save when work is verified complete.
 
 RESPONSE RULES:
@@ -894,7 +572,7 @@ RESPONSE RULES:
       analysis.step_reasoning = assistantResponse.substring(0, 1000);
     }
 
-    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal=${analysis.current_goal?.substring(0, 50) || 'N/A'}`);
+    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal="${analysis.current_goal?.substring(0, 50) || 'N/A'}" reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
 
     return analysis;
   } catch (parseError) {

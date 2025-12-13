@@ -11,6 +11,7 @@ import type {
 import { supabase } from '../db/client.js';
 import { requireAuth, getAuthenticatedUser } from '../middleware/auth.js';
 import { requireTeamMember, requireTeamAdmin } from '../middleware/team.js';
+import { generateMemoryEmbedding, generateEmbedding, isEmbeddingEnabled } from '../lib/embeddings.js';
 
 // Typed error response helper
 function sendError(reply: FastifyReply, status: number, error: string) {
@@ -37,10 +38,15 @@ function sanitizeSearchInput(input: string): string {
 }
 
 export default async function memoriesRoutes(fastify: FastifyInstance) {
-  // List memories for a team
+  // List memories for a team (with optional hybrid search)
   fastify.get<{
     Params: { id: string };
-    Querystring: MemoryFilters & { limit?: string; cursor?: string };
+    Querystring: MemoryFilters & {
+      limit?: string;
+      cursor?: string;
+      context?: string;        // User prompt for semantic search
+      current_files?: string;  // Comma-separated file paths for boost
+    };
     Reply: MemoryListResponse;
   }>(
     '/:id/memories',
@@ -55,13 +61,61 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         to,
         status,
         user_id,
+        project_path,
         limit: limitStr = '20',
         cursor,
+        context,
+        current_files,
       } = request.query;
 
       const limit = Math.min(parseInt(limitStr, 10), 100);
 
-      // Build query
+      // HYBRID SEARCH: If context provided and embeddings enabled, use semantic search
+      if (context && project_path && isEmbeddingEnabled()) {
+        const queryEmbedding = await generateEmbedding(context);
+
+        if (queryEmbedding) {
+          // Parse current_files (comma-separated string → array)
+          const currentFilesArray = current_files
+            ? current_files.split(',').map(f => f.trim()).filter(Boolean)
+            : [];
+
+          // Convert embedding array to PostgreSQL vector string format
+          const embeddingStr = `[${queryEmbedding.join(',')}]`;
+
+          // Call hybrid_search_memories RPC function
+          const { data, error } = await supabase.rpc('hybrid_search_memories', {
+            p_team_id: id,
+            p_project_path: project_path,
+            p_query_embedding: embeddingStr,  // Send as PostgreSQL vector string format
+            p_query_text: context,
+            p_current_files: currentFilesArray,
+            p_similarity_threshold: 0.4,  // Semantic threshold (0.4 filters loosely related)
+            p_limit: 5, // Max 5 results for injection
+          });
+
+          if (error) {
+            fastify.log.error(`[SEARCH] Hybrid search failed: ${error.message}`);
+            // Fall through to regular query
+          } else if (data && data.length > 0) {
+            return {
+              memories: data || [],
+              cursor: null, // Hybrid search doesn't support cursor pagination
+              has_more: false,
+            };
+          } else {
+            return {
+              memories: [],
+              cursor: null,
+              has_more: false,
+            };
+          }
+        } else {
+          fastify.log.warn('[SEARCH] Failed to generate query embedding, falling back to regular search');
+        }
+      }
+
+      // FALLBACK: Regular query (no semantic search)
       let query = supabase
         .from('memories')
         .select('*')
@@ -99,6 +153,10 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       if (user_id) {
         query = query.eq('user_id', user_id);
+      }
+
+      if (project_path) {
+        query = query.eq('project_path', project_path);
       }
 
       if (cursor) {
@@ -166,22 +224,47 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         return sendError(reply, 400, 'memories array is required');
       }
 
-      // Prepare all memories for batch upsert
-      const preparedMemories = memories.map(memory => ({
-        team_id: id,
-        user_id: user.id,
-        client_task_id: memory.client_task_id || null,
-        project_path: memory.project_path,
-        original_query: memory.original_query,
-        goal: memory.goal,
-        reasoning_trace: memory.reasoning_trace || [],
-        files_touched: memory.files_touched || [],
-        decisions: memory.decisions || [],
-        constraints: memory.constraints || [],
-        tags: memory.tags || [],
-        status: memory.status,
-        linked_commit: memory.linked_commit,
-      }));
+      // Limit batch size to prevent abuse
+      const MAX_MEMORIES_PER_SYNC = 100;
+      if (memories.length > MAX_MEMORIES_PER_SYNC) {
+        return sendError(reply, 400, `Maximum ${MAX_MEMORIES_PER_SYNC} memories per sync`);
+      }
+
+      // Prepare all memories for batch upsert (with embeddings)
+      const embeddingsEnabled = isEmbeddingEnabled();
+
+      const preparedMemories = await Promise.all(
+        memories.map(async (memory) => {
+          // Generate embedding if enabled
+          let embedding: number[] | null = null;
+          if (embeddingsEnabled) {
+            embedding = await generateMemoryEmbedding({
+              goal: memory.goal,
+              original_query: memory.original_query,
+              reasoning_trace: memory.reasoning_trace,
+              decisions: memory.decisions,
+            });
+          }
+
+          return {
+            team_id: id,
+            user_id: user.id,
+            client_task_id: memory.client_task_id || null,
+            project_path: memory.project_path,
+            original_query: memory.original_query,
+            goal: memory.goal,
+            reasoning_trace: memory.reasoning_trace || [],
+            files_touched: memory.files_touched || [],
+            decisions: memory.decisions || [],
+            constraints: memory.constraints || [],
+            tags: memory.tags || [],
+            status: memory.status,
+            linked_commit: memory.linked_commit,
+            // Add embedding (null if generation failed or disabled)
+            ...(embedding && { embedding }),
+          };
+        })
+      );
 
       let synced = 0;
       let failed = 0;
@@ -203,8 +286,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           synced += count ?? batch.length;
         }
       }
-
-      fastify.log.info(`Synced ${synced}/${synced + failed} memories for team ${id} by user ${user.email}`);
 
       const response = {
         synced,
@@ -241,8 +322,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         fastify.log.error(error);
         return reply.status(500).send({ error: 'Failed to delete memory' });
       }
-
-      fastify.log.info(`Deleted memory ${memoryId} from team ${id} by user ${user.email}`);
 
       return { success: true };
     }

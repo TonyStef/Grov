@@ -6,7 +6,7 @@
 
 import 'dotenv/config';
 import { getSessionState, createSessionState, type SessionState, type StepRecord } from '../lib/store.js';
-import { extractIntent, isAnthropicAvailable } from '../lib/llm-extractor.js';
+import { extractIntent } from '../lib/llm-extractor.js';
 import { checkDrift, checkDriftBasic, isDriftCheckAvailable, scoreToCorrectionLevel, type DriftCheckResult } from '../lib/drift-checker-proxy.js';
 import { buildCorrection, formatCorrectionForInjection } from '../lib/correction-builder-proxy.js';
 

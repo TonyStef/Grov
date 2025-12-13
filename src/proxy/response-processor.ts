@@ -15,12 +15,9 @@ import {
 } from '../lib/store.js';
 import { syncTask } from '../lib/cloud-sync.js';
 import {
-  extractReasoning,
-  isLLMAvailable,
   extractReasoningAndDecisions,
   isReasoningExtractionAvailable,
 } from '../lib/llm-extractor.js';
-import type { ParsedSession } from '../lib/jsonl-parser.js';
 
 /**
  * Group of steps that share the same Claude response (reasoning)
@@ -143,17 +140,23 @@ export async function saveToTeamMemory(
   const task = createTask(taskData);
 
   // Fire-and-forget cloud sync; never block capture path
+  // NOTE: Do NOT invalidate cache after sync - cache persists until CLEAR/Summary/restart
+  // Next SESSION will get fresh data, current session keeps its context
   syncTask(task)
     .then((success) => {
       if (success) {
         markTaskSynced(task.id);
+        console.log(`[SYNC] Task ${task.id.substring(0, 8)} synced to cloud`);
       } else {
         setTaskSyncError(task.id, 'Sync not enabled or team not configured');
+        console.log(`[SYNC] Task ${task.id.substring(0, 8)} sync skipped (not enabled)`);
       }
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : 'Unknown sync error';
       setTaskSyncError(task.id, message);
+      console.error(`[SYNC] Task ${task.id.substring(0, 8)} sync failed: ${message}`);
+      // NOTE: Do NOT invalidate cache - data not in cloud
     });
 }
 
@@ -245,21 +248,6 @@ async function buildTaskFromSession(
     } catch {
       // Fall back to basic extraction
     }
-  } else if (isLLMAvailable() && steps.length > 0) {
-    // Fallback to OpenAI-based extraction if Anthropic not available
-    try {
-      const pseudoSession = buildPseudoSession(sessionState, steps);
-      const extracted = await extractReasoning(pseudoSession);
-
-      if (extracted.decisions.length > 0) {
-        decisions = extracted.decisions;
-      }
-      if (extracted.constraints.length > 0) {
-        constraints = [...new Set([...constraints, ...extracted.constraints])];
-      }
-    } catch {
-      // Fall back to basic extraction
-    }
   }
 
   return {
@@ -273,30 +261,6 @@ async function buildTaskFromSession(
     constraints,
     status: triggerReason === 'abandoned' ? 'abandoned' : 'complete',
     trigger_reason: triggerReason,
-  };
-}
-
-/**
- * Build pseudo ParsedSession for LLM extraction
- */
-function buildPseudoSession(
-  sessionState: SessionState,
-  steps: StepRecord[]
-): ParsedSession {
-  return {
-    sessionId: sessionState.session_id,
-    projectPath: sessionState.project_path,
-    startTime: sessionState.start_time,
-    endTime: sessionState.last_update,
-    userMessages: [sessionState.original_goal || ''],
-    assistantMessages: steps.map(s => `[${s.action_type}] ${s.files.join(', ')}`),
-    toolCalls: steps.map(s => ({
-      name: s.action_type,
-      input: { files: s.files, command: s.command },
-    })),
-    filesRead: steps.filter(s => s.action_type === 'read').flatMap(s => s.files),
-    filesWritten: steps.filter(s => s.action_type === 'write' || s.action_type === 'edit').flatMap(s => s.files),
-    rawEntries: [],
   };
 }
 

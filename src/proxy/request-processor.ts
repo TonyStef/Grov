@@ -1,49 +1,119 @@
 // Request processor - handles context injection from team memory
 // Reference: plan_proxy_local.md Section 2.1
 
-import {
-  getTasksForProject,
-  getTasksByFiles,
-  getStepsReasoningByPath,
-  type Task,
-} from '../lib/store.js';
+import { type Task, type TaskStatus } from '../lib/store.js';
 import { truncate } from '../lib/utils.js';
+import { fetchTeamMemories } from '../lib/api-client.js';
+import type { Memory } from '@grov/shared';
 
 /**
- * Build context from team memory for injection (PAST sessions only)
- * Queries tasks and file_reasoning tables, excluding current session data
- * @param currentSessionId - Session ID to exclude (ensures only past session data)
+ * Build context from CLOUD team memory for injection
+ * Fetches memories from Supabase via API (cloud-first approach)
+ * Uses hybrid search (semantic + lexical) when userPrompt is provided
+ *
+ * @param teamId - Team UUID from sync configuration
+ * @param projectPath - Project path to filter by
+ * @param mentionedFiles - Files mentioned in user messages (for boost)
+ * @param userPrompt - User's prompt for semantic search (optional)
+ * @returns Formatted context string or null if no memories found
  */
-export function buildTeamMemoryContext(
+export async function buildTeamMemoryContextCloud(
+  teamId: string,
   projectPath: string,
   mentionedFiles: string[],
-  currentSessionId?: string
-): string | null {
-  // Get recent completed tasks for this project
-  const tasks = getTasksForProject(projectPath, {
-    status: 'complete',
-    limit: 10,
-  });
+  userPrompt?: string
+): Promise<string | null> {
+  const startTime = Date.now();
+  const hasContext = userPrompt && userPrompt.trim().length > 0;
+  console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
+  console.log(`[CLOUD] buildTeamMemoryContextCloud START`);
+  console.log(`[CLOUD] Team: ${teamId.substring(0, 8)}...`);
+  console.log(`[CLOUD] Project: ${projectPath}`);
+  console.log(`[CLOUD] Prompt: "${hasContext ? userPrompt!.substring(0, 60) + '...' : 'N/A'}"`);
+  console.log(`[CLOUD] Files for boost: ${mentionedFiles.length > 0 ? mentionedFiles.join(', ') : 'none'}`);
 
-  // Get tasks that touched mentioned files
-  const fileTasks = mentionedFiles.length > 0
-    ? getTasksByFiles(projectPath, mentionedFiles, { status: 'complete', limit: 5 })
-    : [];
+  try {
+    // Fetch memories from cloud API (hybrid search if context provided)
+    const fetchStart = Date.now();
+    const memories = await fetchTeamMemories(teamId, projectPath, {
+      status: 'complete',
+      limit: 5, // Max 5 memories for injection (Convex Combination scoring)
+      files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
+      context: hasContext ? userPrompt : undefined,
+      current_files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
+    });
+    const fetchTime = Date.now() - fetchStart;
 
-  // Get file-level reasoning from steps table (PAST sessions only)
-  // Pass currentSessionId to exclude current session data
-  const fileReasonings = mentionedFiles.length > 0
-    ? mentionedFiles.flatMap(f => getStepsReasoningByPath(f, 3, currentSessionId))
-    : [];
+    if (memories.length === 0) {
+      console.log(`[CLOUD] No memories found (fetch took ${fetchTime}ms)`);
+      console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
+      return null;
+    }
 
-  // Combine unique tasks
-  const allTasks = [...new Map([...tasks, ...fileTasks].map(t => [t.id, t])).values()];
+    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
+    console.log(`[CLOUD] Fetched ${memories.length} memories in ${fetchTime}ms`);
+    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
 
-  if (allTasks.length === 0 && fileReasonings.length === 0) {
-    return null;
+    // Log each memory with scores (if available from hybrid search)
+    for (let i = 0; i < memories.length; i++) {
+      const mem = memories[i] as unknown as Record<string, unknown>;
+      const semScore = typeof mem.semantic_score === 'number' ? (mem.semantic_score as number).toFixed(3) : '-';
+      const lexScore = typeof mem.lexical_score === 'number' ? (mem.lexical_score as number).toFixed(3) : '-';
+      const combScore = typeof mem.combined_score === 'number' ? (mem.combined_score as number).toFixed(3) : '-';
+      const boosted = mem.file_boost_applied ? '🚀' : '  ';
+      const query = String(memories[i].original_query || '').substring(0, 50);
+      const filesCount = memories[i].files_touched?.length || 0;
+      const reasoningCount = memories[i].reasoning_trace?.length || 0;
+
+      console.log(`[CLOUD] ${i + 1}. ${boosted} [${combScore}] sem=${semScore} lex=${lexScore} | files=${filesCount} reasoning=${reasoningCount}`);
+      console.log(`[CLOUD]    "${query}..."`);
+    }
+
+    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
+
+    // Convert Memory[] to Task[] format for the existing formatter
+    const tasks = memories.map(memoryToTask);
+
+    // Reuse existing formatter (no file-level reasoning from cloud yet)
+    const context = formatTeamMemoryContext(tasks, [], mentionedFiles);
+
+    // Estimate tokens (~4 chars per token)
+    const estimatedTokens = Math.round(context.length / 4);
+    const totalTime = Date.now() - startTime;
+
+    console.log(`[CLOUD] Context built: ${context.length} chars (~${estimatedTokens} tokens)`);
+    console.log(`[CLOUD] Total time: ${totalTime}ms (fetch: ${fetchTime}ms, format: ${totalTime - fetchTime}ms)`);
+    console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
+
+    return context;
+
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`[CLOUD] buildTeamMemoryContextCloud failed: ${errorMsg}`);
+    return null;  // Fail silent - don't block Claude Code
   }
+}
 
-  return formatTeamMemoryContext(allTasks, fileReasonings, mentionedFiles);
+/**
+ * Convert Memory (cloud format) to Task (local format)
+ * Used to reuse existing formatTeamMemoryContext function
+ */
+function memoryToTask(memory: Memory): Task {
+  return {
+    id: memory.id,
+    project_path: memory.project_path,
+    user: memory.user_id || undefined,
+    original_query: memory.original_query,
+    goal: memory.goal || undefined,
+    reasoning_trace: memory.reasoning_trace || [],
+    files_touched: memory.files_touched || [],
+    decisions: memory.decisions || [],
+    constraints: memory.constraints || [],
+    status: memory.status as TaskStatus,
+    tags: memory.tags || [],
+    linked_commit: memory.linked_commit || undefined,
+    created_at: memory.created_at,
+  };
 }
 
 /**
@@ -76,7 +146,7 @@ function formatTeamMemoryContext(
   // Inject up to 5 pairs (10 entries) per task for rich context
   if (tasks.length > 0) {
     lines.push('Related past tasks:');
-    for (const task of tasks.slice(0, 3)) { // Limit to 3 tasks to manage token budget
+    for (const task of tasks.slice(0, 5)) { // Limit to 5 tasks (Convex Combination top results)
       lines.push(`- ${truncate(task.original_query, 60)}`);
       if (task.files_touched.length > 0) {
         const fileList = task.files_touched.slice(0, 5).map(f => f.split('/').pop()).join(', ');
@@ -183,4 +253,45 @@ export function extractFilesFromMessages(
   }
 
   return [...new Set(files)];
+}
+
+/**
+ * Extract the last user prompt from messages for semantic search
+ * Returns clean text without system tags
+ */
+export function extractLastUserPrompt(
+  messages: Array<{ role: string; content: unknown }>
+): string | undefined {
+  // Find last user message
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+
+    let textContent = '';
+
+    // Handle string content
+    if (typeof msg.content === 'string') {
+      textContent = msg.content;
+    }
+
+    // Handle array content (Claude Code API format)
+    if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'text' && 'text' in block && typeof block.text === 'string') {
+          textContent += block.text + '\n';
+        }
+      }
+    }
+
+    // Strip system-reminder tags to get clean user content
+    const cleanContent = textContent
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+
+    if (cleanContent) {
+      return cleanContent;
+    }
+  }
+
+  return undefined;
 }

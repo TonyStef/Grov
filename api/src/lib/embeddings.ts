@@ -98,7 +98,6 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
       return null;
     }
 
-    console.log(`[EMBEDDINGS] Generated ${embedding.length} dims for ${text.length} chars`);
     return embedding;
   } catch (error) {
     // Log error but don't expose details to caller

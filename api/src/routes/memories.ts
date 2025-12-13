@@ -72,26 +72,13 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       // HYBRID SEARCH: If context provided and embeddings enabled, use semantic search
       if (context && project_path && isEmbeddingEnabled()) {
-        const searchStartTime = Date.now();
-        fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
-        fastify.log.info(`[SEARCH] Hybrid search START`);
-        fastify.log.info(`[SEARCH] Context: "${context.substring(0, 50)}..."`);
-        fastify.log.info(`[SEARCH] Project: ${project_path}`);
-
-        // Generate embedding for query
-        const embeddingStart = Date.now();
         const queryEmbedding = await generateEmbedding(context);
-        const embeddingTime = Date.now() - embeddingStart;
 
         if (queryEmbedding) {
-          fastify.log.info(`[SEARCH] Embedding generated in ${embeddingTime}ms`);
-
           // Parse current_files (comma-separated string → array)
           const currentFilesArray = current_files
             ? current_files.split(',').map(f => f.trim()).filter(Boolean)
             : [];
-
-          fastify.log.info(`[SEARCH] Files for boost: ${currentFilesArray.length > 0 ? currentFilesArray.join(', ') : 'none'}`);
 
           // Convert embedding array to PostgreSQL vector string format
           const embeddingStr = `[${queryEmbedding.join(',')}]`;

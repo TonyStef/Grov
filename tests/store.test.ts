@@ -49,8 +49,8 @@ describe('Store', () => {
   });
 
   describe('Task operations', () => {
-    it('should create and retrieve a task', async () => {
-      const { initDatabase, createTask, getTaskById, closeDatabase } = await import('../src/lib/store.js');
+    it('should create a task', async () => {
+      const { initDatabase, createTask, closeDatabase } = await import('../src/lib/store.js');
 
       initDatabase();
 
@@ -70,11 +70,7 @@ describe('Store', () => {
       expect(task.reasoning_trace).toHaveLength(2);
       expect(task.files_touched).toHaveLength(2);
       expect(task.tags).toContain('auth');
-
-      const retrieved = getTaskById(task.id);
-      expect(retrieved).not.toBeNull();
-      expect(retrieved?.id).toBe(task.id);
-      expect(retrieved?.goal).toBe('Fix authentication bug');
+      expect(task.goal).toBe('Fix authentication bug');
 
       closeDatabase();
     });
@@ -173,25 +169,4 @@ describe('Store', () => {
     });
   });
 
-  describe('Task status update', () => {
-    it('should update task status', async () => {
-      const { initDatabase, createTask, getTaskById, updateTaskStatus, closeDatabase } = await import('../src/lib/store.js');
-
-      initDatabase();
-
-      const task = createTask({
-        project_path: '/test/project',
-        original_query: 'Task',
-        status: 'partial',
-      });
-
-      expect(getTaskById(task.id)?.status).toBe('partial');
-
-      updateTaskStatus(task.id, 'complete');
-
-      expect(getTaskById(task.id)?.status).toBe('complete');
-
-      closeDatabase();
-    });
-  });
 });

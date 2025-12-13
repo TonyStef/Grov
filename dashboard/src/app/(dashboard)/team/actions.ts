@@ -187,6 +187,70 @@ export async function removeMember(teamId: string, memberId: string): Promise<Ac
 }
 
 /**
+ * Change a member's role
+ */
+export async function changeRole(
+  teamId: string,
+  memberId: string,
+  newRole: 'admin' | 'member'
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'You must be logged in to change roles' };
+  }
+
+  if (!['admin', 'member'].includes(newRole)) {
+    return { error: 'Invalid role' };
+  }
+
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('role')
+    .eq('team_id', teamId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!membership || membership.role !== 'owner') {
+    return { error: 'Only owners can change member roles' };
+  }
+
+  const { data: targetMember } = await supabase
+    .from('team_members')
+    .select('role')
+    .eq('team_id', teamId)
+    .eq('user_id', memberId)
+    .single();
+
+  if (!targetMember) {
+    return { error: 'Member not found' };
+  }
+
+  if (targetMember.role === 'owner') {
+    return { error: 'Cannot change the owner role' };
+  }
+
+  if (memberId === user.id) {
+    return { error: 'You cannot change your own role' };
+  }
+
+  const { error } = await supabase
+    .from('team_members')
+    .update({ role: newRole })
+    .eq('team_id', teamId)
+    .eq('user_id', memberId);
+
+  if (error) {
+    return { error: 'Failed to change role. Please try again.' };
+  }
+
+  revalidatePath('/team');
+
+  return { success: true };
+}
+
+/**
  * Cancel a pending invitation
  */
 export async function cancelInvite(inviteId: string): Promise<ActionResult> {

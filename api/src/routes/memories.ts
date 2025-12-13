@@ -84,7 +84,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
           // Call hybrid_search_memories RPC function
-          const rpcStart = Date.now();
           const { data, error } = await supabase.rpc('hybrid_search_memories', {
             p_team_id: id,
             p_project_path: project_path,
@@ -95,42 +94,16 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
             p_limit: 5, // Max 5 results for injection
           });
 
-          const rpcTime = Date.now() - rpcStart;
-          const totalTime = Date.now() - searchStartTime;
-
           if (error) {
-            fastify.log.error(`[SEARCH] Hybrid search FAILED: ${error.message} (${totalTime}ms)`);
-            fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
+            fastify.log.error(`[SEARCH] Hybrid search failed: ${error.message}`);
             // Fall through to regular query
           } else if (data && data.length > 0) {
-            // Detailed logging for testing and monitoring
-            fastify.log.info(`[SEARCH] ───────────────────────────────────────────────`);
-            fastify.log.info(`[SEARCH] RPC completed in ${rpcTime}ms`);
-            fastify.log.info(`[SEARCH] Results: ${data.length} memories`);
-            fastify.log.info(`[SEARCH] ───────────────────────────────────────────────`);
-
-            for (const mem of data) {
-              const memAny = mem as Record<string, unknown>;
-              const semScore = typeof memAny.semantic_score === 'number' ? memAny.semantic_score.toFixed(3) : 'N/A';
-              const lexScore = typeof memAny.lexical_score === 'number' ? memAny.lexical_score.toFixed(3) : 'N/A';
-              const combScore = typeof memAny.combined_score === 'number' ? memAny.combined_score.toFixed(3) : 'N/A';
-              const boosted = memAny.file_boost_applied ? '🚀' : '  ';
-              const query = String(memAny.original_query || '').substring(0, 45);
-
-              fastify.log.info(`[SEARCH] ${boosted} Score: ${combScore} (sem: ${semScore}, lex: ${lexScore}) "${query}..."`);
-            }
-            fastify.log.info(`[SEARCH] ───────────────────────────────────────────────`);
-            fastify.log.info(`[SEARCH] TOTAL TIME: ${totalTime}ms (embed: ${embeddingTime}ms, rpc: ${rpcTime}ms)`);
-            fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
-
             return {
               memories: data || [],
               cursor: null, // Hybrid search doesn't support cursor pagination
               has_more: false,
             };
           } else {
-            fastify.log.info(`[SEARCH] 0 results for "${context.substring(0, 40)}..." (${totalTime}ms)`);
-            fastify.log.info(`[SEARCH] ═══════════════════════════════════════════════`);
             return {
               memories: [],
               cursor: null,
@@ -259,9 +232,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       // Prepare all memories for batch upsert (with embeddings)
       const embeddingsEnabled = isEmbeddingEnabled();
-      if (embeddingsEnabled) {
-        fastify.log.info(`[SYNC] Generating embeddings for ${memories.length} memories`);
-      }
 
       const preparedMemories = await Promise.all(
         memories.map(async (memory) => {
@@ -296,9 +266,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         })
       );
 
-      const withEmbeddings = preparedMemories.filter(m => 'embedding' in m).length;
-      fastify.log.info(`[SYNC] Prepared ${preparedMemories.length} memories (${withEmbeddings} with embeddings)`);
-
       let synced = 0;
       let failed = 0;
       const errors: string[] = [];
@@ -319,8 +286,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           synced += count ?? batch.length;
         }
       }
-
-      fastify.log.info(`Synced ${synced}/${synced + failed} memories for team ${id} by user ${user.email}`);
 
       const response = {
         synced,
@@ -357,8 +322,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         fastify.log.error(error);
         return reply.status(500).send({ error: 'Failed to delete memory' });
       }
-
-      fastify.log.info(`Deleted memory ${memoryId} from team ${id} by user ${user.email}`);
 
       return { success: true };
     }

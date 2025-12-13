@@ -76,7 +76,6 @@ export function buildEmbeddingText(memory: {
  */
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   if (!openai) {
-    console.warn('[EMBEDDINGS] OpenAI client not initialized - skipping embedding');
     return null;
   }
 

@@ -10,6 +10,7 @@
   <a href="https://www.npmjs.com/package/grov"><img src="https://img.shields.io/npm/v/grov" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/grov"><img src="https://img.shields.io/npm/dm/grov" alt="npm downloads"></a>
   <a href="https://github.com/TonyStef/Grov/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="license"></a>
+  <a href="https://app.grov.dev"><img src="https://img.shields.io/badge/Dashboard-app.grov.dev-22c55e" alt="dashboard"></a>
 </p>
 
 <p align="center">
@@ -88,6 +89,17 @@ grov disable      # Disable grov
 - **Database:** `~/.grov/memory.db` (SQLite)
 - **Per-project:** Context is filtered by project path
 - **Local by default:** Memories stay on your machine unless you enable team sync
+
+### Why Sync to Dashboard?
+
+Local memories work great for solo use. The dashboard unlocks:
+
+- **Search across all sessions** - Hybrid semantic + keyword search
+- **Team sharing** - What one dev's AI learns, everyone's AI knows
+- **Cross-device sync** - Switch machines without losing context
+- **Browse & manage** - Visual interface for all captured reasoning
+
+[Open Dashboard](https://app.grov.dev)
 
 ## Team Sync
 

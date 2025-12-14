@@ -297,7 +297,6 @@ export interface TaskAnalysis {
   task_type: 'information' | 'planning' | 'implementation';
   action: 'continue' | 'new_task' | 'subtask' | 'parallel_task' | 'task_complete' | 'subtask_complete';
   task_id: string;
-  current_goal: string;
   parent_task_id?: string;
   reasoning: string;
   step_reasoning?: string;  // Compressed reasoning for steps (if assistantResponse > 1000 chars)
@@ -395,7 +394,6 @@ Return a JSON object with these fields:
 - task_type: one of "information", "planning", or "implementation"
 - action: one of "continue", "task_complete", "new_task", or "subtask_complete"
 - task_id: existing session_id "${currentSession?.session_id || 'NEW'}" or "NEW" for new task
-- current_goal: the goal based on the latest user message
 - reasoning: brief explanation of why you made this decision${compressionInstruction}
 </output>
 
@@ -572,7 +570,7 @@ RESPONSE RULES:
       analysis.step_reasoning = assistantResponse.substring(0, 1000);
     }
 
-    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal="${analysis.current_goal?.substring(0, 50) || 'N/A'}" reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
+    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
 
     return analysis;
   } catch (parseError) {
@@ -583,7 +581,6 @@ RESPONSE RULES:
       task_type: 'implementation',
       action: currentSession ? 'continue' : 'new_task',
       task_id: currentSession?.session_id || 'NEW',
-      current_goal: latestUserMessage.substring(0, 200),
       reasoning: 'Fallback due to parse error',
       step_reasoning: assistantResponse.substring(0, 1000),
     };

@@ -6,6 +6,8 @@
 
 <p align="center"><strong>Collective AI memory for engineering teams.</strong></p>
 
+<p align="center"><em>When one dev's Claude figures something out, every dev's Claude knows it.</em></p>
+
 <p align="center">
   <a href="https://www.npmjs.com/package/grov"><img src="https://img.shields.io/npm/v/grov" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/grov"><img src="https://img.shields.io/npm/dm/grov" alt="npm downloads"></a>
@@ -17,35 +19,47 @@
   <a href="https://grov.dev">Website</a> •
   <a href="https://app.grov.dev">Dashboard</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#team-sync">Team Sync</a> •
+  <a href="#features">Features</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
-Grov gives your team a shared AI memory.
+---
 
 ## The Problem
 
-Every time you start a new Claude Code session:
-- Claude re-explores your codebase from scratch
-- It reads the same files again
-- It rediscovers patterns you've already established
-- You burn tokens on redundant exploration
+Your team's AI agents are learning in silos.
 
-**Measured impact:** A typical task takes 10+ minutes, 7%+ token usage, and 3+ explore agents just to understand the codebase.*
+- Dev A's Claude spends 10 minutes understanding your auth system
+- Dev B's Claude does the exact same exploration the next day
+- Dev C asks a question that was already answered last week
+- Every new session starts from zero
+
+**The waste:** Redundant exploration, duplicate token spend, knowledge that disappears when sessions end.
 
 ## The Solution
 
-Grov captures what Claude learns and injects it back on the next session.
+Grov captures what your team's AI learns and shares it automatically.
 
-![grov demo](demo-converted.gif)
+```
+Dev A: "How does auth work in this codebase?"
+        ↓
+     Claude investigates, figures it out
+        ↓
+     Grov captures the reasoning + decisions
+        ↓
+     Syncs to team dashboard
+        ↓
+Dev B: "Should we add password salting?"
+        ↓
+     Claude already knows: "Based on verified team knowledge,
+     no - this codebase uses OAuth-only, no passwords stored"
+        ↓
+     No exploration needed. Instant expert answer.
+```
 
-### What Gets Captured
+**Measured impact:** Tasks drop from 10+ minutes to 1-2 minutes when team context is available.
 
-Real reasoning, not just file lists:
-
-![captured reasoning](docs/reasoning-output.jpeg)
-
-*Architectural decisions, patterns, and rationale - automatically extracted.*
+---
 
 ## Quick Start
 
@@ -57,20 +71,91 @@ grov proxy            # Start (keep running)
 
 Then use Claude Code normally in another terminal. That's it.
 
-## How It Works
+For team sync:
+```bash
+grov login                    # Authenticate via GitHub
+grov sync --enable --team ID  # Enable sync for your team
+```
 
+**Free for individuals and teams up to 3 developers.**
+
+---
+
+## What Gets Captured
+
+Real reasoning, not just file lists:
+
+![Dashboard showing captured reasoning](dashboard-showcase.jpeg)
+
+*Architectural decisions, patterns, and rationale - automatically extracted and synced to your team.*
+
+Every captured memory includes:
+- **Reasoning trace** - The WHY behind decisions (CONCLUSION/INSIGHT pairs)
+- **Key decisions** - What was chosen and why alternatives were rejected
+- **Files touched** - Which parts of the codebase are relevant
+- **Constraints discovered** - What can't break, what must stay compatible
+
+---
+
+## What Your Team Gets
+
+When a teammate asks a related question, Claude already knows:
+
+![Claude using team knowledge](cli-showcase.jpeg)
+
+*No exploration. No re-investigation. Instant expert answers from team memory.*
+
+Claude receives verified context and skips the exploration phase entirely - no "let me investigate" or "I'll need to look at the codebase."
+
+---
+
+## Features
+
+### Team Knowledge Sharing
+The core value: what one dev's AI learns, everyone's AI knows.
+
+- **Automatic capture** - Reasoning extracted when tasks complete
+- **Automatic sync** - Memories sync to your team in real-time
+- **Automatic injection** - Relevant context injected into new sessions
+- **Hybrid search** - Semantic (AI understands meaning) + lexical (keyword matching)
+
+### Anti-Drift Detection
+Grov monitors what Claude **does** (not what you ask) and corrects when it goes off-track.
+
+- Extracts your intent from the first prompt
+- Monitors Claude's actions (file edits, commands, explorations)
+- Scores alignment (1-10) using Claude Haiku
+- Injects corrections at 4 levels: nudge → correct → intervene → halt
+
+```bash
+# Test drift detection
+grov drift-test "refactor the auth system" --goal "fix login bug"
 ```
-Session 1: Claude learns about your auth system
-           ↓
-        grov captures: "Auth tokens refresh in middleware/token.ts:45,
-                        using 15-min window to handle long forms"
-           ↓
-Session 2: User asks about related feature
-           ↓
-        grov injects: Previous context about auth
-           ↓
-        Claude skips exploration, reads files directly
+
+### Extended Cache
+Anthropic's prompt cache expires after 5 minutes of inactivity. Grov keeps it warm.
+
+```bash
+grov proxy --extended-cache
 ```
+
+- Sends minimal keep-alive requests (~$0.002 each) during idle periods
+- Saves ~$0.18 per idle period by avoiding cache recreation
+- Your next prompt is faster and cheaper
+
+**Opt-in only.** By using `--extended-cache`, you consent to Grov making API requests on your behalf.
+
+### Auto-Compaction
+When your context window fills up, Grov automatically compacts while preserving what matters.
+
+- Pre-computes summary at 85% capacity
+- Preserves: original goal, key decisions with reasoning, current state, next steps
+- Drops: verbose exploration, redundant file reads, superseded reasoning
+- Claude continues seamlessly without losing important context
+
+No manual `/compact` needed. No lost reasoning.
+
+---
 
 ## Commands
 
@@ -82,84 +167,50 @@ grov status       # Show captured tasks
 grov login        # Login to cloud dashboard
 grov sync         # Sync memories to team dashboard
 grov disable      # Disable grov
+grov drift-test   # Test drift detection
 ```
-
-## Data Storage
-
-- **Database:** `~/.grov/memory.db` (SQLite)
-- **Per-project:** Context is filtered by project path
-- **Local by default:** Memories stay on your machine unless you enable team sync
-
-### Why Sync to Dashboard?
-
-Local memories work great for solo use. The dashboard unlocks:
-
-- **Search across all sessions** - Hybrid semantic + keyword search
-- **Team sharing** - What one dev's AI learns, everyone's AI knows
-- **Cross-device sync** - Switch machines without losing context
-- **Browse & manage** - Visual interface for all captured reasoning
-
-[Open Dashboard](https://app.grov.dev)
-
-## Team Sync
-
-Share memories across your engineering team with the cloud dashboard.
-
-```bash
-grov login                    # Authenticate via GitHub
-grov sync --enable --team ID  # Enable sync for a team
-```
-
-Once enabled, memories automatically sync to [app.grov.dev](https://app.grov.dev) where your team can:
-- Browse all captured reasoning
-- **Hybrid search** - semantic (AI understands meaning) + lexical (keyword matching)
-- Invite team members
-- See who learned what
-
-Memories sync automatically when sessions complete - no manual intervention needed.
-
-## Requirements
-
-- Node.js 18+
-- Claude Code
 
 ---
 
-## Advanced Features
+## How It Works
 
-### Anti-Drift Detection
-
-Grov monitors what Claude **does** (not what you ask) and corrects if it drifts from your goal.
-
-- Extracts your intent from the first prompt
-- Monitors Claude's actions (file edits, commands, explorations)
-- Uses Claude Haiku to score alignment (1-10)
-- Injects corrections at 4 levels: nudge → correct → intervene → halt
-
-```bash
-# Test drift detection
-grov drift-test "refactor the auth system" --goal "fix login bug"
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Claude Code                                                │
+│       │                                                     │
+│       ▼                                                     │
+│  Grov Proxy (localhost:8080)                                │
+│       │                                                     │
+│       ├──► Inject team memory from past sessions            │
+│       ├──► Forward to Anthropic API                         │
+│       ├──► Monitor for drift, inject corrections            │
+│       ├──► Track context usage, auto-compact if needed      │
+│       └──► Capture reasoning when task completes            │
+│                    │                                        │
+│                    ▼                                        │
+│              Team Dashboard (app.grov.dev)                  │
+│                    │                                        │
+│                    ▼                                        │
+│              Available to entire team                       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Extended Cache (Experimental)
+**Local by default:** Memories stay on your machine in `~/.grov/memory.db` (SQLite) unless you enable team sync.
 
-Anthropic's prompt cache expires after 5 minutes of inactivity. If you pause to think between prompts, the cache expires and must be recreated (costs more, takes longer).
+---
 
-```bash
-grov proxy --extended-cache
-```
+## Dashboard
 
-**What this does:** Sends minimal keep-alive requests (~$0.002 each) during idle periods to preserve your cache.
+Browse, search, and manage your team's AI knowledge at [app.grov.dev](https://app.grov.dev).
 
-**Important:** By using `--extended-cache`, you consent to Grov making API requests on your behalf to keep the cache active. These requests:
-- Use your Anthropic API key
-- Are sent automatically during idle periods (every ~4 minutes)
-- Cost approximately $0.002 per keep-alive
-- Are discarded (not added to your conversation)
+- **Search across all sessions** - Hybrid semantic + keyword search
+- **Browse reasoning traces** - See the WHY behind every decision
+- **Team visibility** - See who learned what, when
+- **Invite teammates** - Share knowledge automatically
 
-This feature is **disabled by default** and requires explicit opt-in.
+---
 
-### Environment Variables
+## Environment Variables
 
 ```bash
 # Required for drift detection and LLM extraction
@@ -171,45 +222,21 @@ export PROXY_HOST=127.0.0.1                        # Proxy host
 export PROXY_PORT=8080                             # Proxy port
 ```
 
-Without an API key, grov uses basic extraction and disables drift detection.
+Without an API key, Grov uses basic extraction and disables drift detection.
 
-### What Gets Stored
+---
 
-```json
-{
-  "task": "Fix auth logout bug",
-  "goal": "Prevent random user logouts",
-  "files_touched": ["src/auth/session.ts", "src/middleware/token.ts"],
-  "reasoning_trace": [
-    "Investigated token refresh logic",
-    "Found refresh window was too short",
-    "Extended from 5min to 15min"
-  ],
-  "status": "complete"
-}
-```
+## Requirements
 
-### What Gets Injected
+- Node.js 18+
+- Claude Code
 
-```
-VERIFIED CONTEXT FROM PREVIOUS SESSIONS:
+---
 
-[Task: Fix auth logout bug]
-- Files: session.ts, token.ts
-- Extended token refresh window from 5min to 15min
-- Reason: Users were getting logged out during long forms
+## Pricing
 
-YOU MAY SKIP EXPLORE AGENTS for files mentioned above.
-```
-
-### How the Proxy Works
-
-1. **`grov init`** sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080` in Claude's settings
-2. **`grov proxy`** intercepts all API calls and:
-   - Extracts intent from first prompt
-   - Injects context from team memory
-   - Tracks actions and detects drift
-   - Saves reasoning when tasks complete
+- **Free** - Individuals and teams up to 3 developers
+- **Team** - Larger teams with additional features (coming soon)
 
 ---
 
@@ -222,7 +249,11 @@ YOU MAY SKIP EXPLORE AGENTS for files mentioned above.
 - [x] Team sync (cloud backend)
 - [x] Web dashboard
 - [x] Hybrid search (semantic + lexical)
+- [x] Extended cache (keep prompt cache warm)
+- [x] Auto-compaction with reasoning preservation
 - [ ] VS Code extension
+
+---
 
 ## Contributing
 
@@ -237,6 +268,8 @@ node dist/cli.js init    # Test CLI
 ```
 
 Found a bug? [Open an issue](https://github.com/TonyStef/Grov/issues).
+
+---
 
 ## License
 

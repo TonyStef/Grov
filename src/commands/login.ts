@@ -2,8 +2,25 @@
 // Authenticates CLI with Grov cloud using OAuth-like device flow
 
 import open from 'open';
-import { writeCredentials, isAuthenticated, readCredentials } from '../lib/credentials.js';
-import { startDeviceFlow, pollDeviceFlow, sleep, getApiUrl } from '../lib/api-client.js';
+import * as readline from 'readline';
+import { writeCredentials, isAuthenticated, readCredentials, setTeamId, setSyncEnabled } from '../lib/credentials.js';
+import { startDeviceFlow, pollDeviceFlow, sleep, getApiUrl, fetchTeams } from '../lib/api-client.js';
+
+/**
+ * Prompt user for input
+ */
+function prompt(question: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase());
+    });
+  });
+}
 
 /**
  * Decode JWT payload to extract user info
@@ -115,17 +132,61 @@ export async function login(): Promise<void> {
         sync_enabled: false,
       });
 
-      console.log('╔═════════════════════════════════════════╗');
-      console.log('║                                         ║');
-      console.log('║   Successfully logged in!               ║');
-      console.log('║                                         ║');
-      console.log('╚═════════════════════════════════════════╝');
-      console.log(`\nLogged in as: ${userInfo.email}\n`);
+      console.log('\n✓ Logged in as:', userInfo.email);
 
-      console.log('Next steps:');
-      console.log('  1. Run "grov sync --status" to check sync settings');
-      console.log('  2. Run "grov sync --enable --team <team-id>" to enable sync');
-      console.log('  3. Run "grov status" to view local memories\n');
+      // Auto-setup: Fetch teams and configure sync
+      console.log('\nSetting up cloud sync...');
+
+      try {
+        const teams = await fetchTeams();
+
+        if (teams.length === 0) {
+          console.log('\n⚠ No teams found.');
+          console.log('Create one at: https://app.grov.dev/team');
+          console.log('Then run: grov sync --enable --team <team-id>\n');
+          return;
+        }
+
+        let selectedTeam = teams[0];
+
+        // If multiple teams, let user choose
+        if (teams.length > 1) {
+          console.log('\nYour teams:');
+          teams.forEach((team, i) => {
+            console.log(`  ${i + 1}. ${team.name} (${team.slug})`);
+          });
+          const choice = await prompt(`\nSelect team [1-${teams.length}] (default: 1): `);
+          const index = parseInt(choice, 10) - 1;
+          if (index >= 0 && index < teams.length) {
+            selectedTeam = teams[index];
+          }
+        }
+
+        // Ask to enable sync (default yes)
+        const enableSync = await prompt(`Enable cloud sync to "${selectedTeam.name}"? [Y/n]: `);
+
+        if (enableSync !== 'n' && enableSync !== 'no') {
+          setTeamId(selectedTeam.id);
+          setSyncEnabled(true);
+
+          console.log('\n╔═════════════════════════════════════════╗');
+          console.log('║                                         ║');
+          console.log('║   ✓ Cloud sync enabled!                 ║');
+          console.log('║                                         ║');
+          console.log('╚═════════════════════════════════════════╝');
+          console.log(`\nSyncing to: ${selectedTeam.name}`);
+          console.log('\nYou\'re all set! Your AI sessions will now be saved.');
+          console.log('View them at: https://app.grov.dev/memories\n');
+        } else {
+          console.log('\n✓ Logged in. Sync not enabled.');
+          console.log('Run "grov sync --enable" later to start syncing.\n');
+        }
+
+      } catch (err) {
+        console.log('\n⚠ Could not auto-configure sync.');
+        console.log('Run "grov sync --enable --team <team-id>" manually.');
+        console.log('Find your team ID at: https://app.grov.dev/team\n');
+      }
 
       return;
     }

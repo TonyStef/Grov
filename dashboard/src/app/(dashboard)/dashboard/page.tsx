@@ -133,6 +133,12 @@ export default async function DashboardPage() {
               description="Connect your CLI and start capturing"
               code="grov login"
             />
+            <Step
+              number={3}
+              title="Start coding"
+              description="Use Claude Code - memories are captured automatically"
+              code="claude"
+            />
           </div>
         </div>
       </div>
@@ -231,6 +237,12 @@ function NoTeamDashboard({ userName }: { userName?: string | null }) {
             title="Login and enable sync"
             description="Connect your CLI and start capturing"
             code="grov login"
+          />
+          <Step
+            number={3}
+            title="Start coding"
+            description="Use Claude Code - memories are captured automatically"
+            code="claude"
           />
         </div>
       </div>

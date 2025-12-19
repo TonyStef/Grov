@@ -175,8 +175,19 @@ export async function login(): Promise<void> {
           console.log('║                                         ║');
           console.log('╚═════════════════════════════════════════╝');
           console.log(`\nSyncing to: ${selectedTeam.name}`);
-          console.log('\nYou\'re all set! Your AI sessions will now be saved.');
-          console.log('View them at: https://app.grov.dev/memories\n');
+          
+          // Check API key and warn if not set
+          if (!process.env.ANTHROPIC_API_KEY) {
+            const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
+            console.log('\n⚠️  WARNING: ANTHROPIC_API_KEY not set - memories will NOT sync!');
+            console.log('\n   Add PERMANENTLY to your shell (not just "export"):');
+            console.log(`   echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ${shell}`);
+            console.log(`   source ${shell}`);
+            console.log('\n   Get your key at: https://console.anthropic.com/settings/keys');
+          }
+          
+          console.log('\nRun "grov doctor" to verify your setup is complete.');
+          console.log('View memories at: https://app.grov.dev/memories\n');
         } else {
           console.log('\n✓ Logged in. Sync not enabled.');
           console.log('Run "grov sync --enable" later to start syncing.\n');

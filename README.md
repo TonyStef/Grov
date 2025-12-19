@@ -166,6 +166,7 @@ grov proxy-status # Show active sessions
 grov status       # Show captured tasks
 grov login        # Login to cloud dashboard
 grov sync         # Sync memories to team dashboard
+grov doctor       # Diagnose setup issues
 grov disable      # Disable grov
 grov drift-test   # Test drift detection
 ```
@@ -213,7 +214,7 @@ Browse, search, and manage your team's AI knowledge at [app.grov.dev](https://ap
 ## Environment Variables
 
 ```bash
-# Required for drift detection and LLM extraction
+# Required for memory sync and drift detection
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional
@@ -222,7 +223,45 @@ export PROXY_HOST=127.0.0.1                        # Proxy host
 export PROXY_PORT=8080                             # Proxy port
 ```
 
-Without an API key, Grov uses basic extraction and disables drift detection.
+Without an API key, Grov uses basic extraction and **memories will not sync**.
+
+---
+
+## Troubleshooting
+
+### Memories not syncing?
+
+Run `grov doctor` to diagnose:
+
+```bash
+grov doctor
+```
+
+This checks your proxy, API key, login, sync status, and local database.
+
+### ⚠️ Common Issue: API Key Not Persisting
+
+**Using `export ANTHROPIC_API_KEY=...` directly in terminal only works in THAT terminal session.** When you open a new terminal, the key is gone.
+
+**Fix:** Add the key to your shell profile so it persists:
+
+```bash
+# For zsh (macOS default):
+echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc
+source ~/.zshrc
+
+# For bash:
+echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Then run `grov doctor` to verify:
+
+```
+✓ ANTHROPIC_API_KEY: Set
+```
+
+Get your API key at: https://console.anthropic.com/settings/keys
 
 ---
 

@@ -25,10 +25,11 @@ export async function doctor(): Promise<void> {
   // Check API key
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const hasApiKey = !!(apiKey && apiKey.length > 10);
+  const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
   const apiKeyFix = process.platform === 'win32'
-    ? 'set ANTHROPIC_API_KEY=sk-ant-...'
-    : 'export ANTHROPIC_API_KEY=sk-ant-... (add to shell profile)';
-  printCheck('ANTHROPIC_API_KEY', hasApiKey, 'Set', 'Not set (task detection disabled)', apiKeyFix);
+    ? 'setx ANTHROPIC_API_KEY "sk-ant-..." (permanent) or add to System Environment Variables'
+    : `Add to ${shell}: echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ${shell} && source ${shell}`;
+  printCheck('ANTHROPIC_API_KEY', hasApiKey, 'Set', 'NOT SET - memories will not sync!', apiKeyFix);
 
   // Check login
   const creds = readCredentials();

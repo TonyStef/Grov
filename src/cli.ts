@@ -141,4 +141,13 @@ program
     await sync(options);
   }));
 
+// grov doctor - Diagnose setup issues
+program
+  .command('doctor')
+  .description('Check grov setup and diagnose issues')
+  .action(safeAction(async () => {
+    const { doctor } = await import('./commands/doctor.js');
+    await doctor();
+  }));
+
 program.parse();

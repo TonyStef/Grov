@@ -8,7 +8,7 @@ import Footer from '../components/Footer.astro';
   description="Simple, transparent pricing for AI memory. Start free, scale when you need to."
 >
   <main class="pt-24 pb-16 px-6">
-    <div class="max-w-5xl mx-auto">
+    <div class="max-w-6xl mx-auto">
 
       <!-- Header -->
       <div class="text-center mb-16">
@@ -23,179 +23,257 @@ import Footer from '../components/Footer.astro';
         </p>
       </div>
 
+      <!-- Billing Toggle -->
+      <div class="flex justify-center items-center gap-4 mb-12">
+        <span class="text-sm text-grov-text-secondary" id="monthly-label">Monthly</span>
+        <button 
+          id="billing-toggle" 
+          class="relative w-14 h-7 bg-grov-surface border border-grov-border rounded-full transition-colors"
+          aria-label="Toggle annual billing"
+        >
+          <span id="toggle-dot" class="absolute top-1 left-1 w-5 h-5 bg-grov-text-muted rounded-full transition-all"></span>
+        </button>
+        <span class="text-sm text-grov-text-secondary" id="annual-label">Annual</span>
+      </div>
+
       <!-- Pricing Cards Grid -->
-      <div class="grid md:grid-cols-3 gap-6 lg:gap-8 mb-16">
+      <div class="grid md:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5 mb-16">
 
         <!-- Free Tier -->
-        <div class="card p-8 flex flex-col">
-          <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-4">
+        <div class="card p-6 flex flex-col">
+          <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-3">
             Free
           </div>
-          <div class="flex items-baseline gap-2 mb-2">
-            <span class="text-4xl font-bold text-grov-text">$0</span>
-            <span class="text-grov-text-muted">/month</span>
+          <div class="flex items-baseline gap-2 mb-1">
+            <span class="text-3xl font-bold text-grov-text">$0</span>
+            <span class="text-grov-text-muted text-sm">/month</span>
           </div>
-          <p class="text-sm text-grov-text-secondary mb-8">
-            Perfect for solo developers and small teams getting started.
+          <p class="text-xs text-grov-text-secondary mb-6">
+            Up to 3 users
           </p>
 
           <!-- Features -->
-          <ul class="space-y-4 mb-8 flex-1">
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Up to 3 team members
-            </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <ul class="space-y-3 mb-6 flex-1 text-sm">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Unlimited sessions
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Shared team context
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Community support
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-muted">
-              <svg class="w-5 h-5 text-grov-text-muted flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-muted">
+              <svg class="w-4 h-4 text-grov-text-muted flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
               Requires own API key
             </li>
           </ul>
 
-          <a href="https://app.grov.dev/login" class="btn-secondary w-full text-center">
+          <a href="https://app.grov.dev/login" class="btn-secondary w-full text-center text-sm py-2">
             Get Started Free
           </a>
         </div>
 
-        <!-- Pro Tier (Highlighted) -->
-        <div class="card card-highlight p-8 relative flex flex-col">
-          <!-- Popular badge -->
-          <div class="absolute -top-3 left-1/2 -translate-x-1/2">
-            <span class="px-3 py-1 bg-grov-accent text-grov-black text-xs font-mono font-medium rounded-full">
-              Most Popular
-            </span>
+        <!-- Starter Tier -->
+        <div class="card p-6 flex flex-col">
+          <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-3">
+            Starter
           </div>
-
-          <div class="font-mono text-xs text-grov-accent uppercase tracking-wide mb-4">
-            Pro
+          <div class="flex items-baseline gap-2 mb-1">
+            <span class="text-3xl font-bold text-grov-text price-monthly">$29</span>
+            <span class="text-3xl font-bold text-grov-text price-annual hidden">$24</span>
+            <span class="text-grov-text-muted text-sm">/month</span>
           </div>
-          <div class="flex items-baseline gap-2 mb-2">
-            <span class="text-4xl font-bold text-grov-text">$25</span>
-            <span class="text-grov-text-muted">/user/month</span>
-          </div>
-          <p class="text-sm text-grov-text-secondary mb-8">
-            For growing teams that need shared context and collaboration.
+          <p class="text-xs text-grov-text-secondary mb-6">
+            Up to 5 users
           </p>
 
           <!-- Features -->
-          <ul class="space-y-4 mb-8 flex-1">
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <ul class="space-y-3 mb-6 flex-1 text-sm">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              Unlimited team members
+              Everything in Free
             </li>
-            <li class="flex items-start gap-3 text-sm font-medium text-grov-accent">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 font-medium text-grov-accent">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              API included — no external key needed
+              API included
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Cloud sync & backup
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Shared team context
-            </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Priority support
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          </ul>
+
+          <a href="https://app.grov.dev/login?plan=starter" class="btn-secondary w-full text-center text-sm py-2">
+            Start Trial
+          </a>
+        </div>
+
+        <!-- Team Tier (Highlighted) -->
+        <div class="card card-highlight p-6 relative flex flex-col">
+          <!-- Popular badge -->
+          <div class="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span class="px-3 py-1 bg-grov-accent text-grov-black text-xs font-mono font-medium rounded-full whitespace-nowrap">
+              Most Popular
+            </span>
+          </div>
+
+          <div class="font-mono text-xs text-grov-accent uppercase tracking-wide mb-3">
+            Team
+          </div>
+          <div class="flex items-baseline gap-2 mb-1">
+            <span class="text-3xl font-bold text-grov-text price-monthly">$79</span>
+            <span class="text-3xl font-bold text-grov-text price-annual hidden">$66</span>
+            <span class="text-grov-text-muted text-sm">/month</span>
+          </div>
+          <p class="text-xs text-grov-text-secondary mb-6">
+            Up to 15 users
+          </p>
+
+          <!-- Features -->
+          <ul class="space-y-3 mb-6 flex-1 text-sm">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Everything in Starter
+            </li>
+            <li class="flex items-start gap-2 font-medium text-grov-accent">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              API included
+            </li>
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Advanced analytics
             </li>
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Priority support
+            </li>
           </ul>
 
-          <a href="https://app.grov.dev/login?plan=pro" class="btn-primary w-full text-center">
-            Start Pro Trial
+          <a href="https://app.grov.dev/login?plan=team" class="btn-primary w-full text-center text-sm py-2">
+            Start Trial
+          </a>
+        </div>
+
+        <!-- Business Tier -->
+        <div class="card p-6 flex flex-col">
+          <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-3">
+            Business
+          </div>
+          <div class="flex items-baseline gap-2 mb-1">
+            <span class="text-3xl font-bold text-grov-text price-monthly">$149</span>
+            <span class="text-3xl font-bold text-grov-text price-annual hidden">$124</span>
+            <span class="text-grov-text-muted text-sm">/month</span>
+          </div>
+          <p class="text-xs text-grov-text-secondary mb-6">
+            Up to 30 users
+          </p>
+
+          <!-- Features -->
+          <ul class="space-y-3 mb-6 flex-1 text-sm">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Everything in Team
+            </li>
+            <li class="flex items-start gap-2 font-medium text-grov-accent">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              API included
+            </li>
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Advanced analytics
+            </li>
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Priority support
+            </li>
+          </ul>
+
+          <a href="https://app.grov.dev/login?plan=business" class="btn-secondary w-full text-center text-sm py-2">
+            Start Trial
           </a>
         </div>
 
         <!-- Enterprise Tier -->
-        <div class="card p-8 flex flex-col">
-          <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-4">
+        <div class="card p-6 flex flex-col">
+          <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-3">
             Enterprise
           </div>
-          <div class="flex items-baseline gap-2 mb-2">
-            <span class="text-4xl font-bold text-grov-text">Custom</span>
+          <div class="flex items-baseline gap-2 mb-1">
+            <span class="text-3xl font-bold text-grov-text">Custom</span>
           </div>
-          <p class="text-sm text-grov-text-secondary mb-8">
-            For organizations with advanced security and compliance needs.
+          <p class="text-xs text-grov-text-secondary mb-6">
+            Unlimited users
           </p>
 
           <!-- Features -->
-          <ul class="space-y-4 mb-8 flex-1">
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <ul class="space-y-3 mb-6 flex-1 text-sm">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              Everything in Pro
+              Everything in Business
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               Self-hosted option
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               SSO & SAML
             </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <li class="flex items-start gap-2 text-grov-text-secondary">
+              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              Custom integrations
-            </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Dedicated support
-            </li>
-            <li class="flex items-start gap-3 text-sm text-grov-text-secondary">
-              <svg class="w-5 h-5 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              SLA & uptime guarantees
+              SLA & dedicated support
             </li>
           </ul>
 
-          <a href="mailto:stefvirgil2006@gmail.com" class="btn-secondary w-full text-center">
+          <a href="mailto:stefvirgil2006@gmail.com" class="btn-secondary w-full text-center text-sm py-2">
             Contact Sales
           </a>
         </div>
@@ -207,10 +285,10 @@ import Footer from '../components/Footer.astro';
           <svg class="w-6 h-6 text-grov-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          <span class="font-mono text-sm text-grov-accent">Why Pro includes API access</span>
+          <span class="font-mono text-sm text-grov-accent">Why paid plans include API access</span>
         </div>
         <p class="text-grov-text-secondary max-w-2xl mx-auto">
-          Stop juggling API keys. With Pro, you get full Claude API access included in your subscription.
+          Stop juggling API keys. With paid plans, you get full Claude API access included in your subscription.
           Just install Grov and start building — no external keys, no extra costs, no hassle.
         </p>
       </div>
@@ -227,4 +305,41 @@ import Footer from '../components/Footer.astro';
     </div>
   </main>
   <Footer />
+
+  <script>
+    const toggle = document.getElementById('billing-toggle');
+    const toggleDot = document.getElementById('toggle-dot');
+    const monthlyLabel = document.getElementById('monthly-label');
+    const annualLabel = document.getElementById('annual-label');
+    const monthlyPrices = document.querySelectorAll('.price-monthly');
+    const annualPrices = document.querySelectorAll('.price-annual');
+    
+    let isAnnual = false;
+    
+    toggle?.addEventListener('click', () => {
+      isAnnual = !isAnnual;
+      
+      if (isAnnual) {
+        toggleDot?.classList.add('translate-x-7');
+        toggleDot?.classList.remove('bg-grov-text-muted');
+        toggleDot?.classList.add('bg-grov-accent');
+        monthlyPrices.forEach(el => el.classList.add('hidden'));
+        annualPrices.forEach(el => el.classList.remove('hidden'));
+        monthlyLabel?.classList.add('text-grov-text-muted');
+        monthlyLabel?.classList.remove('text-grov-text-secondary');
+        annualLabel?.classList.remove('text-grov-text-secondary');
+        annualLabel?.classList.add('text-grov-text');
+      } else {
+        toggleDot?.classList.remove('translate-x-7');
+        toggleDot?.classList.add('bg-grov-text-muted');
+        toggleDot?.classList.remove('bg-grov-accent');
+        monthlyPrices.forEach(el => el.classList.remove('hidden'));
+        annualPrices.forEach(el => el.classList.add('hidden'));
+        monthlyLabel?.classList.remove('text-grov-text-muted');
+        monthlyLabel?.classList.add('text-grov-text-secondary');
+        annualLabel?.classList.add('text-grov-text-secondary');
+        annualLabel?.classList.remove('text-grov-text');
+      }
+    });
+  </script>
 </Layout>

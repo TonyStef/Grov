@@ -1,6 +1,6 @@
 {
   "name": "grov",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "Collective AI memory for Claude Code - captures reasoning from sessions and injects context into future sessions",
   "type": "module",
   "main": "dist/cli.js",

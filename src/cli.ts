@@ -2,7 +2,11 @@
 
 import 'dotenv/config';
 import { Command } from 'commander';
+import { createRequire } from 'module';
 import { closeDatabase } from './lib/store.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
 
 // SECURITY: Global error handlers to catch unhandled rejections from dynamic imports
 process.on('unhandledRejection', (reason) => {
@@ -39,7 +43,7 @@ function safeAction<T>(fn: (options: T) => Promise<void>): (options: T) => Promi
 program
   .name('grov')
   .description('Collective AI memory for engineering teams')
-  .version('0.1.0');
+  .version(pkg.version);
 
 // grov init - Configure Claude Code to use grov proxy
 program

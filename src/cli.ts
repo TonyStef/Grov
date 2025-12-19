@@ -127,6 +127,15 @@ program
     await logout();
   }));
 
+// grov uninstall - Full cleanup
+program
+  .command('uninstall')
+  .description('Remove all grov data and configuration')
+  .action(safeAction(async () => {
+    const { uninstall } = await import('./commands/uninstall.js');
+    await uninstall();
+  }));
+
 // grov sync - Configure cloud sync
 program
   .command('sync')

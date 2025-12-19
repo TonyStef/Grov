@@ -71,6 +71,8 @@ grov proxy            # Start (keep running)
 
 Then use Claude Code normally in another terminal. That's it.
 
+> **Important:** Your `ANTHROPIC_API_KEY` must be set permanently in your shell profile, not just with `export` in a terminal. See [Troubleshooting](#troubleshooting) for setup instructions.
+
 For team sync:
 ```bash
 grov login                    # Authenticate via GitHub
@@ -168,6 +170,7 @@ grov login        # Login to cloud dashboard
 grov sync         # Sync memories to team dashboard
 grov doctor       # Diagnose setup issues
 grov disable      # Disable grov
+grov uninstall    # Remove all grov data and config
 grov drift-test   # Test drift detection
 ```
 

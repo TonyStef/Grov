@@ -18,6 +18,7 @@ export async function init(): Promise<void> {
     console.log(`\nSettings file: ${getSettingsPath()}`);
 
     // Check for API key and provide helpful instructions
+    const isWindows = process.platform === 'win32';
     const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
     
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -26,11 +27,19 @@ export async function init(): Promise<void> {
       console.log('╚═══════════════════════════════════════════════════════════╝');
       console.log('\n  1. Get your API key at:');
       console.log('     https://console.anthropic.com/settings/keys\n');
-      console.log('  2. Add PERMANENTLY to your shell (not just "export" in terminal):');
-      console.log(`     echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ${shell}\n`);
-      console.log('  3. Apply changes:');
-      console.log(`     source ${shell}\n`);
-      console.log('  ⚠️  Using "export" alone only works in THAT terminal!');
+      
+      if (isWindows) {
+        console.log('  2. Set PERMANENTLY (run in Command Prompt as Admin):');
+        console.log('     setx ANTHROPIC_API_KEY "sk-ant-..."\n');
+        console.log('  3. Restart your terminal\n');
+        console.log('  ⚠️  Using "set" alone only works in THAT terminal!');
+      } else {
+        console.log('  2. Add PERMANENTLY to your shell:');
+        console.log(`     echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ${shell}\n`);
+        console.log('  3. Apply changes:');
+        console.log(`     source ${shell}\n`);
+        console.log('  ⚠️  Using "export" alone only works in THAT terminal!');
+      }
       console.log('     The key will be gone when you open a new terminal.\n');
     } else {
       console.log('\n  ✓ ANTHROPIC_API_KEY found');

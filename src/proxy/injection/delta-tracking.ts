@@ -87,6 +87,7 @@ export function buildDynamicInjection(
     parts.push(`[DRIFT: ${sessionState.pending_correction}]`);
     debugInfo.hasDriftCorrection = true;
     debugInfo.driftCorrectionLength = sessionState.pending_correction.length;
+    console.log(`[DRIFT] Correction injected (${sessionState.pending_correction.length} chars)`);
   }
 
   // 4. Add forced recovery if pending

@@ -29,17 +29,23 @@ import teamsRoutes from './routes/teams.js';
 import memoriesRoutes from './routes/memories.js';
 
 // Create Fastify instance with security defaults
+// Log to file in development for debugging
+import { createWriteStream } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+const logFile = join(homedir(), '.grov', 'grov-api.log');
+const logStream = createWriteStream(logFile, { flags: 'a' });
+
 const fastify = Fastify({
   logger: {
-    level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'error' : 'info'),
-    transport: process.env.NODE_ENV === 'development'
-      ? { target: 'pino-pretty' }
-      : undefined,
+    level: process.env.LOG_LEVEL || 'error',  // Only errors (minimal logging)
+    stream: process.env.LOG_TO_FILE === 'true' ? logStream : undefined,
   },
   // Security: Limit request body size to prevent DoS
   bodyLimit: 1048576, // 1MB max body size
-  // Security: Disable request logging of sensitive data in production
-  disableRequestLogging: process.env.NODE_ENV === 'production',
+  // Disable request logging (minimal logging)
+  disableRequestLogging: true,
 });
 
 // Register plugins

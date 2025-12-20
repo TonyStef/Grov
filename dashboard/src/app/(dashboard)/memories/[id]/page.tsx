@@ -7,6 +7,9 @@ import { MemoryHeader } from './_components/memory-header';
 import { ReasoningTrace } from './_components/reasoning-trace';
 import { FilesTouched } from './_components/files-touched';
 import { DecisionsList } from './_components/decisions-list';
+import { MemoryTabs } from './_components/memory-tabs';
+import { EvolutionTimeline } from './_components/evolution-timeline';
+import { PreviousReasoning } from './_components/previous-reasoning';
 import Link from 'next/link';
 
 interface MemoryPageProps {
@@ -68,64 +71,91 @@ export default async function MemoryPage({ params }: MemoryPageProps) {
       {/* Memory header */}
       <MemoryHeader memory={memory} />
 
-      {/* Main content grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Reasoning trace - takes 2 columns */}
-        <div className="lg:col-span-2">
-          <ReasoningTrace trace={memory.reasoning_trace || []} />
-        </div>
-
-        {/* Sidebar - files and decisions */}
-        <div className="space-y-6">
-          <FilesTouched files={memory.files_touched || []} />
-          <DecisionsList decisions={memory.decisions || []} />
-
-          {/* Constraints */}
-          {memory.constraints && memory.constraints.length > 0 && (
-            <div className="rounded-lg border border-border bg-bg-1 p-4">
-              <h3 className="mb-3 font-medium text-text-primary">Constraints</h3>
-              <ul className="space-y-2">
-                {memory.constraints.map((constraint: string, i: number) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-2 text-sm text-text-secondary"
-                  >
-                    <span className="text-warning">!</span>
-                    {constraint}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Tags */}
-          {memory.tags && memory.tags.length > 0 && (
-            <div className="rounded-lg border border-border bg-bg-1 p-4">
-              <h3 className="mb-3 font-medium text-text-primary">Tags</h3>
-              <div className="flex flex-wrap gap-2">
-                {memory.tags.map((tag: string) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-bg-2 px-2.5 py-1 text-xs text-text-secondary"
-                  >
-                    {tag}
-                  </span>
-                ))}
+      {/* Show tabs only if memory has history, otherwise show content directly */}
+      {(memory.evolution_steps?.length || 0) > 0 ? (
+        <MemoryTabs
+          latestContent={
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="lg:col-span-2">
+                <ReasoningTrace trace={memory.reasoning_trace || []} />
               </div>
+              <Sidebar memory={memory} />
             </div>
-          )}
-
-          {/* Linked commit */}
-          {memory.linked_commit && (
-            <div className="rounded-lg border border-border bg-bg-1 p-4">
-              <h3 className="mb-3 font-medium text-text-primary">Linked Commit</h3>
-              <code className="text-sm font-mono text-accent-400">
-                {memory.linked_commit.slice(0, 7)}
-              </code>
+          }
+          historyContent={
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="lg:col-span-2 space-y-6">
+                <EvolutionTimeline steps={memory.evolution_steps || []} />
+                <PreviousReasoning entries={memory.reasoning_evolution || []} />
+              </div>
+              <Sidebar memory={memory} showSuperseded={true} />
             </div>
-          )}
+          }
+        />
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <ReasoningTrace trace={memory.reasoning_trace || []} />
+          </div>
+          <Sidebar memory={memory} />
         </div>
-      </div>
+      )}
+    </div>
+  );
+}
+
+// Sidebar component - shared between Latest and History tabs
+// showSuperseded: false for Latest (active only), true for History (all with visual distinction)
+function Sidebar({ memory, showSuperseded = false }: { memory: any; showSuperseded?: boolean }) {
+  return (
+    <div className="space-y-6">
+      <FilesTouched files={memory.files_touched || []} />
+      <DecisionsList decisions={memory.decisions || []} showSuperseded={showSuperseded} />
+
+      {/* Constraints */}
+      {memory.constraints && memory.constraints.length > 0 && (
+        <div className="rounded-lg border border-border bg-bg-1 p-4">
+          <h3 className="mb-3 font-medium text-text-primary">Constraints</h3>
+          <ul className="space-y-2">
+            {memory.constraints.map((constraint: string, i: number) => (
+              <li
+                key={i}
+                className="flex items-start gap-2 text-sm text-text-secondary"
+              >
+                <span className="text-warning">!</span>
+                {constraint}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Tags */}
+      {memory.tags && memory.tags.length > 0 && (
+        <div className="rounded-lg border border-border bg-bg-1 p-4">
+          <h3 className="mb-3 font-medium text-text-primary">Tags</h3>
+          <div className="flex flex-wrap gap-2">
+            {memory.tags.map((tag: string) => (
+              <span
+                key={tag}
+                className="rounded-full bg-bg-2 px-2.5 py-1 text-xs text-text-secondary"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Linked commit */}
+      {memory.linked_commit && (
+        <div className="rounded-lg border border-border bg-bg-1 p-4">
+          <h3 className="mb-3 font-medium text-text-primary">Linked Commit</h3>
+          <code className="text-sm font-mono text-accent-400">
+            {memory.linked_commit.slice(0, 7)}
+          </code>
+        </div>
+      )}
     </div>
   );
 }

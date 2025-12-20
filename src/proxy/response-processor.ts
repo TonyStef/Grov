@@ -17,7 +17,9 @@ import { syncTask } from '../lib/cloud-sync.js';
 import {
   extractReasoningAndDecisions,
   isReasoningExtractionAvailable,
+  type ExtractedReasoningAndDecisions,
 } from '../lib/llm-extractor.js';
+import type { ReasoningTraceEntry } from '@grov/shared';
 
 /**
  * Group of steps that share the same Claude response (reasoning)
@@ -116,10 +118,15 @@ ${actionLines}
 /**
  * Save session to team memory
  * Called on: task complete, subtask complete, session abandoned
+ *
+ * @param sessionId - Session to save
+ * @param triggerReason - Why the save was triggered
+ * @param taskType - Task type for shouldUpdateMemory context (information/planning/implementation)
  */
 export async function saveToTeamMemory(
   sessionId: string,
-  triggerReason: TriggerReason
+  triggerReason: TriggerReason,
+  taskType?: 'information' | 'planning' | 'implementation'
 ): Promise<void> {
   const sessionState = getSessionState(sessionId);
   if (!sessionState) {
@@ -142,11 +149,11 @@ export async function saveToTeamMemory(
   // Fire-and-forget cloud sync; never block capture path
   // NOTE: Do NOT invalidate cache after sync - cache persists until CLEAR/Summary/restart
   // Next SESSION will get fresh data, current session keeps its context
-  syncTask(task)
+  syncTask(task, undefined, taskType)
     .then((success) => {
       if (success) {
         markTaskSynced(task.id);
-        console.log(`[SYNC] Task ${task.id.substring(0, 8)} synced to cloud`);
+        console.log(`[SYNC] Task ${task.id.substring(0, 8)} synced to cloud (type=${taskType || 'unknown'})`);
       } else {
         setTaskSyncError(task.id, 'Sync not enabled or team not configured');
         console.log(`[SYNC] Task ${task.id.substring(0, 8)} sync skipped (not enabled)`);
@@ -172,15 +179,20 @@ async function buildTaskFromSession(
   user?: string;
   original_query: string;
   goal?: string;
-  reasoning_trace: string[];
+  system_name?: string;  // Parent system anchor for semantic search
+  summary?: string;
+  reasoning_trace: ReasoningTraceEntry[];
   files_touched: string[];
-  decisions: Array<{ choice: string; reason: string }>;
+  decisions: Array<{ tags?: string; choice: string; reason: string }>;
   constraints: string[];
   status: 'complete' | 'partial' | 'abandoned';
   trigger_reason: TriggerReason;
 }> {
-  // Aggregate files from steps (tool_use actions)
-  const stepFiles = steps.flatMap(s => s.files);
+  // Aggregate files from steps - ONLY edit/write actions, not read
+  // For shouldUpdateMemory: "files modified" means actual changes, not reads
+  const stepFiles = steps
+    .filter(s => s.action_type === 'edit' || s.action_type === 'write')
+    .flatMap(s => s.files);
 
   // Also extract file paths mentioned in reasoning text (Claude's text responses)
   const reasoningFiles = steps
@@ -209,9 +221,11 @@ async function buildTaskFromSession(
     });
 
   // Try to use Anthropic Haiku for better reasoning & decisions extraction
-  let reasoningTrace = basicReasoningTrace;
-  let decisions: Array<{ choice: string; reason: string }> = [];
+  let reasoningTrace: ReasoningTraceEntry[] = basicReasoningTrace;  // strings are valid ReasoningTraceEntry
+  let decisions: Array<{ tags?: string; choice: string; reason: string }> = [];
   let constraints: string[] = sessionState.constraints || [];
+  let summary: string | undefined = undefined;
+  let systemName: string | undefined = undefined;  // Parent system anchor for semantic search
 
   if (isReasoningExtractionAvailable()) {
     try {
@@ -238,6 +252,12 @@ async function buildTaskFromSession(
           sessionState.original_goal || ''
         );
 
+        if (extracted.system_name) {
+          systemName = extracted.system_name;
+        }
+        if (extracted.summary) {
+          summary = extracted.summary;
+        }
         if (extracted.reasoning_trace.length > 0) {
           reasoningTrace = extracted.reasoning_trace;
         }
@@ -250,11 +270,15 @@ async function buildTaskFromSession(
     }
   }
 
+  const original_query = sessionState.raw_user_prompt || sessionState.original_goal || 'Unknown task';
+
   return {
     project_path: sessionState.project_path,
     user: sessionState.user_id,
-    original_query: sessionState.original_goal || 'Unknown task',
+    original_query,
     goal: sessionState.original_goal,
+    system_name: systemName,  // Parent system anchor for semantic search
+    summary,
     reasoning_trace: reasoningTrace,
     files_touched: filesTouched,
     decisions,
@@ -277,8 +301,9 @@ export function cleanupSession(sessionId: string): void {
  */
 export async function saveAndCleanupSession(
   sessionId: string,
-  triggerReason: TriggerReason
+  triggerReason: TriggerReason,
+  taskType?: 'information' | 'planning' | 'implementation'
 ): Promise<void> {
-  await saveToTeamMemory(sessionId, triggerReason);
+  await saveToTeamMemory(sessionId, triggerReason, taskType);
   cleanupSession(sessionId);
 }

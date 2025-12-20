@@ -79,6 +79,7 @@ export function initDatabase(): Database.Database {
       user TEXT,
       original_query TEXT NOT NULL,
       goal TEXT,
+      summary TEXT,
       reasoning_trace JSON DEFAULT '[]',
       files_touched JSON DEFAULT '[]',
       decisions JSON DEFAULT '[]',
@@ -116,6 +117,12 @@ export function initDatabase(): Database.Database {
   try {
     db.exec(`ALTER TABLE tasks ADD COLUMN sync_error TEXT`);
   } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN summary TEXT`);
+  } catch { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN system_name TEXT`);
+  } catch { /* column exists */ }
 
   // Create session_states table (temporary per-session tracking)
   db.exec(`
@@ -124,6 +131,7 @@ export function initDatabase(): Database.Database {
       user_id TEXT,
       project_path TEXT NOT NULL,
       original_goal TEXT,
+      raw_user_prompt TEXT,
       expected_scope JSON DEFAULT '[]',
       constraints JSON DEFAULT '[]',
       keywords JSON DEFAULT '[]',
@@ -191,6 +199,9 @@ export function initDatabase(): Database.Database {
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_session_completed ON session_states(completed_at)`);
   } catch { /* index exists */ }
+  try {
+    db.exec(`ALTER TABLE session_states ADD COLUMN raw_user_prompt TEXT`);
+  } catch { /* column exists */ }
 
   // Create file_reasoning table (file-level reasoning with anchoring)
   db.exec(`

@@ -73,7 +73,7 @@ export async function getMemoriesList(
       )
     `)
     .eq('team_id', teamId)
-    .order('created_at', { ascending: false })
+    .order('updated_at', { ascending: false })
     .limit(limit + 1);
 
   if (filters.search) {
@@ -104,7 +104,7 @@ export async function getMemoriesList(
   }
 
   if (cursor) {
-    query = query.lt('created_at', cursor);
+    query = query.lt('updated_at', cursor);
   }
 
   const { data, error } = await query;
@@ -123,7 +123,7 @@ export async function getMemoriesList(
   return {
     memories,
     cursor: has_more && memories.length > 0
-      ? memories[memories.length - 1].created_at
+      ? memories[memories.length - 1].updated_at
       : null,
     has_more,
   };

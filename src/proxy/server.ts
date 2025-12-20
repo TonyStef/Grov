@@ -493,6 +493,8 @@ async function postProcessResponse(
 
   // Extract latest user message from request
   const latestUserMessage = extractGoalFromMessages(requestBody.messages) || '';
+  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+  // console.log(`[DEBUG] latestUserMessage extracted: "${latestUserMessage.substring(0, 80)}..." (${latestUserMessage.length} chars)`);
 
   // Get recent steps for context
   const recentSteps = sessionInfo.currentSession
@@ -537,7 +539,7 @@ async function postProcessResponse(
       timestamp: Date.now(),
       keepAliveCount: 0,
     });
-    log(`Extended cache: CAPTURE project=${cacheKey.split('/').pop()} size=${rawStr.length} sys=${hasSystem} tools=${hasTools} cache_ctrl=${hasCacheCtrl} msg_pos=${msgPos}`);
+    // Cache entry captured silently
   }
 
   // If not end_turn (tool_use in progress), skip task orchestration but keep session
@@ -546,15 +548,21 @@ async function postProcessResponse(
     if (sessionInfo.currentSession) {
       activeSessionId = sessionInfo.currentSession.session_id;
       activeSession = sessionInfo.currentSession;
+      // console.log(`[DEBUG] PATH A: Reusing existing session ${activeSessionId}, raw_user_prompt="${activeSession.raw_user_prompt?.substring(0, 50)}"`);
     } else if (!activeSession) {
       // First request, create session without task analysis
+      // NOTE: Don't set original_goal to user prompt - let analyzeTaskContext synthesize it
+      // If we set it here, Haiku will "keep it stable" instead of synthesizing
       const newSessionId = randomUUID();
+      // console.log(`[DEBUG] PATH B: Creating NEW session, raw_user_prompt will be: "${latestUserMessage.substring(0, 50)}"`);
       activeSession = createSessionState({
         session_id: newSessionId,
         project_path: sessionInfo.projectPath,
-        original_goal: latestUserMessage.substring(0, 500) || 'Task in progress',
+        original_goal: '',  // Empty - will be synthesized by analyzeTaskContext later
+        raw_user_prompt: latestUserMessage.substring(0, 500),
         task_type: 'main',
       });
+      // console.log(`[DEBUG] PATH B: Session created, raw_user_prompt="${activeSession.raw_user_prompt?.substring(0, 50)}"`);
       activeSessionId = newSessionId;
       activeSessions.set(newSessionId, {
         sessionId: newSessionId,
@@ -702,15 +710,19 @@ async function postProcessResponse(
           }
 
           const newSessionId = randomUUID();
+          // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+          // console.log(`[DEBUG] PATH C (new_task): Creating session, latestUserMessage="${latestUserMessage.substring(0, 50)}", intentData.goal="${intentData.goal?.substring(0, 50)}"`);
           activeSession = createSessionState({
             session_id: newSessionId,
             project_path: sessionInfo.projectPath,
             original_goal: intentData.goal,
+            raw_user_prompt: latestUserMessage.substring(0, 500),
             expected_scope: intentData.expected_scope,
             constraints: intentData.constraints,
             keywords: intentData.keywords,
             task_type: 'main',
           });
+          // console.log(`[DEBUG] PATH C: Session created, raw_user_prompt="${activeSession.raw_user_prompt?.substring(0, 50)}"`);
           activeSessionId = newSessionId;
           activeSessions.set(newSessionId, {
             sessionId: newSessionId,
@@ -746,7 +758,7 @@ async function postProcessResponse(
             });
 
             // Save to team memory and mark complete
-            await saveToTeamMemory(newSessionId, 'complete');
+            await saveToTeamMemory(newSessionId, 'complete', taskAnalysis.task_type);
             markSessionCompleted(newSessionId);
           } else if (taskAnalysis.task_type === 'information' && actions.length > 0) {
             // Q&A with tool calls - don't auto-save, let it continue until task_complete
@@ -789,6 +801,7 @@ async function postProcessResponse(
             session_id: subtaskId,
             project_path: sessionInfo.projectPath,
             original_goal: intentData.goal,
+            raw_user_prompt: latestUserMessage.substring(0, 500),
             expected_scope: intentData.expected_scope,
             constraints: intentData.constraints,
             keywords: intentData.keywords,
@@ -841,6 +854,7 @@ async function postProcessResponse(
             session_id: parallelId,
             project_path: sessionInfo.projectPath,
             original_goal: intentData.goal,
+            raw_user_prompt: latestUserMessage.substring(0, 500),
             expected_scope: intentData.expected_scope,
             constraints: intentData.constraints,
             keywords: intentData.keywords,
@@ -868,12 +882,20 @@ async function postProcessResponse(
           // Save to team memory and mark as completed (don't delete yet - keep for new_task detection)
           if (sessionInfo.currentSession) {
             try {
+              // Update goal if Haiku synthesized one and current is empty
+              if (taskAnalysis.current_goal && !sessionInfo.currentSession.original_goal) {
+                updateSessionState(sessionInfo.currentSession.session_id, {
+                  original_goal: taskAnalysis.current_goal,
+                });
+                sessionInfo.currentSession.original_goal = taskAnalysis.current_goal;
+              }
+
               // Set final_response BEFORE saving so reasoning extraction has the data
               updateSessionState(sessionInfo.currentSession.session_id, {
                 final_response: textContent.substring(0, 10000),
               });
 
-              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete');
+              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete', taskAnalysis.task_type);
               markSessionCompleted(sessionInfo.currentSession.session_id);
               activeSessions.delete(sessionInfo.currentSession.session_id);
               lastDriftResults.delete(sessionInfo.currentSession.session_id);
@@ -919,10 +941,13 @@ async function postProcessResponse(
             // Example: user asks clarification question, answer is provided in single turn
             try {
               const newSessionId = randomUUID();
+              // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+              // console.log(`[DEBUG] PATH D (instant_complete): latestUserMessage="${latestUserMessage.substring(0, 50)}"`);
               const instantSession = createSessionState({
                 session_id: newSessionId,
                 project_path: sessionInfo.projectPath,
-                original_goal: taskAnalysis.current_goal || latestUserMessage.substring(0, 500),
+                original_goal: taskAnalysis.current_goal || '',  // Don't fallback to user prompt
+                raw_user_prompt: latestUserMessage.substring(0, 500),
                 task_type: 'main',
               });
 
@@ -931,14 +956,14 @@ async function postProcessResponse(
                 final_response: textContent.substring(0, 10000),
               });
 
-              await saveToTeamMemory(newSessionId, 'complete');
+              await saveToTeamMemory(newSessionId, 'complete', taskAnalysis.task_type);
               markSessionCompleted(newSessionId);
               logger.info({ msg: 'Instant complete - new task saved immediately', sessionId: newSessionId.substring(0, 8) });
 
               // TASK LOG: Instant complete (new task that finished in one turn)
               taskLog('ORCHESTRATION_TASK_COMPLETE', {
                 sessionId: newSessionId,
-                goal: taskAnalysis.current_goal || latestUserMessage.substring(0, 80),
+                goal: taskAnalysis.current_goal || '',
                 source: 'instant_complete',
               });
             } catch (err) {
@@ -953,7 +978,7 @@ async function postProcessResponse(
           if (sessionInfo.currentSession) {
             const parentId = sessionInfo.currentSession.parent_session_id;
             try {
-              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete');
+              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete', taskAnalysis.task_type);
               markSessionCompleted(sessionInfo.currentSession.session_id);
               activeSessions.delete(sessionInfo.currentSession.session_id);
               lastDriftResults.delete(sessionInfo.currentSession.session_id);
@@ -986,7 +1011,7 @@ async function postProcessResponse(
       // Fall back to existing session or create new with intent extraction
       if (!sessionInfo.currentSession) {
         let intentData = {
-          goal: latestUserMessage.substring(0, 500),
+          goal: '',  // Don't copy user prompt - let extractIntent synthesize or leave empty
           expected_scope: [] as string[],
           constraints: [] as string[],
           keywords: [] as string[],
@@ -1010,6 +1035,7 @@ async function postProcessResponse(
           session_id: newSessionId,
           project_path: sessionInfo.projectPath,
           original_goal: intentData.goal,
+          raw_user_prompt: latestUserMessage.substring(0, 500),
           expected_scope: intentData.expected_scope,
           constraints: intentData.constraints,
           keywords: intentData.keywords,
@@ -1028,7 +1054,7 @@ async function postProcessResponse(
 
     if (!sessionInfo.currentSession) {
       let intentData = {
-        goal: latestUserMessage.substring(0, 500),
+        goal: '',  // Don't copy user prompt - let extractIntent synthesize or leave empty
         expected_scope: [] as string[],
         constraints: [] as string[],
         keywords: [] as string[],
@@ -1053,6 +1079,7 @@ async function postProcessResponse(
         session_id: newSessionId,
         project_path: sessionInfo.projectPath,
         original_goal: intentData.goal,
+        raw_user_prompt: latestUserMessage.substring(0, 500),
         expected_scope: intentData.expected_scope,
         constraints: intentData.constraints,
         keywords: intentData.keywords,
@@ -1099,18 +1126,36 @@ async function postProcessResponse(
   // Pre-compute summary before hitting 100% threshold to avoid blocking Haiku call
   const preComputeThreshold = Math.floor(config.TOKEN_CLEAR_THRESHOLD * 0.85);
 
+  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+  // console.log('[CLEAR-PRECOMPUTE] ═══════════════════════════════════════');
+  // console.log('[CLEAR-PRECOMPUTE] actualContextSize:', actualContextSize);
+  // console.log('[CLEAR-PRECOMPUTE] preComputeThreshold:', preComputeThreshold);
+  // console.log('[CLEAR-PRECOMPUTE] hasActiveSession:', !!activeSession);
+  // console.log('[CLEAR-PRECOMPUTE] hasPendingSummary:', !!activeSession?.pending_clear_summary);
+  // console.log('[CLEAR-PRECOMPUTE] isSummaryAvailable:', isSummaryAvailable());
+  // console.log('[CLEAR-PRECOMPUTE] shouldPrecompute:',
+  //   !!activeSession &&
+  //   actualContextSize > preComputeThreshold &&
+  //   !activeSession?.pending_clear_summary &&
+  //   isSummaryAvailable());
+  // console.log('[CLEAR-PRECOMPUTE] ═══════════════════════════════════════');
+
   // Use actualContextSize (cacheCreation + cacheRead) as the real context size
   if (activeSession &&
       actualContextSize > preComputeThreshold &&
       !activeSession.pending_clear_summary &&
       isSummaryAvailable()) {
 
+    // console.log('[CLEAR-PRECOMPUTE] >>> STARTING SUMMARY GENERATION <<<');
+
     // Get all validated steps for comprehensive summary
     const allSteps = getValidatedSteps(activeSessionId);
+    // console.log('[CLEAR-PRECOMPUTE] validatedSteps:', allSteps.length);
 
     // Generate summary asynchronously (fire-and-forget)
     generateSessionSummary(activeSession, allSteps, 15000).then(summary => {
       updateSessionState(activeSessionId, { pending_clear_summary: summary });
+      // console.log('[CLEAR-PRECOMPUTE] >>> SUMMARY SAVED <<<', summary.length, 'chars');
       logger.info({
         msg: 'CLEAR summary pre-computed',
         actualContextSize,
@@ -1118,6 +1163,7 @@ async function postProcessResponse(
         summaryLength: summary.length,
       });
     }).catch(err => {
+      // console.log('[CLEAR-PRECOMPUTE] >>> SUMMARY FAILED <<<', String(err));
       logger.info({ msg: 'CLEAR summary generation failed', error: String(err) });
     });
   }
@@ -1383,7 +1429,8 @@ export async function startServer(options: { debug?: boolean } = {}): Promise<Fa
   // Set debug mode based on flag
   if (options.debug) {
     setDebugMode(true);
-    console.log('[DEBUG] Logging to grov-proxy.log');
+    // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+    // console.log('[DEBUG] Logging to grov-proxy.log');
   }
 
   const server = createServer();
@@ -1418,12 +1465,10 @@ export async function startServer(options: { debug?: boolean } = {}): Promise<Fa
     if (extendedCacheTimer) {
       clearInterval(extendedCacheTimer);
       extendedCacheTimer = null;
-      log('Extended cache: timer stopped');
     }
 
     // 2. Clear sensitive cache data
     if (extendedCache.size > 0) {
-      log(`Extended cache: clearing ${extendedCache.size} entries`);
       for (const entry of extendedCache.values()) {
         for (const key of Object.keys(entry.headers)) {
           entry.headers[key] = '';

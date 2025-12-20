@@ -1,4 +1,5 @@
 // Store types and interfaces
+import type { ReasoningTraceEntry } from '@grov/shared';
 
 // Task status types
 export type TaskStatus = 'complete' | 'question' | 'partial' | 'abandoned';
@@ -13,9 +14,11 @@ export interface Task {
   user?: string;
   original_query: string;
   goal?: string;
-  reasoning_trace: string[];
+  system_name?: string;          // Parent system anchor (e.g., 'Retry Queue') - prefixes all chunks
+  summary?: string;              // Content summary for semantic search (~200-250 chars)
+  reasoning_trace: ReasoningTraceEntry[];
   files_touched: string[];
-  decisions: Array<{ choice: string; reason: string }>;
+  decisions: Array<{ aspect?: string; tags?: string; choice: string; reason: string }>;
   constraints: string[];
   status: TaskStatus;
   trigger_reason?: TriggerReason;
@@ -34,9 +37,11 @@ export interface CreateTaskInput {
   user?: string;
   original_query: string;
   goal?: string;
-  reasoning_trace?: string[];
+  system_name?: string;          // Parent system anchor (e.g., 'Retry Queue') - prefixes all chunks
+  summary?: string;              // Content summary for semantic search (~200-250 chars)
+  reasoning_trace?: ReasoningTraceEntry[];
   files_touched?: string[];
-  decisions?: Array<{ choice: string; reason: string }>;
+  decisions?: Array<{ aspect?: string; tags?: string; choice: string; reason: string }>;
   constraints?: string[];
   status: TaskStatus;
   trigger_reason?: TriggerReason;
@@ -77,6 +82,7 @@ interface SessionStateBase {
   user_id?: string;
   project_path: string;
   original_goal?: string;
+  raw_user_prompt?: string;  // Original user prompt, never overwritten
   expected_scope: string[];
   constraints: string[];
   keywords: string[];
@@ -124,6 +130,7 @@ export interface CreateSessionStateInput {
   user_id?: string;
   project_path: string;
   original_goal?: string;
+  raw_user_prompt?: string;  // Original user prompt, never overwritten
   expected_scope?: string[];
   constraints?: string[];
   keywords?: string[];

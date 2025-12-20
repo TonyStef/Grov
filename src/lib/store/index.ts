@@ -32,7 +32,9 @@ export {
   getTaskCount,
   getUnsyncedTasks,
   markTaskSynced,
-  setTaskSyncError
+  setTaskSyncError,
+  getSyncedTaskCount,
+  cleanupOldSyncedTasks
 } from './tasks.js';
 
 // Re-export session functions

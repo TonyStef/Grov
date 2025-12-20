@@ -21,6 +21,7 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
     user_id: row.user_id as string | undefined,
     project_path: row.project_path as string,
     original_goal: row.original_goal as string | undefined,
+    raw_user_prompt: row.raw_user_prompt as string | undefined,
     expected_scope: safeJsonParse<string[]>(row.expected_scope, []),
     constraints: safeJsonParse<string[]>(row.constraints, []),
     keywords: safeJsonParse<string[]>(row.keywords, []),
@@ -58,6 +59,8 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
  * Uses INSERT OR IGNORE to handle race conditions safely.
  */
 export function createSessionState(input: CreateSessionStateInput): SessionState {
+  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+  // console.log(`[DEBUG-DB] createSessionState called with raw_user_prompt="${input.raw_user_prompt?.substring(0, 50)}"`);
   const database = getDb();
   const now = new Date().toISOString();
 
@@ -67,6 +70,7 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     user_id: input.user_id,
     project_path: input.project_path,
     original_goal: input.original_goal,
+    raw_user_prompt: input.raw_user_prompt,
     expected_scope: input.expected_scope || [],
     constraints: input.constraints || [],
     keywords: input.keywords || [],
@@ -96,7 +100,7 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
 
   const stmt = database.prepare(`
     INSERT OR IGNORE INTO session_states (
-      session_id, user_id, project_path, original_goal,
+      session_id, user_id, project_path, original_goal, raw_user_prompt,
       expected_scope, constraints, keywords,
       token_count, escalation_count, session_mode,
       waiting_for_recovery, last_checked_at, last_clear_at,
@@ -104,7 +108,7 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
       parent_session_id, task_type,
       success_criteria, last_drift_score, pending_recovery_plan, drift_history,
       completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -112,6 +116,7 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     sessionState.user_id || null,
     sessionState.project_path,
     sessionState.original_goal || null,
+    sessionState.raw_user_prompt || null,
     JSON.stringify(sessionState.expected_scope),
     JSON.stringify(sessionState.constraints),
     JSON.stringify(sessionState.keywords),
@@ -132,6 +137,8 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     JSON.stringify(sessionState.drift_history || []),
     sessionState.completed_at || null
   );
+  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+  // console.log(`[DEBUG-DB] INSERT done. sessionState.raw_user_prompt="${sessionState.raw_user_prompt?.substring(0, 50)}"`);
 
   return sessionState;
 }

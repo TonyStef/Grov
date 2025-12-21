@@ -1,5 +1,6 @@
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { HelpButton } from '@/components/ui/help-button';
 import { getUserTeams } from '@/lib/queries/teams';
 import { getCurrentUser } from '@/lib/queries/profiles';
 
@@ -24,6 +25,9 @@ export default async function DashboardLayout({
         <Header user={currentUser} />
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
+
+      {/* Floating help button */}
+      <HelpButton />
     </div>
   );
 }

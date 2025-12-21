@@ -406,28 +406,49 @@ First, analyze the original_goal to understand what kind of task this is. Do not
 TYPE A - Information Request
 The user wants to learn or understand something. They are seeking knowledge, not asking for any changes or decisions to be made. The answer itself is what they need.
 
-Think about whether the user is curious about how something works, wants an explanation of a concept, or is asking for clarification about existing behavior.
+This INCLUDES clarifying questions about what the assistant already explained:
+- Asking for confirmation: "Are you sure about X?"
+- Asking for clarification: "Did you mean Y?"
+- Checking understanding: "Does this also apply to Z?"
 
-Examples of information requests in different phrasings:
+These questions REFERENCE the previous response and seek clarification, not new decisions.
+
+Think about whether the user is curious about how something works, wants an explanation of a concept, or is asking about something the assistant already said.
+
+Examples of information requests:
 - "How does the authentication system work?"
 - "Explica-mi cum functioneaza cache-ul"
 - "What is the difference between Redis and Memcached?"
 - "Can you walk me through the payment flow?"
 - "I don't understand why this function returns null"
 - "Ce face acest cod?"
+- "Are you sure this method works for async calls?" (asking about previous explanation)
+- "When you said RAM storage, did you mean on the user's machine?" (clarifying what was said)
+- "Does this approach also handle edge cases?" (checking understanding)
 
 TYPE B - Planning or Decision Request
-The user wants to figure out the best approach before taking action. They need to make a decision or create a plan. The conversation may involve exploring options, discussing tradeoffs, or clarifying requirements.
+The user is asking the assistant to HELP THEM CHOOSE between options. The decision does NOT exist yet - they are deciding now. The user introduces alternatives and wants a recommendation or to weigh tradeoffs together.
 
-Think about whether the user is trying to decide between approaches, wants recommendations for how to build something, or is working toward a plan they will implement later.
+Think about whether the user is introducing new options to choose between, wants recommendations for how to build something, or is working toward a plan they will implement later.
 
-Examples of planning requests in different phrasings:
-- "How should we implement user authentication?"
-- "What's the best way to handle caching for this API?"
-- "Cum ar trebui sa structuram baza de date?"
-- "I'm thinking about using Redis vs Memcached, what do you recommend?"
-- "Let's figure out the architecture before we start coding"
-- "We need to decide on the approach for handling errors"
+KEY DISTINCTION from Information:
+- Planning: User introduces options to choose between → "Should we use X or Y?"
+- Information: User asks about what assistant already said → "You mentioned X, are you sure?"
+
+If the assistant ALREADY explained or decided something, and the user is asking about THAT explanation, it is Information, not Planning.
+
+Examples of planning requests:
+- "How should we implement user authentication?" (no decision made yet)
+- "What's the best way to handle caching for this API?" (asking for recommendation)
+- "Cum ar trebui sa structuram baza de date?" (exploring options)
+- "I'm thinking about using Redis vs Memcached, what do you recommend?" (user introduces options)
+- "Let's figure out the architecture before we start coding" (planning session)
+- "We need to decide on the approach for handling errors" (decision needed)
+
+NOT planning (these are Information):
+- "Are you sure Redis is the right choice?" (asking about previous recommendation)
+- "Did you mean async or sync?" (clarifying what was said)
+- "Will this also work for the edge cases we discussed?" (checking understanding)
 
 TYPE C - Implementation Request
 The user wants actual changes made. They want code written, files edited, commands run, or something built. The task involves using tools to modify the codebase.
@@ -1344,22 +1365,28 @@ WEAK SIGNALS (require combination):
 </weak_signals>
 
 <false_criteria>
-RETURN should_update: false ONLY IF ALL of these are true:
+RETURN should_update: false IF:
 
-1. task_type is "information"
-2. original_query is a PURE question:
-   - Ends with question mark
-   - Starts with: why, how, what, when, where, "de ce", "cum", "ce e"
-   - NOT a proposal: "What if we...", "How about...", "Why don't we..."
-3. extracted_decisions are REFORMULATIONS of existing (same meaning, different words)
-4. No action verbs in query: switch, change, modify, update, implement, add, remove, replace
-5. No confirmation of proposed change in the conversation
-6. extracted_reasoning has no NEW substantial information
+KEY DISTINCTION - Who introduced the topic?
+
+If the assistant ALREADY explained or decided something, and the user is
+asking ABOUT that explanation, this is clarifying Q&A, not new work.
+
+CLEAR FALSE SIGNAL:
+task_type is "information" AND files_touched_in_session is empty:
+- The user was asking questions or seeking clarification
+- No code was modified (only edit/write counts, not read)
+- User is asking about what was ALREADY explained:
+  - Confirmation: "Are you sure about X?"
+  - Clarification: "Did you mean Y?"
+  - Understanding: "Does this also work for Z?"
+- These are NOT new decisions - just questions about existing explanations
+- should_update: false
+
+ALSO FALSE:
+- extracted_decisions are REFORMULATIONS of existing (same meaning, different words)
+- No NEW options introduced by user - just explaining existing decisions
 </false_criteria>
-
-<default_behavior>
-IF UNCERTAIN: lean toward should_update: true (avoid missing real changes)
-</default_behavior>
 </task_1_should_update>
 
 <task_2_superseded_decisions>

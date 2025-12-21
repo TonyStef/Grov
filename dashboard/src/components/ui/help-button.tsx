@@ -19,10 +19,10 @@ export function HelpButton() {
       </svg>
       <span
         className={`whitespace-nowrap text-[11px] font-medium transition-all duration-200 ${
-          isExpanded ? 'max-w-24 opacity-100' : 'max-w-0 overflow-hidden opacity-0'
+          isExpanded ? 'max-w-32 opacity-100' : 'max-w-0 overflow-hidden opacity-0'
         }`}
       >
-        Help
+        Need help?
       </span>
     </a>
   );

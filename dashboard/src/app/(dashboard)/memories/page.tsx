@@ -120,7 +120,7 @@ function MemoryCard({ memory }: { memory: any }) {
       href={`/memories/${memory.id}`}
       className="block rounded-lg border border-border bg-root p-4 transition-all hover:border-leaf/30 hover:bg-bark"
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium text-text-bright line-clamp-1">
             {memory.goal || memory.original_query}

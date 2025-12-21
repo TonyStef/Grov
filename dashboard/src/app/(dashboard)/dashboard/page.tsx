@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Brain, ChevronRight } from 'lucide-react';
+import { Brain, ChevronRight, Clock, FileCode } from 'lucide-react';
 import { getDashboardData } from '@/lib/queries/dashboard-rpc';
 import { formatRelativeDate, truncate, getInitials } from '@/lib/utils';
 
@@ -92,12 +92,12 @@ export default async function DashboardPage() {
                     <p className="text-xs font-medium text-text-bright line-clamp-1">
                       {truncate(memory.original_query, 60)}
                     </p>
-                    <div className="mt-1.5 flex items-center gap-2 text-[11px] text-text-quiet">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-quiet">
                       {memory.profile?.avatar_url ? (
                         <img
                           src={memory.profile.avatar_url}
                           alt=""
-                          className="h-4 w-4 rounded-full"
+                          className="h-4 w-4 rounded"
                         />
                       ) : (
                         <div className="h-4 w-4 rounded bg-leaf/10 text-[8px] flex items-center justify-center text-leaf font-medium">
@@ -105,8 +105,16 @@ export default async function DashboardPage() {
                         </div>
                       )}
                       <span className="text-text-calm">{memory.profile?.full_name || 'Unknown'}</span>
-                      <span className="w-0.5 h-0.5 rounded-full bg-moss" />
-                      <span>{formatRelativeDate(memory.created_at)}</span>
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        <span>Created {formatRelativeDate(memory.created_at)}</span>
+                      </div>
+                      {memory.files_touched && memory.files_touched.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          <FileCode className="h-3 w-3" />
+                          <span>{memory.files_touched.length} files</span>
+                        </div>
+                      )}
                     </div>
                   </Link>
                 ))}

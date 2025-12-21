@@ -88,6 +88,12 @@ export function NotificationsSettings() {
     <div className="rounded-lg border border-border bg-bg-1 p-6">
       <h2 className="mb-6 text-lg font-medium">Notifications</h2>
 
+      <div className="mb-6 rounded-md border border-accent-400/30 bg-accent-400/10 px-4 py-3">
+        <p className="text-sm text-text-secondary">
+          Email notifications coming soon. Preferences are saved locally for now.
+        </p>
+      </div>
+
       <div className="space-y-4">
         {notifications.map(({ key, label, description }) => (
           <div
@@ -115,10 +121,6 @@ export function NotificationsSettings() {
             </button>
           </div>
         ))}
-
-        <p className="pt-2 text-xs text-text-muted">
-          Notification preferences are stored locally. Email delivery coming soon.
-        </p>
 
         {/* Message */}
         {message && (

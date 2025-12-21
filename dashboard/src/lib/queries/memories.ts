@@ -123,7 +123,7 @@ export async function getMemoriesList(
   return {
     memories,
     cursor: has_more && memories.length > 0
-      ? memories[memories.length - 1].updated_at
+      ? memories[memories.length - 1].updated_at ?? memories[memories.length - 1].created_at
       : null,
     has_more,
   };

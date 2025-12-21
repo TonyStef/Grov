@@ -30,17 +30,21 @@ import memoriesRoutes from './routes/memories.js';
 
 // Create Fastify instance with security defaults
 // Log to file in development for debugging
-import { createWriteStream } from 'fs';
+import { createWriteStream, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
-const logFile = join(homedir(), '.grov', 'grov-api.log');
-const logStream = createWriteStream(logFile, { flags: 'a' });
+function getLogStream() {
+  if (process.env.LOG_TO_FILE !== 'true') return undefined;
+  const grovDir = join(homedir(), '.grov');
+  if (!existsSync(grovDir)) mkdirSync(grovDir, { recursive: true });
+  return createWriteStream(join(grovDir, 'grov-api.log'), { flags: 'a' });
+}
 
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || 'error',  // Only errors (minimal logging)
-    stream: process.env.LOG_TO_FILE === 'true' ? logStream : undefined,
+    stream: getLogStream(),
   },
   // Security: Limit request body size to prevent DoS
   bodyLimit: 1048576, // 1MB max body size

@@ -20,6 +20,133 @@ import Footer from '../components/Footer.astro';
         </h1>
       </div>
 
+      <!-- The Team -->
+      <section class="mb-16">
+        <h2 class="text-2xl font-bold text-grov-text mb-8 text-center">The Team</h2>
+        <div class="grid md:grid-cols-2 gap-6">
+          
+          <!-- Stef -->
+          <div class="card p-8">
+            <div class="mb-6">
+              <h3 class="text-xl font-bold text-grov-text">Stef Antonio Virgil</h3>
+              <span class="font-mono text-sm text-grov-accent">Cofounder</span>
+            </div>
+            
+            <div class="space-y-4 text-sm text-grov-text-secondary">
+              <div>
+                <h4 class="font-medium text-grov-text mb-2">Technical</h4>
+                <ul class="space-y-1">
+                  <li>Full-stack: React, Next.js, Node.js, Python</li>
+                  <li>ML: PyTorch, custom neural network training</li>
+                  <li>Systems: C/C++, hardware-software integration</li>
+                  <li>Voice AI pipelines, developer tooling, infrastructure</li>
+                </ul>
+              </div>
+              
+              <div>
+                <h4 class="font-medium text-grov-text mb-2">Startup</h4>
+                <ul class="space-y-1">
+                  <li>EF Zurich Builder's Retreat winner (1 of 23 selected)</li>
+                  <li>Built AgTech startup to $500k+ pipeline in &lt;9 months</li>
+                  <li>Co-designed solar-powered hardware for AgTech</li>
+                  <li>19, shipping AI products in production</li>
+                </ul>
+              </div>
+            </div>
+            
+            <a
+              href="https://www.linkedin.com/in/antonio-stef-2a37a6332/"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-2 mt-6 text-sm text-grov-accent hover:text-grov-accent-hover transition-colors"
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+              </svg>
+              LinkedIn
+            </a>
+          </div>
+          
+          <!-- Marian -->
+          <div class="card p-8">
+            <div class="mb-6">
+              <h3 class="text-xl font-bold text-grov-text">Marian Diaconescu</h3>
+              <span class="font-mono text-sm text-grov-accent">Cofounder</span>
+            </div>
+            
+            <div class="space-y-4 text-sm text-grov-text-secondary">
+              <div>
+                <h4 class="font-medium text-grov-text mb-2">Technical</h4>
+                <ul class="space-y-1">
+                  <li>Backend: Python, Node.js, TypeScript</li>
+                  <li>ML: PyTorch, custom neural network training</li>
+                  <li>Systems: C++, hardware-software integration</li>
+                  <li>Voice AI agents, developer tooling, infrastructure</li>
+                </ul>
+              </div>
+              
+              <div>
+                <h4 class="font-medium text-grov-text mb-2">Startup</h4>
+                <ul class="space-y-1">
+                  <li>Base Jump Arena participant (1 of 30 selected)</li>
+                  <li>Built & deployed voice AI agent for real estate</li>
+                  <li>Co-designed solar-powered hardware for AgTech</li>
+                </ul>
+              </div>
+            </div>
+            
+            <a
+              href="https://www.linkedin.com/in/marian-diaconescu-3a951726a/"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-2 mt-6 text-sm text-grov-accent hover:text-grov-accent-hover transition-colors"
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+              </svg>
+              LinkedIn
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Product Status -->
+      <section class="card p-8 mb-16">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="inline-flex items-center gap-2 px-3 py-1 bg-grov-accent/20 border border-grov-accent/30 rounded-full">
+            <span class="w-2 h-2 bg-grov-accent rounded-full animate-pulse"></span>
+            <span class="font-mono text-xs text-grov-accent font-medium">Beta</span>
+          </div>
+          <h2 class="text-xl font-bold text-grov-text">Product Status</h2>
+        </div>
+        
+        <p class="text-grov-text-secondary mb-6">
+          Grov is a developer tool that captures AI reasoning and injects relevant context into future sessions — so your AI never forgets what it learned. Currently optimized for Claude Code.
+        </p>
+        
+        <div class="flex flex-wrap gap-3">
+          <a href="/#demo" class="inline-flex items-center gap-2 px-4 py-2 bg-grov-surface-elevated border border-grov-border rounded-lg text-sm text-grov-text hover:border-grov-border-hover transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Watch Demo
+          </a>
+          <a href="/limitations" class="inline-flex items-center gap-2 px-4 py-2 bg-grov-surface-elevated border border-grov-border rounded-lg text-sm text-grov-text hover:border-grov-border-hover transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+            See Features
+          </a>
+          <a href="/pricing" class="inline-flex items-center gap-2 px-4 py-2 bg-grov-surface-elevated border border-grov-border rounded-lg text-sm text-grov-text hover:border-grov-border-hover transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            View Pricing
+          </a>
+        </div>
+      </section>
+
       <!-- Content -->
       <div class="prose prose-invert prose-lg max-w-none">
         <div class="space-y-8 text-grov-text-secondary">

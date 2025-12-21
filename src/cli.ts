@@ -2,7 +2,11 @@
 
 import 'dotenv/config';
 import { Command } from 'commander';
+import { createRequire } from 'module';
 import { closeDatabase } from './lib/store.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
 
 // SECURITY: Global error handlers to catch unhandled rejections from dynamic imports
 process.on('unhandledRejection', (reason) => {
@@ -39,7 +43,7 @@ function safeAction<T>(fn: (options: T) => Promise<void>): (options: T) => Promi
 program
   .name('grov')
   .description('Collective AI memory for engineering teams')
-  .version('0.1.0');
+  .version(pkg.version);
 
 // grov init - Configure Claude Code to use grov proxy
 program
@@ -127,6 +131,15 @@ program
     await logout();
   }));
 
+// grov uninstall - Full cleanup
+program
+  .command('uninstall')
+  .description('Remove all grov data and configuration')
+  .action(safeAction(async () => {
+    const { uninstall } = await import('./commands/uninstall.js');
+    await uninstall();
+  }));
+
 // grov sync - Configure cloud sync
 program
   .command('sync')
@@ -139,6 +152,15 @@ program
   .action(safeAction(async (options: { enable?: boolean; disable?: boolean; team?: string; status?: boolean; push?: boolean }) => {
     const { sync } = await import('./commands/sync.js');
     await sync(options);
+  }));
+
+// grov doctor - Diagnose setup issues
+program
+  .command('doctor')
+  .description('Check grov setup and diagnose issues')
+  .action(safeAction(async () => {
+    const { doctor } = await import('./commands/doctor.js');
+    await doctor();
   }));
 
 program.parse();

@@ -129,15 +129,15 @@ export default async function DashboardPage() {
             />
             <Step
               number={2}
-              title="Login to your account"
-              description="Connect your CLI to your team"
+              title="Login and enable sync"
+              description="Connect your CLI and start capturing"
               code="grov login"
             />
             <Step
               number={3}
-              title="Enable sync"
-              description="Start capturing reasoning from your sessions"
-              code={`grov sync --enable --team ${team.id.slice(0, 8)}...`}
+              title="Start coding"
+              description="Use Claude Code - memories are captured automatically"
+              code="claude"
             />
           </div>
         </div>
@@ -234,15 +234,15 @@ function NoTeamDashboard({ userName }: { userName?: string | null }) {
           />
           <Step
             number={2}
-            title="Login to your account"
-            description="Connect your CLI to your team"
+            title="Login and enable sync"
+            description="Connect your CLI and start capturing"
             code="grov login"
           />
           <Step
             number={3}
-            title="Enable sync"
-            description="Start capturing reasoning from your sessions"
-            code="grov sync --enable --team <team-id>"
+            title="Start coding"
+            description="Use Claude Code - memories are captured automatically"
+            code="claude"
           />
         </div>
       </div>

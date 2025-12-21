@@ -590,7 +590,6 @@ async function postProcessResponse(
         msg: 'Task analysis',
         action: taskAnalysis.action,
         task_type: taskAnalysis.task_type,
-        goal: taskAnalysis.current_goal?.substring(0, 50),
         reasoning: taskAnalysis.reasoning,
       });
 
@@ -599,7 +598,6 @@ async function postProcessResponse(
         sessionId: sessionInfo.sessionId,
         action: taskAnalysis.action,
         task_type: taskAnalysis.task_type,
-        goal: taskAnalysis.current_goal || '',
         reasoning: taskAnalysis.reasoning || '',
         userMessage: latestUserMessage.substring(0, 80),
         hasCurrentSession: !!sessionInfo.currentSession,
@@ -627,22 +625,11 @@ async function postProcessResponse(
             activeSessionId = sessionInfo.currentSession.session_id;
             activeSession = sessionInfo.currentSession;
 
-            // Update goal if Haiku detected a new instruction from user
-            // (same task/topic, but new specific instruction)
-            if (taskAnalysis.current_goal &&
-                taskAnalysis.current_goal !== activeSession.original_goal &&
-                latestUserMessage.length > 30) {
-              updateSessionState(activeSessionId, {
-                original_goal: taskAnalysis.current_goal,
-              });
-              activeSession.original_goal = taskAnalysis.current_goal;
-            }
             // TASK LOG: Continue existing session
             taskLog('ORCHESTRATION_CONTINUE', {
               sessionId: activeSessionId,
               source: 'current_session',
               goal: activeSession.original_goal,
-              goalUpdated: taskAnalysis.current_goal !== activeSession.original_goal,
             });
           } else if (sessionInfo.completedSession) {
             // Reactivate completed session (user wants to continue/add to it)
@@ -650,7 +637,6 @@ async function postProcessResponse(
             activeSession = sessionInfo.completedSession;
             updateSessionState(activeSessionId, {
               status: 'active',
-              original_goal: taskAnalysis.current_goal || activeSession.original_goal,
             });
             activeSession.status = 'active';
             activeSessions.set(activeSessionId, {
@@ -679,7 +665,7 @@ async function postProcessResponse(
 
           // Extract full intent for new task (goal, scope, constraints, keywords)
           let intentData = {
-            goal: taskAnalysis.current_goal,
+            goal: latestUserMessage.substring(0, 500),
             expected_scope: [] as string[],
             constraints: [] as string[],
             keywords: [] as string[],
@@ -775,7 +761,7 @@ async function postProcessResponse(
         case 'subtask': {
           // Extract intent for subtask
           let intentData = {
-            goal: taskAnalysis.current_goal,
+            goal: latestUserMessage.substring(0, 500),
             expected_scope: [] as string[],
             constraints: [] as string[],
             keywords: [] as string[],
@@ -828,7 +814,7 @@ async function postProcessResponse(
         case 'parallel_task': {
           // Extract intent for parallel task
           let intentData = {
-            goal: taskAnalysis.current_goal,
+            goal: latestUserMessage.substring(0, 500),
             expected_scope: [] as string[],
             constraints: [] as string[],
             keywords: [] as string[],

@@ -73,7 +73,9 @@ import Footer from '../components/Footer.astro';
             { cmd: "grov status", desc: "Show captured tasks" },
             { cmd: "grov login", desc: "Login to cloud dashboard" },
             { cmd: "grov sync", desc: "Sync memories to team dashboard" },
+            { cmd: "grov doctor", desc: "Diagnose setup issues" },
             { cmd: "grov disable", desc: "Disable grov" },
+            { cmd: "grov uninstall", desc: "Remove all grov data" },
           ].map((item) => (
             <div class="flex items-start gap-4 py-3 border-b border-grov-border last:border-0">
               <code class="font-mono text-sm text-grov-accent whitespace-nowrap">{item.cmd}</code>
@@ -118,6 +120,72 @@ import Footer from '../components/Footer.astro';
             </div>
           </div>
         </div>
+      </section>
+
+      <!-- Troubleshooting -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Troubleshooting</h2>
+        <p class="text-sm text-grov-text-secondary mb-4">
+          Run <code class="text-grov-accent">grov doctor</code> to diagnose setup issues:
+        </p>
+        <div class="code-block mb-4">
+          <code class="text-grov-accent">grov doctor</code>
+        </div>
+        <p class="text-sm text-grov-text-secondary mb-4">
+          This checks your setup and shows what needs fixing:
+        </p>
+        <div class="code-block">
+          <pre class="text-sm"><code><span class="text-grov-text-muted">Grov Doctor</span>
+<span class="text-grov-text-muted">===========</span>
+
+<span class="text-green-500">✓</span> Proxy: Running on port 8080
+<span class="text-green-500">✓</span> ANTHROPIC_BASE_URL: Configured for proxy
+<span class="text-green-500">✓</span> ANTHROPIC_API_KEY: Set
+<span class="text-green-500">✓</span> Login: Logged in as user@example.com
+<span class="text-green-500">✓</span> Cloud Sync: Team abc12345...
+<span class="text-green-500">✓</span> Local Database: 42 tasks, 3 unsynced, 1 active</code></pre>
+        </div>
+        <p class="text-sm text-grov-text-secondary mt-4">
+          If something fails, it will show the command to fix it.
+        </p>
+      </section>
+
+      <!-- API Key Setup -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">API Key Setup</h2>
+        <p class="text-sm text-grov-text-secondary mb-4">
+          The API key must be set <strong class="text-grov-text">permanently</strong>, not just in the current terminal.
+        </p>
+        
+        <div class="space-y-6">
+          <div>
+            <h3 class="font-medium text-grov-text mb-2">macOS (zsh)</h3>
+            <div class="code-block">
+              <pre class="text-sm"><code>echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc
+source ~/.zshrc</code></pre>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-medium text-grov-text mb-2">Linux (bash)</h3>
+            <div class="code-block">
+              <pre class="text-sm"><code>echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.bashrc
+source ~/.bashrc</code></pre>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-medium text-grov-text mb-2">Windows</h3>
+            <div class="code-block">
+              <pre class="text-sm"><code>setx ANTHROPIC_API_KEY "sk-ant-..."</code></pre>
+            </div>
+            <p class="text-sm text-grov-text-muted mt-2">Then restart your terminal.</p>
+          </div>
+        </div>
+
+        <p class="text-sm text-grov-text-secondary mt-4">
+          Get your API key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" class="text-grov-accent hover:underline">console.anthropic.com</a>
+        </p>
       </section>
 
       <!-- Environment Variables -->

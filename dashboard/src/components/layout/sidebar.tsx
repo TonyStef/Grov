@@ -78,7 +78,7 @@ export function Sidebar({ initialTeams }: SidebarProps) {
   };
 
   return (
-    <aside className="flex w-64 flex-col border-r border-border bg-bg-1">
+    <aside className="sticky top-0 flex h-screen w-64 flex-col border-r border-border bg-bg-1">
       {/* Logo */}
       <div className="flex h-16 items-center border-b border-border px-6">
         <Link href="/dashboard" className="flex items-center gap-2">

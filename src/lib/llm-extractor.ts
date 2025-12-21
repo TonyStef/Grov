@@ -298,7 +298,6 @@ export interface TaskAnalysis {
   task_type: 'information' | 'planning' | 'implementation';
   action: 'continue' | 'new_task' | 'subtask' | 'parallel_task' | 'task_complete' | 'subtask_complete';
   task_id: string;
-  current_goal: string;
   parent_task_id?: string;
   reasoning: string;
   step_reasoning?: string;  // Compressed reasoning for steps (if assistantResponse > 1000 chars)
@@ -582,7 +581,7 @@ RESPONSE RULES:
       analysis.step_reasoning = assistantResponse.substring(0, 1000);
     }
 
-    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal="${analysis.current_goal?.substring(0, 50) || 'N/A'}" reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
+    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
 
     return analysis;
   } catch (parseError) {

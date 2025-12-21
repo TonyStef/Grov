@@ -16,17 +16,14 @@ export default async function DashboardLayout({
   ]);
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
+    <div className="flex min-h-screen bg-soil">
       <Sidebar initialTeams={teams} />
 
-      {/* Main content */}
       <div className="flex flex-1 flex-col">
         <Header user={currentUser} />
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-auto">{children}</main>
       </div>
 
-      {/* Floating help button */}
       <HelpButton />
     </div>
   );

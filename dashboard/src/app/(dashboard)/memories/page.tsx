@@ -54,32 +54,27 @@ export default async function MemoriesPage({ searchParams }: PageProps) {
   const { memories, has_more, cursor } = memoriesResult;
 
   return (
-    <div className="animate-fade-in space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Memories</h1>
-          <p className="mt-1 text-text-secondary">
-            Browse captured reasoning from {team.name}&apos;s sessions
-          </p>
-        </div>
-      </div>
+    <div className="animate-grow-in space-y-4 p-6">
+      <header>
+        <h1 className="text-xl font-semibold">Memories</h1>
+        <p className="text-sm text-text-calm">
+          Browse captured reasoning from {team.name}&apos;s sessions
+        </p>
+      </header>
 
-      {/* Filters */}
       <MemoriesFilters
         availableTags={availableTags}
         currentFilters={params}
       />
 
-      {/* Memories List */}
       {memories.length === 0 ? (
         <EmptyState hasFilters={!!(params.search || params.tags || params.status)} />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {memories.map((memory) => (
             <MemoryCard key={memory.id} memory={memory} />
           ))}
 
-          {/* Load more */}
           {has_more && cursor && (
             <div className="flex justify-center pt-4">
               <Link
@@ -87,7 +82,7 @@ export default async function MemoriesPage({ searchParams }: PageProps) {
                   ...params,
                   cursor,
                 }).toString()}`}
-                className="rounded-md bg-bg-2 px-4 py-2 text-sm font-medium text-text-secondary hover:bg-bg-3 transition-colors"
+                className="rounded-lg bg-bark border border-border px-4 py-1.5 text-xs font-medium text-text-calm hover:bg-moss hover:border-leaf/30 transition-all"
               >
                 Load more
               </Link>
@@ -123,92 +118,65 @@ function MemoryCard({ memory }: { memory: any }) {
   return (
     <Link
       href={`/memories/${memory.id}`}
-      className="block rounded-lg border border-border bg-bg-1 p-6 transition-colors hover:border-border-hover hover:bg-bg-1/80"
+      className="block rounded-lg border border-border bg-root p-4 transition-all hover:border-leaf/30 hover:bg-bark"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          {/* Goal (title) - fallback to query if no goal */}
-          <h3 className="text-lg font-medium text-text-primary line-clamp-2">
+          <h3 className="text-sm font-medium text-text-bright line-clamp-1">
             {memory.goal || memory.original_query}
           </h3>
 
-          {/* Original query (subtitle) - truncated, only show if goal exists */}
           {memory.goal && memory.original_query && (
-            <p className="mt-1 text-sm text-text-secondary line-clamp-1">
+            <p className="mt-1.5 text-xs text-text-calm line-clamp-1">
               {truncate(memory.original_query, 200)}
             </p>
           )}
 
-          {/* Meta */}
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-text-muted">
-            {/* User */}
-            <div className="flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-text-quiet">
+            <div className="flex items-center gap-1.5">
               {memory.profile?.avatar_url ? (
                 <img
                   src={memory.profile.avatar_url}
                   alt=""
-                  className="h-5 w-5 rounded-full"
+                  className="h-5 w-5 rounded"
                 />
               ) : (
-                <div className="h-5 w-5 rounded-full bg-accent-400/20 text-[10px] flex items-center justify-center text-accent-400">
+                <div className="h-5 w-5 rounded bg-leaf/10 text-[9px] flex items-center justify-center text-leaf font-medium">
                   {getInitials(memory.profile?.full_name || memory.profile?.email)}
                 </div>
               )}
-              <span>{memory.profile?.full_name || 'Unknown'}</span>
+              <span className="text-text-calm">{memory.profile?.full_name || 'Unknown'}</span>
             </div>
 
-            {/* Date - shows last activity (created or edited) */}
             <div className="flex items-center gap-1.5">
-              <Clock className="h-4 w-4" />
+              <Clock className="h-3.5 w-3.5" />
               <span>{edited ? 'Edited' : 'Created'} {formatRelativeDate(lastDate)}</span>
             </div>
 
-            {/* Files count */}
             {memory.files_touched && memory.files_touched.length > 0 && (
               <div className="flex items-center gap-1.5">
-                <FileCode className="h-4 w-4" />
+                <FileCode className="h-3.5 w-3.5" />
                 <span>{memory.files_touched.length} files</span>
               </div>
             )}
 
-            {/* Reasoning steps */}
             {memory.reasoning_trace && memory.reasoning_trace.length > 0 && (
               <div className="flex items-center gap-1.5">
-                <Brain className="h-4 w-4" />
+                <Brain className="h-3.5 w-3.5" />
                 <span>{memory.reasoning_trace.length} steps</span>
               </div>
             )}
           </div>
-
-          {/* Tags */}
-          {memory.tags && memory.tags.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {memory.tags.slice(0, 5).map((tag: string) => (
-                <span
-                  key={tag}
-                  className="rounded-full bg-bg-2 px-2.5 py-0.5 text-xs text-text-secondary"
-                >
-                  {tag}
-                </span>
-              ))}
-              {memory.tags.length > 5 && (
-                <span className="text-xs text-text-muted">
-                  +{memory.tags.length - 5} more
-                </span>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Status badges */}
         <div className="flex shrink-0 items-center gap-2">
           {edited && (
-            <span className="rounded-full bg-accent-400/10 text-accent-400 px-2.5 py-1 text-xs font-medium">
+            <span className="rounded bg-leaf/10 text-leaf px-2 py-0.5 text-[11px] font-medium">
               Edited
             </span>
           )}
           <span
-            className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusColor}`}
+            className={`rounded px-2 py-0.5 text-[11px] font-medium capitalize ${statusColor}`}
           >
             {memory.status}
           </span>
@@ -220,29 +188,27 @@ function MemoryCard({ memory }: { memory: any }) {
 
 function EmptyState({ hasFilters }: { hasFilters: boolean }) {
   return (
-    <div className="flex h-64 flex-col items-center justify-center rounded-lg border border-dashed border-border">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-bg-2">
-        <Brain className="h-6 w-6 text-text-muted" />
-      </div>
-      <div className="mt-4 text-center">
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-root/50 py-8">
+      <Brain className="h-5 w-5 text-leaf mb-2" />
+      <div className="text-center">
         {hasFilters ? (
           <>
-            <p className="text-lg font-medium">No memories found</p>
-            <p className="mt-1 text-sm text-text-muted">
-              Try adjusting your filters or search query
+            <p className="text-xs font-medium text-text-bright">No memories found</p>
+            <p className="mt-1 text-[11px] text-text-calm">
+              Try adjusting your filters
             </p>
             <Link
               href="/memories"
-              className="mt-4 inline-flex items-center rounded-md bg-bg-2 px-4 py-2 text-sm font-medium text-text-secondary hover:bg-bg-3 transition-colors"
+              className="mt-3 inline-flex items-center rounded-md bg-bark border border-border px-3 py-1 text-[11px] font-medium text-text-calm hover:bg-moss transition-all"
             >
               Clear filters
             </Link>
           </>
         ) : (
           <>
-            <p className="text-lg font-medium">No memories yet</p>
-            <p className="mt-1 text-sm text-text-muted">
-              Memories will appear here once you start syncing from the CLI
+            <p className="text-xs font-medium text-text-bright">No memories yet</p>
+            <p className="mt-1 text-[11px] text-text-calm">
+              Start syncing from the CLI
             </p>
           </>
         )}
@@ -253,23 +219,24 @@ function EmptyState({ hasFilters }: { hasFilters: boolean }) {
 
 function NoTeamState() {
   return (
-    <div className="animate-fade-in space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Memories</h1>
-        <p className="mt-1 text-text-secondary">
+    <div className="animate-grow-in space-y-4 p-6">
+      <header>
+        <h1 className="text-xl font-semibold">Memories</h1>
+        <p className="text-sm text-text-calm">
           Browse captured reasoning from your sessions
         </p>
-      </div>
+      </header>
 
-      <div className="flex h-64 flex-col items-center justify-center rounded-lg border border-dashed border-border">
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-root/50 py-8">
+        <Brain className="h-5 w-5 text-leaf mb-2" />
         <div className="text-center">
-          <p className="text-lg font-medium">Create a team first</p>
-          <p className="mt-1 text-sm text-text-muted">
-            You need to create a team before you can view memories
+          <p className="text-xs font-medium text-text-bright">Create a team first</p>
+          <p className="mt-1 text-[11px] text-text-calm">
+            You need a team to view memories
           </p>
           <Link
             href="/team"
-            className="mt-4 inline-flex items-center rounded-md bg-accent-400 px-4 py-2 text-sm font-medium text-bg-0 hover:bg-accent-500 transition-colors"
+            className="mt-3 inline-flex items-center rounded-md bg-leaf px-3 py-1 text-[11px] font-medium text-soil hover:bg-bloom transition-all"
           >
             Create Team
           </Link>

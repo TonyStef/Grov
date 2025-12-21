@@ -15,8 +15,8 @@ export default async function SettingsPage() {
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-text-muted">Please log in to access settings.</p>
+      <div className="flex items-center justify-center p-8 py-20">
+        <p className="text-text-quiet">Please log in to access settings.</p>
       </div>
     );
   }
@@ -34,13 +34,13 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="animate-fade-in space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-1 text-text-secondary">
+    <div className="animate-grow-in space-y-4 p-6">
+      <header>
+        <h1 className="text-xl font-semibold">Settings</h1>
+        <p className="text-sm text-text-calm">
           Manage your account and preferences
         </p>
-      </div>
+      </header>
 
       <SettingsClient
         user={user}

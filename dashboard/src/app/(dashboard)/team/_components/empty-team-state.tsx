@@ -8,41 +8,38 @@ interface EmptyTeamStateProps {
 
 export function EmptyTeamState({ onCreateTeam }: EmptyTeamStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] p-8">
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-400/10">
-        <Users className="h-8 w-8 text-accent-400" />
-      </div>
-      <h2 className="mt-6 text-2xl font-bold text-text-primary">
+    <div className="flex flex-col items-center justify-center min-h-[50vh] p-6">
+      <Users className="h-8 w-8 text-leaf mb-3" />
+      <h2 className="text-lg font-semibold text-text-bright">
         Create Your Team
       </h2>
-      <p className="mt-2 text-center text-text-secondary max-w-md">
-        Teams let you share AI reasoning with your collaborators. Create a team
-        to start capturing and organizing memories from your Claude Code sessions.
+      <p className="mt-2 text-center text-xs text-text-calm max-w-sm">
+        Teams let you share AI reasoning with collaborators.
       </p>
       <button
         onClick={onCreateTeam}
-        className="mt-6 inline-flex items-center rounded-md bg-accent-400 px-6 py-3 text-sm font-medium text-bg-0 transition-colors hover:bg-accent-500"
+        className="mt-4 inline-flex items-center rounded-md bg-leaf px-4 py-1.5 text-xs font-medium text-soil hover:bg-bloom transition-all"
       >
         Create Team
       </button>
-      <div className="mt-8 rounded-lg border border-border bg-bg-1 p-6 max-w-md">
-        <h3 className="font-medium mb-3">What you can do with teams:</h3>
-        <ul className="space-y-2 text-sm text-text-secondary">
+      <div className="mt-6 rounded-lg border border-border bg-root p-4 max-w-sm">
+        <h3 className="text-xs font-semibold text-text-bright mb-2">With teams you can:</h3>
+        <ul className="space-y-1.5 text-[11px] text-text-calm">
           <li className="flex items-start gap-2">
-            <span className="text-accent-400 mt-0.5">•</span>
-            <span>Share reasoning traces with your team</span>
+            <span className="text-leaf">•</span>
+            <span>Share reasoning traces</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-accent-400 mt-0.5">•</span>
-            <span>Search across all team memories</span>
+            <span className="text-leaf">•</span>
+            <span>Search all team memories</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-accent-400 mt-0.5">•</span>
-            <span>Invite collaborators via shareable links</span>
+            <span className="text-leaf">•</span>
+            <span>Invite collaborators</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-accent-400 mt-0.5">•</span>
-            <span>Enable automatic sync from the CLI</span>
+            <span className="text-leaf">•</span>
+            <span>Auto-sync from CLI</span>
           </li>
         </ul>
       </div>

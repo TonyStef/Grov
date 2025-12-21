@@ -123,7 +123,7 @@ export function TeamPageClient({
   const canManage = userRole === 'owner' || userRole === 'admin';
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="animate-grow-in space-y-4 p-6">
       <TeamHeader
         team={team}
         userRole={userRole}
@@ -172,13 +172,13 @@ export function TeamPageClient({
       />
 
       {linkCopied && (
-        <div className="fixed bottom-4 right-4 rounded-md bg-success px-4 py-2 text-sm font-medium text-bg-0 shadow-lg animate-fade-in">
-          Invite link copied to clipboard!
+        <div className="fixed bottom-4 right-4 rounded-md bg-success px-3 py-2 text-xs font-medium text-soil shadow-lg animate-grow-in">
+          Invite link copied!
         </div>
       )}
 
       {error && (
-        <div className="fixed bottom-4 right-4 rounded-md bg-error px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-in">
+        <div className="fixed bottom-4 right-4 rounded-md bg-error px-3 py-2 text-xs font-medium text-white shadow-lg animate-grow-in">
           {error}
         </div>
       )}

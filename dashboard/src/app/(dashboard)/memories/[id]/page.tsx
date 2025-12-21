@@ -46,11 +46,10 @@ export default async function MemoryPage({ params }: MemoryPageProps) {
   }
 
   return (
-    <div className="animate-fade-in space-y-6">
-      {/* Back button */}
+    <div className="animate-grow-in space-y-4 p-6">
       <Link
         href="/memories"
-        className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+        className="inline-flex items-center gap-1.5 text-xs text-text-calm hover:text-text-bright transition-colors"
       >
         <svg
           className="h-4 w-4"
@@ -68,10 +67,8 @@ export default async function MemoryPage({ params }: MemoryPageProps) {
         Back to Memories
       </Link>
 
-      {/* Memory header */}
       <MemoryHeader memory={memory} />
 
-      {/* Show tabs only if memory has history, otherwise show content directly */}
       {(memory.evolution_steps?.length || 0) > 0 ? (
         <MemoryTabs
           latestContent={
@@ -104,23 +101,20 @@ export default async function MemoryPage({ params }: MemoryPageProps) {
   );
 }
 
-// Sidebar component - shared between Latest and History tabs
-// showSuperseded: false for Latest (active only), true for History (all with visual distinction)
 function Sidebar({ memory, showSuperseded = false }: { memory: any; showSuperseded?: boolean }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <FilesTouched files={memory.files_touched || []} />
       <DecisionsList decisions={memory.decisions || []} showSuperseded={showSuperseded} />
 
-      {/* Constraints */}
       {memory.constraints && memory.constraints.length > 0 && (
-        <div className="rounded-lg border border-border bg-bg-1 p-4">
-          <h3 className="mb-3 font-medium text-text-primary">Constraints</h3>
-          <ul className="space-y-2">
+        <div className="rounded-lg border border-border bg-root p-3">
+          <h3 className="mb-2 text-xs font-semibold text-text-bright">Constraints</h3>
+          <ul className="space-y-1.5">
             {memory.constraints.map((constraint: string, i: number) => (
               <li
                 key={i}
-                className="flex items-start gap-2 text-sm text-text-secondary"
+                className="flex items-start gap-1.5 text-[11px] text-text-calm"
               >
                 <span className="text-warning">!</span>
                 {constraint}
@@ -130,15 +124,14 @@ function Sidebar({ memory, showSuperseded = false }: { memory: any; showSupersed
         </div>
       )}
 
-      {/* Tags */}
       {memory.tags && memory.tags.length > 0 && (
-        <div className="rounded-lg border border-border bg-bg-1 p-4">
-          <h3 className="mb-3 font-medium text-text-primary">Tags</h3>
-          <div className="flex flex-wrap gap-2">
+        <div className="rounded-lg border border-border bg-root p-3">
+          <h3 className="mb-2 text-xs font-semibold text-text-bright">Tags</h3>
+          <div className="flex flex-wrap gap-1.5">
             {memory.tags.map((tag: string) => (
               <span
                 key={tag}
-                className="rounded-full bg-bg-2 px-2.5 py-1 text-xs text-text-secondary"
+                className="rounded bg-bark px-1.5 py-0.5 text-[10px] text-text-calm"
               >
                 {tag}
               </span>
@@ -147,11 +140,10 @@ function Sidebar({ memory, showSuperseded = false }: { memory: any; showSupersed
         </div>
       )}
 
-      {/* Linked commit */}
       {memory.linked_commit && (
-        <div className="rounded-lg border border-border bg-bg-1 p-4">
-          <h3 className="mb-3 font-medium text-text-primary">Linked Commit</h3>
-          <code className="text-sm font-mono text-accent-400">
+        <div className="rounded-lg border border-border bg-root p-3">
+          <h3 className="mb-2 text-xs font-semibold text-text-bright">Linked Commit</h3>
+          <code className="text-[11px] font-mono text-leaf">
             {memory.linked_commit.slice(0, 7)}
           </code>
         </div>

@@ -11,13 +11,13 @@ export default async function SearchPage() {
   const defaultTeamId = teams[0]?.id || null;
 
   return (
-    <div className="animate-fade-in space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Search</h1>
-        <p className="mt-1 text-text-secondary">
+    <div className="animate-grow-in space-y-4 p-6">
+      <header>
+        <h1 className="text-xl font-semibold">Search</h1>
+        <p className="text-sm text-text-calm">
           Find reasoning across all your team&apos;s memories
         </p>
-      </div>
+      </header>
 
       <SearchClient defaultTeamId={defaultTeamId} />
     </div>

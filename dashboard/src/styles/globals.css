@@ -1,51 +1,61 @@
+@import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=general-sans@400,500,600&display=swap');
 @import 'tailwindcss';
 
-/* Satoshi font - using system font fallback for now */
-@font-face {
-  font-family: 'Satoshi';
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: swap;
-  src: local('Inter'), local('system-ui');
-}
-
-/* Design tokens as CSS variables */
 @theme {
-  /* Colors - Terminal-Refined palette */
-  --color-bg-0: #09090b;
-  --color-bg-1: #18181b;
-  --color-bg-2: #27272a;
-  --color-bg-3: #3f3f46;
+  /* Growth Spectrum */
+  --color-seed: #064e3b;
+  --color-sprout: #059669;
+  --color-leaf: #10b981;
+  --color-bloom: #34d399;
+  --color-glow: #6ee7b7;
 
-  --color-text-primary: #fafafa;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #71717a;
+  /* Depth Layers */
+  --color-soil: #0a0a0b;
+  --color-root: #111113;
+  --color-bark: #1a1a1f;
+  --color-moss: #252530;
 
-  --color-accent-400: #10b981;
-  --color-accent-500: #059669;
-  --color-accent-600: #047857;
+  /* Text */
+  --color-text-bright: #f0fdf4;
+  --color-text-calm: #94a3b8;
+  --color-text-quiet: #64748b;
 
+  /* Status */
   --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+  --color-info: #38bdf8;
 
-  --color-border: #27272a;
-  --color-border-hover: #3f3f46;
+  /* Legacy aliases for compatibility */
+  --color-bg-0: var(--color-soil);
+  --color-bg-1: var(--color-root);
+  --color-bg-2: var(--color-bark);
+  --color-bg-3: var(--color-moss);
+  --color-text-primary: var(--color-text-bright);
+  --color-text-secondary: var(--color-text-calm);
+  --color-text-muted: var(--color-text-quiet);
+  --color-accent-400: var(--color-leaf);
+  --color-accent-500: var(--color-sprout);
+  --color-accent-600: var(--color-seed);
+  --color-border: #1e1e24;
+  --color-border-hover: var(--color-moss);
 
   /* Typography */
-  --font-sans: 'Satoshi', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-display: 'Clash Display', system-ui, sans-serif;
+  --font-sans: 'General Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Border radius */
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
+  --radius-2xl: 20px;
   --radius-full: 9999px;
 
   /* Transitions */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --duration-fast: 150ms;
   --duration-normal: 300ms;
   --duration-slow: 500ms;
@@ -54,90 +64,87 @@
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.25);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
-  --shadow-glow: 0 0 20px rgb(16 185 129 / 0.15);
+  --shadow-glow: 0 0 20px -5px var(--color-leaf), 0 10px 30px -10px rgba(0, 0, 0, 0.4);
 
   /* Spacing */
-  --spacing-page: 24px;
-  --spacing-card: 16px;
+  --spacing-page: 32px;
+  --spacing-card: 20px;
 }
 
-/* Base styles */
 @layer base {
   * {
     border-color: var(--color-border);
   }
 
-  body {
-    background-color: var(--color-bg-0);
-    color: var(--color-text-primary);
+  html {
+    font-family: var(--font-sans);
   }
 
-  /* Focus visible styles */
+  body {
+    background-color: var(--color-soil);
+    color: var(--color-text-bright);
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
   :focus-visible {
-    outline: 2px solid var(--color-accent-400);
+    outline: 2px solid var(--color-leaf);
     outline-offset: 2px;
   }
 
-  /* Scrollbar styling */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    background: var(--color-bg-1);
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--color-bg-3);
+    background: var(--color-moss);
     border-radius: var(--radius-full);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-muted);
+    background: var(--color-text-quiet);
   }
 
-  /* Selection */
   ::selection {
-    background-color: var(--color-accent-400);
-    color: var(--color-bg-0);
+    background-color: var(--color-leaf);
+    color: var(--color-soil);
   }
 }
 
-/* Utility classes */
 @layer utilities {
-  /* Terminal-style text glow */
   .text-glow {
-    text-shadow: 0 0 10px var(--color-accent-400);
+    text-shadow: 0 0 20px var(--color-leaf);
   }
 
-  /* Card hover lift */
   .hover-lift {
-    transition: transform var(--duration-fast) var(--ease-out),
-                box-shadow var(--duration-fast) var(--ease-out);
+    transition: transform var(--duration-fast) var(--ease-spring),
+                box-shadow var(--duration-fast) var(--ease-out),
+                border-color var(--duration-fast) var(--ease-out);
   }
 
   .hover-lift:hover {
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: var(--shadow-glow);
+  }
+
+  .card-organic {
+    transition: all var(--duration-normal) var(--ease-spring);
+  }
+
+  .card-organic:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+    border-color: rgba(16, 185, 129, 0.3);
+    box-shadow: var(--shadow-glow);
   }
 
-  /* Grain texture overlay */
-  .grain {
-    position: relative;
-  }
-
-  .grain::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-    opacity: 0.025;
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  /* Fade in animation */
   @keyframes fade-in {
     from {
       opacity: 0;
@@ -149,7 +156,50 @@
     }
   }
 
+  @keyframes grow-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
   .animate-fade-in {
     animation: fade-in var(--duration-normal) var(--ease-out);
+  }
+
+  .animate-grow-in {
+    animation: grow-in var(--duration-slow) var(--ease-spring);
+  }
+
+  .animate-pulse-soft {
+    animation: pulse-soft 3s ease-in-out infinite;
+  }
+
+  .stagger-children > * {
+    opacity: 0;
+    animation: grow-in 0.4s var(--ease-spring) forwards;
+  }
+  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+
+  .bg-gradient-growth {
+    background: linear-gradient(135deg, var(--color-seed) 0%, var(--color-leaf) 100%);
+  }
+
+  .bg-gradient-glow {
+    background: radial-gradient(circle at center, var(--color-leaf) 0%, transparent 70%);
   }
 }

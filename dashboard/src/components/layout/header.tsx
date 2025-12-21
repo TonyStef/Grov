@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Command, Bell, LogOut, Settings } from 'lucide-react';
+import { Search, Command, LogOut, Settings } from 'lucide-react';
 import { CommandMenu } from './command-menu';
 import { createClient } from '@/lib/supabase/client';
 import { getInitials } from '@/lib/utils';
@@ -28,83 +28,70 @@ export function Header({ user }: HeaderProps) {
 
   return (
     <>
-      <header className="flex h-16 items-center justify-between border-b border-border bg-bg-1 px-6">
-        {/* Search */}
+      <header className="flex h-12 items-center justify-between border-b border-border bg-root px-4">
         <button
           onClick={() => setCommandMenuOpen(true)}
-          className="flex items-center gap-3 rounded-md border border-border bg-bg-2 px-4 py-2 text-sm text-text-muted transition-colors hover:border-border-hover hover:text-text-secondary"
+          className="flex items-center gap-2 rounded-lg border border-border bg-bark px-3 py-1.5 text-xs text-text-quiet transition-all hover:border-leaf/30 hover:text-text-calm"
         >
-          <Search className="h-4 w-4" />
+          <Search className="h-3.5 w-3.5" />
           <span>Search memories...</span>
-          <kbd className="ml-auto flex items-center gap-1 rounded bg-bg-3 px-2 py-0.5 font-mono text-xs">
-            <Command className="h-3 w-3" />K
+          <kbd className="ml-auto flex items-center gap-0.5 rounded bg-moss px-1.5 py-0.5 font-mono text-[10px] text-text-calm">
+            <Command className="h-2.5 w-2.5" />K
           </kbd>
         </button>
 
-        {/* Right side */}
-        <div className="flex items-center gap-4">
-          {/* Notifications */}
-          <button className="relative rounded-md p-2 text-text-muted transition-colors hover:bg-bg-2 hover:text-text-primary">
-            <Bell className="h-5 w-5" />
-          </button>
-
-          {/* User menu */}
+        <div className="flex items-center gap-2">
           <div className="relative">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center gap-2 rounded-md p-2 text-text-muted transition-colors hover:bg-bg-2 hover:text-text-primary"
+              className="flex items-center gap-2 rounded-lg p-1 transition-all hover:bg-bark"
             >
               {user?.avatar_url ? (
                 <img
                   src={user.avatar_url}
                   alt={user.full_name || user.email}
-                  className="h-8 w-8 rounded-full"
+                  className="h-6 w-6 rounded"
                 />
               ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-400/20 text-xs font-medium text-accent-400">
+                <div className="flex h-6 w-6 items-center justify-center rounded bg-leaf/10 text-[10px] font-medium text-leaf">
                   {getInitials(user?.full_name || user?.email)}
                 </div>
               )}
             </button>
 
-            {/* User dropdown */}
             {userMenuOpen && (
               <>
-                {/* Backdrop */}
                 <div
                   className="fixed inset-0 z-10"
                   onClick={() => setUserMenuOpen(false)}
                 />
 
-                {/* Menu */}
-                <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-md border border-border bg-bg-1 py-1 shadow-lg">
-                  {/* User info */}
-                  <div className="border-b border-border px-4 py-3">
-                    <p className="text-sm font-medium text-text-primary">
+                <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-border bg-root py-1 shadow-lg">
+                  <div className="border-b border-border px-3 py-2">
+                    <p className="text-xs font-medium text-text-bright">
                       {user?.full_name || 'User'}
                     </p>
-                    <p className="text-xs text-text-muted truncate">
+                    <p className="text-[10px] text-text-quiet truncate">
                       {user?.email}
                     </p>
                   </div>
 
-                  {/* Menu items */}
                   <div className="py-1">
                     <button
                       onClick={() => {
                         setUserMenuOpen(false);
                         router.push('/settings');
                       }}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-text-secondary hover:bg-bg-2 hover:text-text-primary"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-calm hover:bg-bark hover:text-text-bright transition-colors"
                     >
-                      <Settings className="h-4 w-4" />
+                      <Settings className="h-3.5 w-3.5" />
                       Settings
                     </button>
                     <button
                       onClick={handleLogout}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-error hover:bg-error/10"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-error hover:bg-error/10 transition-colors"
                     >
-                      <LogOut className="h-4 w-4" />
+                      <LogOut className="h-3.5 w-3.5" />
                       Log out
                     </button>
                   </div>
@@ -115,7 +102,6 @@ export function Header({ user }: HeaderProps) {
         </div>
       </header>
 
-      {/* Command Menu */}
       <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} onSignOut={handleLogout} />
     </>
   );

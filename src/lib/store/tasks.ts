@@ -3,6 +3,7 @@
 import { randomUUID } from 'crypto';
 import { getDb, safeJsonParse } from './database.js';
 import type { Task, CreateTaskInput, TaskStatus, TriggerReason } from './types.js';
+import type { ReasoningTraceEntry } from '@grov/shared';
 
 /**
  * Convert database row to Task object
@@ -14,9 +15,11 @@ function rowToTask(row: Record<string, unknown>): Task {
     user: row.user as string | undefined,
     original_query: row.original_query as string,
     goal: row.goal as string | undefined,
-    reasoning_trace: safeJsonParse<string[]>(row.reasoning_trace, []),
+    system_name: row.system_name as string | undefined,
+    summary: row.summary as string | undefined,
+    reasoning_trace: safeJsonParse<ReasoningTraceEntry[]>(row.reasoning_trace, []),
     files_touched: safeJsonParse<string[]>(row.files_touched, []),
-    decisions: safeJsonParse<Array<{ choice: string; reason: string }>>(row.decisions, []),
+    decisions: safeJsonParse<Array<{ tags?: string; choice: string; reason: string }>>(row.decisions, []),
     constraints: safeJsonParse<string[]>(row.constraints, []),
     status: row.status as TaskStatus,
     trigger_reason: row.trigger_reason as TriggerReason | undefined,
@@ -42,6 +45,8 @@ export function createTask(input: CreateTaskInput): Task {
     user: input.user,
     original_query: input.original_query,
     goal: input.goal,
+    system_name: input.system_name,  // Parent system anchor for semantic search
+    summary: input.summary,
     reasoning_trace: input.reasoning_trace || [],
     files_touched: input.files_touched || [],
     decisions: input.decisions || [],
@@ -59,12 +64,12 @@ export function createTask(input: CreateTaskInput): Task {
 
   const stmt = database.prepare(`
     INSERT INTO tasks (
-      id, project_path, user, original_query, goal,
+      id, project_path, user, original_query, goal, system_name, summary,
       reasoning_trace, files_touched, decisions, constraints,
       status, trigger_reason, linked_commit,
       parent_task_id, turn_number, tags, created_at, synced_at, sync_error
     ) VALUES (
-      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?,
       ?, ?, ?, ?, ?, ?
@@ -77,6 +82,8 @@ export function createTask(input: CreateTaskInput): Task {
     task.user || null,
     task.original_query,
     task.goal || null,
+    task.system_name || null,
+    task.summary || null,
     JSON.stringify(task.reasoning_trace),
     JSON.stringify(task.files_touched),
     JSON.stringify(task.decisions),
@@ -180,4 +187,46 @@ export function markTaskSynced(id: string): void {
 export function setTaskSyncError(id: string, error: string): void {
   const database = getDb();
   database.prepare('UPDATE tasks SET sync_error = ? WHERE id = ?').run(error, id);
+}
+
+/**
+ * Get count of synced tasks
+ */
+export function getSyncedTaskCount(): number {
+  const database = getDb();
+  const stmt = database.prepare('SELECT COUNT(*) as count FROM tasks WHERE synced_at IS NOT NULL');
+  const row = stmt.get() as { count: number } | undefined;
+  return row?.count ?? 0;
+}
+
+/**
+ * Delete oldest synced tasks to maintain storage limit
+ * Called after successful sync to prevent local DB bloat
+ *
+ * @param maxSyncedTasks - Maximum number of synced tasks to keep (default 500)
+ * @returns Number of tasks deleted
+ */
+export function cleanupOldSyncedTasks(maxSyncedTasks: number = 500): number {
+  const database = getDb();
+
+  const currentCount = getSyncedTaskCount();
+  if (currentCount <= maxSyncedTasks) {
+    return 0;
+  }
+
+  const toDelete = currentCount - maxSyncedTasks;
+
+  // Delete oldest synced tasks (by synced_at, not created_at)
+  const stmt = database.prepare(`
+    DELETE FROM tasks
+    WHERE id IN (
+      SELECT id FROM tasks
+      WHERE synced_at IS NOT NULL
+      ORDER BY synced_at ASC
+      LIMIT ?
+    )
+  `);
+
+  const result = stmt.run(toDelete);
+  return result.changes;
 }

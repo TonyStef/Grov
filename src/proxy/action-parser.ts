@@ -219,40 +219,6 @@ export function extractTokenUsage(response: AnthropicResponse): {
 }
 
 /**
- * Check if response contains any file-modifying actions
- */
-export function hasModifyingActions(actions: ParsedAction[]): boolean {
-  return actions.some(a =>
-    a.actionType === 'edit' ||
-    a.actionType === 'write' ||
-    (a.actionType === 'bash' && a.command && isModifyingBashCommand(a.command))
-  );
-}
-
-/**
- * Check if bash command modifies files
- */
-function isModifyingBashCommand(command: string): boolean {
-  const modifyingPatterns = [
-    /\brm\b/,
-    /\bmv\b/,
-    /\bcp\b/,
-    /\bmkdir\b/,
-    /\btouch\b/,
-    /\bchmod\b/,
-    /\bchown\b/,
-    /\bsed\b.*-i/,
-    /\btee\b/,
-    />/,  // redirect
-    /\bgit\s+(add|commit|push|checkout|reset)/,
-    /\bnpm\s+(install|uninstall)/,
-    /\byarn\s+(add|remove)/,
-  ];
-
-  return modifyingPatterns.some(p => p.test(command));
-}
-
-/**
  * Get all unique files from actions
  */
 export function getAllFiles(actions: ParsedAction[]): string[] {

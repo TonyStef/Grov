@@ -99,6 +99,16 @@ export default async function MemoriesPage({ searchParams }: PageProps) {
   );
 }
 
+// Check if memory was edited (has at least 1 evolution step)
+function wasMemoryEdited(memory: any): { edited: boolean; lastDate: string } {
+  const evolutionSteps = memory.evolution_steps || [];
+  if (evolutionSteps.length > 0) {
+    const lastStep = evolutionSteps[evolutionSteps.length - 1];
+    return { edited: true, lastDate: lastStep.date };
+  }
+  return { edited: false, lastDate: memory.created_at };
+}
+
 function MemoryCard({ memory }: { memory: any }) {
   const statusColors = {
     complete: 'bg-success/10 text-success',
@@ -108,6 +118,7 @@ function MemoryCard({ memory }: { memory: any }) {
   };
 
   const statusColor = statusColors[memory.status as keyof typeof statusColors] || statusColors.complete;
+  const { edited, lastDate } = wasMemoryEdited(memory);
 
   return (
     <Link
@@ -116,15 +127,15 @@ function MemoryCard({ memory }: { memory: any }) {
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          {/* Query */}
+          {/* Goal (title) - fallback to query if no goal */}
           <h3 className="text-lg font-medium text-text-primary line-clamp-2">
-            {memory.original_query}
+            {memory.goal || memory.original_query}
           </h3>
 
-          {/* Goal */}
-          {memory.goal && (
+          {/* Original query (subtitle) - truncated, only show if goal exists */}
+          {memory.goal && memory.original_query && (
             <p className="mt-1 text-sm text-text-secondary line-clamp-1">
-              {memory.goal}
+              {truncate(memory.original_query, 200)}
             </p>
           )}
 
@@ -146,10 +157,10 @@ function MemoryCard({ memory }: { memory: any }) {
               <span>{memory.profile?.full_name || 'Unknown'}</span>
             </div>
 
-            {/* Date */}
+            {/* Date - shows last activity (created or edited) */}
             <div className="flex items-center gap-1.5">
               <Clock className="h-4 w-4" />
-              <span>{formatRelativeDate(memory.created_at)}</span>
+              <span>{edited ? 'Edited' : 'Created'} {formatRelativeDate(lastDate)}</span>
             </div>
 
             {/* Files count */}
@@ -189,12 +200,19 @@ function MemoryCard({ memory }: { memory: any }) {
           )}
         </div>
 
-        {/* Status badge */}
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusColor}`}
-        >
-          {memory.status}
-        </span>
+        {/* Status badges */}
+        <div className="flex shrink-0 items-center gap-2">
+          {edited && (
+            <span className="rounded-full bg-accent-400/10 text-accent-400 px-2.5 py-1 text-xs font-medium">
+              Edited
+            </span>
+          )}
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusColor}`}
+          >
+            {memory.status}
+          </span>
+        </div>
       </div>
     </Link>
   );

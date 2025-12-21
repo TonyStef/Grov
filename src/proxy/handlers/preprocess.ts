@@ -40,7 +40,8 @@ export async function preProcessRequest(
   // No need to do semantic search or cache operations for these
   const earlyUserPrompt = extractLastUserPrompt(modified.messages || []);
   if (earlyUserPrompt === 'Warmup') {
-    console.log('[INJECT] Skipping warmup request (no search, no cache)');
+    // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+    // console.log('[INJECT] Skipping warmup request (no search, no cache)');
     return modified;
   }
 
@@ -66,22 +67,25 @@ export async function preProcessRequest(
   // === PLANNING CLEAR: Reset after planning task completes ===
   // This ensures implementation phase starts fresh with planning context from team memory
   if (pendingPlanClear && pendingPlanClear.projectPath === sessionInfo.projectPath) {
-    // 1. Empty messages array (fresh start)
-    modified.messages = [];
-
-    // 2. Inject planning summary into system prompt
-    appendToSystemPrompt(modified, pendingPlanClear.summary);
-
-    // 3. Rebuild team memory NOW (includes the just-saved planning task)
+    // 1. Extract context BEFORE emptying messages (for hybrid search)
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
     const userPrompt = extractLastUserPrompt(modified.messages || []);
+
+    // 2. Empty messages array (fresh start)
+    modified.messages = [];
+
+    // 3. Inject planning summary into system prompt
+    appendToSystemPrompt(modified, pendingPlanClear.summary);
+
+    // 4. Rebuild team memory NOW (includes the just-saved planning task)
 
     // Use cloud-first approach if sync is enabled
     let teamContext: string | null = null;
     const teamId = getSyncTeamId();
 
     if (isSyncEnabled() && teamId) {
-      console.log(`[INJECT] PLANNING_CLEAR: Using cloud team memory (teamId=${teamId.substring(0, 8)}...)`);
+      // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+      // console.log(`[INJECT] PLANNING_CLEAR: Using cloud team memory (teamId=${teamId.substring(0, 8)}...)`);
       teamContext = await buildTeamMemoryContextCloud(
         teamId,
         sessionInfo.projectPath,
@@ -90,7 +94,7 @@ export async function preProcessRequest(
       );
     } else {
       // Sync not enabled - no injection (cloud-first approach)
-      console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
+      // console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
       teamContext = null;
     }
 
@@ -115,8 +119,20 @@ export async function preProcessRequest(
   if (sessionState) {
     const currentTokenCount = sessionState.token_count || 0;
 
+    // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+    // console.log('[CLEAR-CHECK] ═══════════════════════════════════════════');
+    // console.log('[CLEAR-CHECK] currentTokenCount:', currentTokenCount);
+    // console.log('[CLEAR-CHECK] threshold:', config.TOKEN_CLEAR_THRESHOLD);
+    // console.log('[CLEAR-CHECK] exceedsThreshold:', currentTokenCount > config.TOKEN_CLEAR_THRESHOLD);
+    // console.log('[CLEAR-CHECK] hasPendingSummary:', !!sessionState.pending_clear_summary);
+    // console.log('[CLEAR-CHECK] summaryLength:', sessionState.pending_clear_summary?.length || 0);
+    // console.log('[CLEAR-CHECK] shouldClear:', currentTokenCount > config.TOKEN_CLEAR_THRESHOLD && !!sessionState.pending_clear_summary);
+    // console.log('[CLEAR-CHECK] ═══════════════════════════════════════════');
+
     if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD &&
         sessionState.pending_clear_summary) {
+
+      // console.log('[CLEAR-CHECK] >>> CLEAR MODE TRIGGERED! <<<');
 
       logger.info({
         msg: 'CLEAR MODE ACTIVATED - resetting conversation',
@@ -133,6 +149,7 @@ export async function preProcessRequest(
 
       // 3. Mark session as cleared
       markCleared(sessionInfo.sessionId);
+      console.log(`[CLEAR] Context reset (${sessionState.pending_clear_summary?.length || 0} chars summary)`);
 
       // 4. Clear pending summary and invalidate GLOBAL team memory cache (new baseline)
       updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
@@ -158,7 +175,7 @@ export async function preProcessRequest(
     // Reuse GLOBAL cached team memory (constant for entire conversation)
     (modified as Record<string, unknown>).__grovInjection = globalTeamMemoryCache.content;
     (modified as Record<string, unknown>).__grovInjectionCached = true;
-    console.log(`[CACHE] Using global team memory cache, size=${globalTeamMemoryCache.content.length}`);
+    // Using cached team memory
   } else {
     // First request OR project changed OR cache was invalidated: compute team memory
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
@@ -169,7 +186,6 @@ export async function preProcessRequest(
     const teamId = getSyncTeamId();
 
     if (isSyncEnabled() && teamId) {
-      console.log(`[INJECT] First/cache miss: Using cloud team memory (teamId=${teamId.substring(0, 8)}...)`);
       teamContext = await buildTeamMemoryContextCloud(
         teamId,
         sessionInfo.projectPath,
@@ -178,11 +194,11 @@ export async function preProcessRequest(
       );
     } else {
       // Sync not enabled - no injection (cloud-first approach)
-      console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
+      // console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
       teamContext = null;
     }
 
-    console.log(`[CACHE] Computing team memory (first/new), files=${mentionedFiles.length}, result=${teamContext ? teamContext.length : 'null'}`);
+    // console.log(`[CACHE] Computing team memory (first/new), files=${mentionedFiles.length}, result=${teamContext ? teamContext.length : 'null'}`);
 
     if (teamContext) {
       (modified as Record<string, unknown>).__grovInjection = teamContext;
@@ -191,7 +207,11 @@ export async function preProcessRequest(
       setTeamMemoryCache(sessionInfo.projectPath, teamContext);
     } else {
       // No team memory available - clear global cache for this project
+      // DEBUG: Commented out for cleaner terminal - uncomment when debugging
+      // console.log('[CACHE-INVALIDATE] teamContext is NULL - why?');
+      // console.log('[CACHE-INVALIDATE] isSameProject:', isSameProject);
       if (isSameProject) {
+        // console.log('[CACHE-INVALIDATE] >>> INVALIDATING CACHE (teamContext null) <<<');
         invalidateTeamMemoryCache();
       }
     }

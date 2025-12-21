@@ -20,22 +20,44 @@ const statusColors: Record<string, string> = {
   abandoned: 'bg-error/20 text-error',
 };
 
+// Check if memory was edited (has at least 1 evolution step)
+function getLastActivityInfo(memory: Memory): { wasEdited: boolean; date: Date; label: string } {
+  const evolutionSteps = memory.evolution_steps || [];
+  const wasEdited = evolutionSteps.length > 0;
+
+  if (wasEdited) {
+    // Get last evolution step date (format: YYYY-MM-DD)
+    const lastStep = evolutionSteps[evolutionSteps.length - 1];
+    return {
+      wasEdited: true,
+      date: new Date(lastStep.date),
+      label: 'Edited',
+    };
+  }
+
+  return {
+    wasEdited: false,
+    date: new Date(memory.created_at),
+    label: 'Created',
+  };
+}
+
 export function MemoryHeader({ memory }: MemoryHeaderProps) {
   const displayName = memory.profile?.full_name || memory.profile?.email || 'Unknown';
   const avatarUrl = memory.profile?.avatar_url;
-  const createdAt = new Date(memory.created_at);
+  const { wasEdited, date: activityDate, label: dateLabel } = getLastActivityInfo(memory);
 
   return (
     <div className="rounded-lg border border-border bg-bg-1 p-6">
-      {/* Query */}
+      {/* Goal (title) - fallback to query if no goal */}
       <h1 className="text-xl font-semibold text-text-primary leading-relaxed">
-        {memory.original_query}
+        {memory.goal || memory.original_query}
       </h1>
 
-      {/* Goal */}
-      {memory.goal && (
-        <p className="mt-3 text-text-secondary">
-          <span className="text-text-muted">Goal:</span> {memory.goal}
+      {/* Original query (subtitle) - max 2 lines, only show if goal exists */}
+      {memory.goal && memory.original_query && (
+        <p className="mt-3 text-text-secondary line-clamp-2">
+          <span className="text-text-muted">Query:</span> {memory.original_query}
         </p>
       )}
 
@@ -84,7 +106,7 @@ export function MemoryHeader({ memory }: MemoryHeaderProps) {
           <span>{displayName}</span>
         </div>
 
-        {/* Date */}
+        {/* Date - shows "Created" or "Edited" based on evolution_steps */}
         <div className="flex items-center gap-1.5 text-sm text-text-muted">
           <svg
             className="h-4 w-4"
@@ -99,8 +121,9 @@ export function MemoryHeader({ memory }: MemoryHeaderProps) {
               d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
             />
           </svg>
-          <time dateTime={memory.created_at}>
-            {createdAt.toLocaleDateString('en-US', {
+          <span>{dateLabel}</span>
+          <time dateTime={activityDate.toISOString()}>
+            {activityDate.toLocaleDateString('en-US', {
               year: 'numeric',
               month: 'short',
               day: 'numeric',

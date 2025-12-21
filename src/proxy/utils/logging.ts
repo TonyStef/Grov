@@ -13,16 +13,23 @@ export function setDebugMode(enabled: boolean): void {
   debugMode = enabled;
 }
 
+export function isDebugMode(): boolean {
+  return debugMode;
+}
+
 export function getNextRequestId(): number {
   return ++requestCounter;
 }
 
-export function taskLog(event: string, data: Record<string, unknown>): void {
-  const timestamp = new Date().toISOString();
-  const sessionId = data.sessionId ? String(data.sessionId).substring(0, 8) : '-';
+export function taskLog(_event: string, _data: Record<string, unknown>): void {
+  // Disabled - minimal logging mode
+  // To re-enable, set DEBUG_TASK_LOG=true
+  if (process.env.DEBUG_TASK_LOG !== 'true') return;
 
-  // Format: [timestamp] [session] EVENT: key=value key=value
-  const kvPairs = Object.entries(data)
+  const timestamp = new Date().toISOString();
+  const sessionId = _data.sessionId ? String(_data.sessionId).substring(0, 8) : '-';
+
+  const kvPairs = Object.entries(_data)
     .filter(([k]) => k !== 'sessionId')
     .map(([k, v]) => {
       const val = typeof v === 'string' ? v.substring(0, 100) : JSON.stringify(v);
@@ -30,7 +37,7 @@ export function taskLog(event: string, data: Record<string, unknown>): void {
     })
     .join(' | ');
 
-  const line = `[${timestamp}] [${sessionId}] ${event}: ${kvPairs}\n`;
+  const line = `[${timestamp}] [${sessionId}] ${_event}: ${kvPairs}\n`;
   fs.appendFileSync(TASK_LOG_PATH, line);
 }
 

@@ -12,6 +12,7 @@ import type {
   MemorySyncResponse,
   DeviceFlowStartResponse,
   DeviceFlowPollResponse,
+  ReasoningTraceEntry,
 } from '@grov/shared';
 
 // API configuration
@@ -214,28 +215,85 @@ export async function fetchTeamMemories(
 
   const url = `/teams/${teamId}/memories?${params.toString()}`;
 
-  console.log(`[API] fetchTeamMemories: GET ${url}`);
-
   try {
     const response = await apiRequest<MemoryListResponse>('GET', url);
 
     if (response.error) {
-      console.warn(`[API] fetchTeamMemories failed: ${response.error} (status: ${response.status})`);
+      console.error(`[API-CLIENT] FAILED: ${response.error}`);
       return [];  // Fail silent - don't block Claude Code
     }
 
     if (!response.data || !response.data.memories) {
-      console.log('[API] fetchTeamMemories: No memories returned');
       return [];
     }
 
-    console.log(`[API] fetchTeamMemories: Got ${response.data.memories.length} memories`);
     return response.data.memories;
 
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-    console.error(`[API] fetchTeamMemories exception: ${errorMsg}`);
+    // const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    // console.error(`[API] fetchTeamMemories exception: ${errorMsg}`);
     return [];  // Fail silent - don't block Claude Code
+  }
+}
+
+/**
+ * Input data for match endpoint (memory content for embedding generation)
+ */
+export interface MatchInput {
+  project_path: string;
+  goal?: string;
+  system_name?: string;  // Parent system anchor (e.g., 'Retry Queue')
+  original_query: string;
+  reasoning_trace?: ReasoningTraceEntry[];
+  decisions?: Array<{ aspect?: string; tags?: string; choice: string; reason: string }>;
+  evolution_steps?: Array<{ summary: string; date: string }>;
+  task_type?: 'information' | 'planning' | 'implementation';
+}
+
+/**
+ * Response type for match endpoint
+ * Note: Embeddings are now chunk-based and generated in SYNC (not passed from MATCH)
+ */
+export interface MatchResponse {
+  match: Memory | null;
+  combined_score?: number;
+}
+
+/**
+ * Fetch best matching memory for UPDATE decision
+ * Used by CLI before sync to check if a similar memory exists
+ *
+ * API generates chunks for multi-vector search against stored memory chunks.
+ * SYNC will regenerate chunks when saving (chunks not passed between endpoints).
+ *
+ * @param teamId - Team UUID
+ * @param data - Memory data for chunk generation and search
+ * @returns Match response with memory and score
+ */
+export async function fetchMatch(
+  teamId: string,
+  data: MatchInput
+): Promise<MatchResponse> {
+  const url = `/teams/${teamId}/memories/match`;
+
+  try {
+    const response = await apiRequest<MatchResponse>('POST', url, data);
+
+    if (response.error) {
+      console.error(`[MATCH-API] FAILED: ${response.error}`);
+      return { match: null };
+    }
+
+    if (!response.data) {
+      return { match: null };
+    }
+
+    return response.data;
+
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`[MATCH-API] FAILED: ${errorMsg}`);
+    return { match: null };
   }
 }
 

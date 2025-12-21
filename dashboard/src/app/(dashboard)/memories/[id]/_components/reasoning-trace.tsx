@@ -4,19 +4,46 @@
 
 import { useState } from 'react';
 
-// Support both string[] and object[] formats
-type TraceStep = string | { step?: number; thought: string };
+// Support all formats:
+// - string (old): "CONCLUSION: text" or "INSIGHT: text"
+// - old object: { step?: number; thought: string }
+// - new object: { tags?: string; conclusion: string; insight?: string | null }
+type TraceStep =
+  | string
+  | { step?: number; thought: string }
+  | { tags?: string; conclusion: string; insight?: string | null };
 
 interface ReasoningTraceProps {
   trace: TraceStep[];
 }
 
-// Extract text from a trace step (handles both string and object formats)
+// Check if step is the new format with tags/conclusion/insight
+function isNewFormat(step: TraceStep): step is { tags?: string; conclusion: string; insight?: string | null } {
+  return typeof step === 'object' && step !== null && 'conclusion' in step;
+}
+
+// Extract text from a trace step (handles all formats)
 function getStepText(step: TraceStep): string {
   if (typeof step === 'string') {
     return step;
   }
+
+  if (isNewFormat(step)) {
+    // New format: combine conclusion + insight
+    const parts = [step.conclusion, step.insight].filter(Boolean);
+    return parts.join(' | ');
+  }
+
+  // Old object format with 'thought'
   return step.thought || '';
+}
+
+// Get tags from step (only for new format)
+function getStepTags(step: TraceStep): string | undefined {
+  if (isNewFormat(step)) {
+    return step.tags;
+  }
+  return undefined;
 }
 
 export function ReasoningTrace({ trace }: ReasoningTraceProps) {
@@ -78,6 +105,7 @@ export function ReasoningTrace({ trace }: ReasoningTraceProps) {
       <div className="space-y-3">
         {trace.map((step, index) => {
           const text = getStepText(step);
+          const tags = getStepTags(step);
           return (
             <div
               key={index}
@@ -91,6 +119,13 @@ export function ReasoningTrace({ trace }: ReasoningTraceProps) {
                 <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-accent-400/20 text-xs font-medium text-accent-400">
                   {index + 1}
                 </span>
+
+                {/* Tags badge (if present) */}
+                {tags && (
+                  <span className="flex-shrink-0 rounded bg-accent-400/10 px-2 py-0.5 text-xs font-medium text-accent-400">
+                    {tags}
+                  </span>
+                )}
 
                 {/* Preview */}
                 <span
@@ -128,9 +163,22 @@ export function ReasoningTrace({ trace }: ReasoningTraceProps) {
               {/* Expanded content */}
               {expandedSteps.has(index) && (
                 <div className="border-t border-border/50 px-4 py-3">
-                  <p className="whitespace-pre-wrap text-sm text-text-secondary leading-relaxed">
-                    {text}
-                  </p>
+                  {isNewFormat(step) ? (
+                    <div className="space-y-2">
+                      <p className="whitespace-pre-wrap text-sm text-text-secondary leading-relaxed">
+                        {step.conclusion}
+                      </p>
+                      {step.insight && (
+                        <p className="whitespace-pre-wrap text-sm text-text-muted leading-relaxed italic">
+                          {step.insight}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm text-text-secondary leading-relaxed">
+                      {text}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

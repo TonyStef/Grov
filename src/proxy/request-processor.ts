@@ -4,7 +4,15 @@
 import { type Task, type TaskStatus } from '../lib/store.js';
 import { truncate } from '../lib/utils.js';
 import { fetchTeamMemories } from '../lib/api-client.js';
+import { isDebugMode } from './utils/logging.js';
 import type { Memory } from '@grov/shared';
+
+// Extended memory type with search scores (returned by hybrid search RPC)
+interface MemoryWithScores extends Memory {
+  semantic_score?: number;
+  lexical_score?: number;
+  combined_score?: number;
+}
 
 /**
  * Build context from CLOUD team memory for injection
@@ -23,73 +31,42 @@ export async function buildTeamMemoryContextCloud(
   mentionedFiles: string[],
   userPrompt?: string
 ): Promise<string | null> {
-  const startTime = Date.now();
   const hasContext = userPrompt && userPrompt.trim().length > 0;
-  console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
-  console.log(`[CLOUD] buildTeamMemoryContextCloud START`);
-  console.log(`[CLOUD] Team: ${teamId.substring(0, 8)}...`);
-  console.log(`[CLOUD] Project: ${projectPath}`);
-  console.log(`[CLOUD] Prompt: "${hasContext ? userPrompt!.substring(0, 60) + '...' : 'N/A'}"`);
-  console.log(`[CLOUD] Files for boost: ${mentionedFiles.length > 0 ? mentionedFiles.join(', ') : 'none'}`);
 
   try {
     // Fetch memories from cloud API (hybrid search if context provided)
-    const fetchStart = Date.now();
     const memories = await fetchTeamMemories(teamId, projectPath, {
       status: 'complete',
-      limit: 5, // Max 5 memories for injection (Convex Combination scoring)
+      limit: 5,
       files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
       context: hasContext ? userPrompt : undefined,
       current_files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
     });
-    const fetchTime = Date.now() - fetchStart;
 
     if (memories.length === 0) {
-      console.log(`[CLOUD] No memories found (fetch took ${fetchTime}ms)`);
-      console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
       return null;
     }
 
-    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
-    console.log(`[CLOUD] Fetched ${memories.length} memories in ${fetchTime}ms`);
-    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
-
-    // Log each memory with scores (if available from hybrid search)
-    for (let i = 0; i < memories.length; i++) {
-      const mem = memories[i] as unknown as Record<string, unknown>;
-      const semScore = typeof mem.semantic_score === 'number' ? (mem.semantic_score as number).toFixed(3) : '-';
-      const lexScore = typeof mem.lexical_score === 'number' ? (mem.lexical_score as number).toFixed(3) : '-';
-      const combScore = typeof mem.combined_score === 'number' ? (mem.combined_score as number).toFixed(3) : '-';
-      const boosted = mem.file_boost_applied ? '🚀' : '  ';
-      const query = String(memories[i].original_query || '').substring(0, 50);
-      const filesCount = memories[i].files_touched?.length || 0;
-      const reasoningCount = memories[i].reasoning_trace?.length || 0;
-
-      console.log(`[CLOUD] ${i + 1}. ${boosted} [${combScore}] sem=${semScore} lex=${lexScore} | files=${filesCount} reasoning=${reasoningCount}`);
-      console.log(`[CLOUD]    "${query}..."`);
+    // Log injected memories (debug mode only)
+    if (isDebugMode()) {
+      for (const m of memories as MemoryWithScores[]) {
+        const label = m.goal || m.original_query;
+        const sem = m.semantic_score?.toFixed(2) || '-';
+        const lex = m.lexical_score?.toFixed(2) || '-';
+        const comb = m.combined_score?.toFixed(2) || '-';
+        console.log(`[INJECT] ${label.substring(0, 50)}... (${comb}|${sem}|${lex})`);
+      }
     }
-
-    console.log(`[CLOUD] ───────────────────────────────────────────────────────────`);
 
     // Convert Memory[] to Task[] format for the existing formatter
     const tasks = memories.map(memoryToTask);
 
-    // Reuse existing formatter (no file-level reasoning from cloud yet)
+    // Reuse existing formatter
     const context = formatTeamMemoryContext(tasks, [], mentionedFiles);
-
-    // Estimate tokens (~4 chars per token)
-    const estimatedTokens = Math.round(context.length / 4);
-    const totalTime = Date.now() - startTime;
-
-    console.log(`[CLOUD] Context built: ${context.length} chars (~${estimatedTokens} tokens)`);
-    console.log(`[CLOUD] Total time: ${totalTime}ms (fetch: ${fetchTime}ms, format: ${totalTime - fetchTime}ms)`);
-    console.log(`[CLOUD] ═══════════════════════════════════════════════════════════`);
 
     return context;
 
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-    console.error(`[CLOUD] buildTeamMemoryContextCloud failed: ${errorMsg}`);
     return null;  // Fail silent - don't block Claude Code
   }
 }
@@ -153,28 +130,32 @@ function formatTeamMemoryContext(
         lines.push(`  Files: ${fileList}`);
       }
 
-      // Inject knowledge pairs (interleaved: conclusion, insight, conclusion, insight...)
-      // Take up to 5 pairs (10 entries) per task
+      // Inject knowledge pairs - handle both formats:
+      // Old format: string[] interleaved (conclusion, insight, conclusion, insight...)
+      // New format: Array<{ tags?, conclusion, insight? }> objects
       if (task.reasoning_trace.length > 0) {
         lines.push('  Knowledge:');
         const maxPairs = 5;
-        const maxEntries = maxPairs * 2; // 10 entries
-        const entries = task.reasoning_trace.slice(0, maxEntries);
+        const entries = task.reasoning_trace.slice(0, maxPairs);
 
-        for (let i = 0; i < entries.length; i += 2) {
-          const conclusion = entries[i];
-          const insight = entries[i + 1];
-
-          // Format conclusion (remove prefix for brevity)
-          const cText = conclusion?.replace(/^CONCLUSION:\s*/i, '') || '';
-          if (cText) {
-            lines.push(`    • ${truncate(cText, 120)}`);
-          }
-
-          // Format insight (indented under conclusion)
-          if (insight) {
-            const iText = insight.replace(/^INSIGHT:\s*/i, '');
-            lines.push(`      → ${truncate(iText, 100)}`);
+        for (const entry of entries) {
+          if (typeof entry === 'string') {
+            // Old format: plain string - just remove prefix and show
+            const text = entry.replace(/^(CONCLUSION|INSIGHT):\s*/i, '');
+            if (text) {
+              lines.push(`    • ${truncate(text, 120)}`);
+            }
+          } else if (typeof entry === 'object' && entry !== null) {
+            // New format: object with tags, conclusion, insight
+            const cText = entry.conclusion?.replace(/^CONCLUSION:\s*/i, '') || '';
+            if (cText) {
+              const prefix = entry.tags ? `[${entry.tags}] ` : '';
+              lines.push(`    • ${prefix}${truncate(cText, 110)}`);
+            }
+            if (entry.insight) {
+              const iText = entry.insight.replace(/^INSIGHT:\s*/i, '');
+              lines.push(`      → ${truncate(iText, 100)}`);
+            }
           }
         }
       }
@@ -283,12 +264,20 @@ export function extractLastUserPrompt(
       }
     }
 
-    // Strip system-reminder tags to get clean user content
+    // Strip system-reminder tags and continuation artifacts to get clean user content
     const cleanContent = textContent
+      // Remove actual system-reminder tags
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      // Remove escaped/broken system-reminder artifacts from continuation summaries
+      .replace(/\\n["']?\s*<\/system-reminder>/g, '')
+      .replace(/<\/system-reminder>/g, '')
+      // Remove continuation summary header if it's the entire content
+      .replace(/^This session is being continued from a previous conversation[\s\S]*?Summary:/gi, '')
+      // Clean up leading noise (newlines, quotes, whitespace)
+      .replace(/^[\s\n"'\\]+/, '')
       .trim();
 
-    if (cleanContent) {
+    if (cleanContent && cleanContent.length > 5) {
       return cleanContent;
     }
   }

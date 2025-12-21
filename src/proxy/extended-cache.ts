@@ -37,7 +37,7 @@ export function evictOldestCacheEntry(): void {
 
   if (oldestId) {
     extendedCache.delete(oldestId);
-    log(`Extended cache: evicted ${oldestId.substring(0, 8)} (capacity limit)`);
+    // Evicted silently - capacity limit
   }
 }
 
@@ -98,7 +98,7 @@ async function sendExtendedCacheKeepAlive(projectPath: string, entry: ExtendedCa
     ? '{"role":"user","content":"."}'
     : ',{"role":"user","content":"."}';
 
-  log(`Extended cache: SEND keep-alive project=${projectName} msg_array_size=${messagesEnd - messagesStart}`);
+  // Sending keep-alive - result logged after response
 
   rawBodyStr = rawBodyStr.slice(0, messagesEnd) + keepAliveMsg + rawBodyStr.slice(messagesEnd);
 
@@ -125,12 +125,10 @@ async function sendExtendedCacheKeepAlive(projectPath: string, entry: ExtendedCa
     throw new Error(`Keep-alive failed: ${result.statusCode}`);
   }
 
-  // Log cache metrics
+  // Log cache metrics (minimal)
   const usage = (result.body as Record<string, unknown>).usage as Record<string, number> | undefined;
   const cacheRead = usage?.cache_read_input_tokens || 0;
-  const cacheCreate = usage?.cache_creation_input_tokens || 0;
-  const inputTokens = usage?.input_tokens || 0;
-  log(`Extended cache: keep-alive for ${projectName} - cache_read=${cacheRead}, cache_create=${cacheCreate}, input=${inputTokens}`);
+  console.log(`[CACHE] keep-alive ${projectName}: read=${cacheRead}`);
 }
 
 export async function checkExtendedCache(): Promise<void> {
@@ -145,7 +143,6 @@ export async function checkExtendedCache(): Promise<void> {
     // Stale cleanup: user left after 10 minutes
     if (idleTime > EXTENDED_CACHE_MAX_IDLE) {
       extendedCache.delete(projectPath);
-      log(`Extended cache: cleared ${projectName} (stale)`);
       continue;
     }
 
@@ -157,7 +154,6 @@ export async function checkExtendedCache(): Promise<void> {
     // Skip if already sent max keep-alives
     if (entry.keepAliveCount >= EXTENDED_CACHE_MAX_KEEPALIVES) {
       extendedCache.delete(projectPath);
-      log(`Extended cache: cleared ${projectName} (max retries)`);
       continue;
     }
 
@@ -176,14 +172,8 @@ export async function checkExtendedCache(): Promise<void> {
       })
       .catch((err) => {
         extendedCache.delete(projectPath);
-        // Handle both Error instances and ForwardError objects
-        const errMsg = err instanceof Error
-          ? err.message
-          : (err && typeof err === 'object' && 'message' in err)
-            ? String(err.message)
-            : JSON.stringify(err);
-        const errType = err && typeof err === 'object' && 'type' in err ? ` [${err.type}]` : '';
-        log(`Extended cache: cleared ${projectName} (error${errType}: ${errMsg})`);
+        const errMsg = err instanceof Error ? err.message : 'unknown';
+        console.error(`[CACHE] keep-alive ${projectName} failed: ${errMsg}`);
       });
 
     keepAlivePromises.push(promise);

@@ -37,7 +37,7 @@ import Footer from '../components/Footer.astro';
       </div>
 
       <!-- Pricing Cards Grid -->
-      <div class="grid md:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5 mb-16">
+      <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5 mb-16">
 
         <!-- Free Tier -->
         <div class="card p-6 flex flex-col">
@@ -49,7 +49,7 @@ import Footer from '../components/Footer.astro';
             <span class="text-grov-text-muted text-sm">/month</span>
           </div>
           <p class="text-xs text-grov-text-secondary mb-6">
-            Up to 3 users
+            Up to 5 users
           </p>
 
           <!-- Features -->
@@ -85,10 +85,10 @@ import Footer from '../components/Footer.astro';
           </a>
         </div>
 
-        <!-- Starter Tier -->
+        <!-- Pro Tier -->
         <div class="card p-6 flex flex-col">
           <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-3">
-            Starter
+            Pro
           </div>
           <div class="flex items-baseline gap-2 mb-1">
             <span class="text-3xl font-bold text-grov-text price-monthly">$29</span>
@@ -96,7 +96,7 @@ import Footer from '../components/Footer.astro';
             <span class="text-grov-text-muted text-sm">/month</span>
           </div>
           <p class="text-xs text-grov-text-secondary mb-6">
-            Up to 5 users
+            Up to 10 users
           </p>
 
           <!-- Features -->
@@ -123,11 +123,11 @@ import Footer from '../components/Footer.astro';
               <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              Priority support
+              Email support
             </li>
           </ul>
 
-          <a href="https://app.grov.dev/login?plan=starter" class="btn-secondary w-full text-center text-sm py-2">
+          <a href="https://app.grov.dev/login?plan=pro" class="btn-secondary w-full text-center text-sm py-2">
             Start Trial
           </a>
         </div>
@@ -150,7 +150,7 @@ import Footer from '../components/Footer.astro';
             <span class="text-grov-text-muted text-sm">/month</span>
           </div>
           <p class="text-xs text-grov-text-secondary mb-6">
-            Up to 15 users
+            Up to 25 users
           </p>
 
           <!-- Features -->
@@ -159,7 +159,7 @@ import Footer from '../components/Footer.astro';
               <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              Everything in Starter
+              Everything in Pro
             </li>
             <li class="flex items-start gap-2 font-medium text-grov-accent">
               <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -186,53 +186,6 @@ import Footer from '../components/Footer.astro';
           </a>
         </div>
 
-        <!-- Business Tier -->
-        <div class="card p-6 flex flex-col">
-          <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-3">
-            Business
-          </div>
-          <div class="flex items-baseline gap-2 mb-1">
-            <span class="text-3xl font-bold text-grov-text price-monthly">$149</span>
-            <span class="text-3xl font-bold text-grov-text price-annual hidden">$124</span>
-            <span class="text-grov-text-muted text-sm">/month</span>
-          </div>
-          <p class="text-xs text-grov-text-secondary mb-6">
-            Up to 30 users
-          </p>
-
-          <!-- Features -->
-          <ul class="space-y-3 mb-6 flex-1 text-sm">
-            <li class="flex items-start gap-2 text-grov-text-secondary">
-              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Everything in Team
-            </li>
-            <li class="flex items-start gap-2 font-medium text-grov-accent">
-              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              API included
-            </li>
-            <li class="flex items-start gap-2 text-grov-text-secondary">
-              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Advanced analytics
-            </li>
-            <li class="flex items-start gap-2 text-grov-text-secondary">
-              <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Priority support
-            </li>
-          </ul>
-
-          <a href="https://app.grov.dev/login?plan=business" class="btn-secondary w-full text-center text-sm py-2">
-            Start Trial
-          </a>
-        </div>
-
         <!-- Enterprise Tier -->
         <div class="card p-6 flex flex-col">
           <div class="font-mono text-xs text-grov-text-muted uppercase tracking-wide mb-3">
@@ -251,7 +204,7 @@ import Footer from '../components/Footer.astro';
               <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              Everything in Business
+              Everything in Team
             </li>
             <li class="flex items-start gap-2 text-grov-text-secondary">
               <svg class="w-4 h-4 text-grov-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

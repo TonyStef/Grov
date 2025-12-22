@@ -68,8 +68,9 @@ export function initDatabase(): Database.Database {
     console.warn('Please ensure the file has appropriate permissions for your system.');
   }
 
-  // OPTIMIZATION: Enable WAL mode for better concurrent performance
+  // WAL mode + checkpoint at startup
   db.pragma('journal_mode = WAL');
+  db.pragma('wal_checkpoint(TRUNCATE)');
 
   // Create all tables in a single transaction for efficiency
   db.exec(`

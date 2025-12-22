@@ -35,6 +35,8 @@ import {
   getCompletedSessionForProject,
   cleanupOldCompletedSessions,
   cleanupStaleActiveSessions,
+  clearStalePendingCorrections,
+  cleanupFailedSyncTasks,
   getKeyDecisions,
   getEditedFiles,
   type SessionState,
@@ -1438,8 +1440,9 @@ export async function startServer(options: { debug?: boolean } = {}): Promise<Fa
   // Set server logger for background tasks
   serverLog = server.log;
 
-  // Cleanup old completed sessions (older than 24 hours)
+  // Startup cleanup
   cleanupOldCompletedSessions();
+  cleanupFailedSyncTasks();
 
   // Cleanup stale active sessions (no activity for 1 hour)
   // Prevents old sessions from being reused in fresh Claude sessions
@@ -1501,6 +1504,10 @@ export async function startServer(options: { debug?: boolean } = {}): Promise<Fa
     extendedCacheTimer = setInterval(checkExtendedCache, 60_000);
     log('Extended cache: enabled (keep-alive timer started)');
   }
+
+  // Clear stale pending corrections from previous sessions
+  // Prevents stuck HALT states from blocking new sessions
+  clearStalePendingCorrections();
 
   try {
     await server.listen({

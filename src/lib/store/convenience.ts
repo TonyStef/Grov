@@ -60,19 +60,15 @@ export function markSessionCompleted(sessionId: string): void {
 }
 
 /**
- * Cleanup sessions completed more than 24 hours ago
- * Also deletes associated steps and drift_log entries
- * Skips sessions that have active children (RESTRICT approach)
- * Returns number of sessions cleaned up
+ * Cleanup old completed/abandoned sessions and their steps/drift_log
  */
 export function cleanupOldCompletedSessions(maxAgeMs: number = 86400000): number {
   const database = getDb();
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
 
-  // Get sessions to cleanup, excluding those with active children
   const oldSessions = database.prepare(`
     SELECT session_id FROM session_states
-    WHERE status = 'completed'
+    WHERE status IN ('completed', 'abandoned')
       AND completed_at < ?
       AND session_id NOT IN (
         SELECT DISTINCT parent_session_id

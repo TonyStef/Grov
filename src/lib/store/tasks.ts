@@ -230,3 +230,23 @@ export function cleanupOldSyncedTasks(maxSyncedTasks: number = 500): number {
   const result = stmt.run(toDelete);
   return result.changes;
 }
+
+/**
+ * Delete oldest failed sync tasks (keep max 500)
+ */
+export function cleanupFailedSyncTasks(maxFailedTasks: number = 500): number {
+  const database = getDb();
+
+  const result = database.prepare(`
+    DELETE FROM tasks
+    WHERE sync_error IS NOT NULL
+      AND id NOT IN (
+        SELECT id FROM tasks
+        WHERE sync_error IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT ?
+      )
+  `).run(maxFailedTasks);
+
+  return result.changes;
+}

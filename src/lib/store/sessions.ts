@@ -310,3 +310,32 @@ export function getCompletedSessionForProject(projectPath: string): SessionState
 
   return row ? rowToSessionState(row) : null;
 }
+
+/**
+ * Clear stale pending states from all sessions
+ * Called at proxy startup to prevent stuck states from blocking new sessions
+ * Resets: corrections, recovery plans, CLEAR summaries, token counts
+ * Returns number of sessions cleared
+ */
+export function clearStalePendingCorrections(): number {
+  const database = getDb();
+  const result = database.prepare(`
+    UPDATE session_states
+    SET pending_correction = NULL,
+        pending_forced_recovery = NULL,
+        pending_clear_summary = NULL,
+        pending_recovery_plan = NULL,
+        waiting_for_recovery = 0,
+        escalation_count = 0,
+        session_mode = 'normal',
+        token_count = 0
+    WHERE pending_correction IS NOT NULL
+       OR pending_forced_recovery IS NOT NULL
+       OR pending_clear_summary IS NOT NULL
+       OR pending_recovery_plan IS NOT NULL
+       OR waiting_for_recovery = 1
+       OR token_count > 0
+  `).run();
+
+  return result.changes;
+}

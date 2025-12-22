@@ -34,7 +34,8 @@ export {
   markTaskSynced,
   setTaskSyncError,
   getSyncedTaskCount,
-  cleanupOldSyncedTasks
+  cleanupOldSyncedTasks,
+  cleanupFailedSyncTasks
 } from './tasks.js';
 
 // Re-export session functions
@@ -45,7 +46,8 @@ export {
   deleteSessionState,
   getActiveSessionForUser,
   getActiveSessionsForStatus,
-  getCompletedSessionForProject
+  getCompletedSessionForProject,
+  clearStalePendingCorrections
 } from './sessions.js';
 
 // Re-export step functions

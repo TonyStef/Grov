@@ -1,14 +1,13 @@
 import type { Metadata } from 'next';
 import { SearchClient } from './_components/search-client';
-import { getUserTeams } from '@/lib/queries/teams';
+import { getCurrentTeamId } from '@/lib/queries/current-team';
 
 export const metadata: Metadata = {
   title: 'Search',
 };
 
 export default async function SearchPage() {
-  const teams = await getUserTeams();
-  const defaultTeamId = teams[0]?.id || null;
+  const defaultTeamId = await getCurrentTeamId();
 
   return (
     <div className="animate-grow-in space-y-4 p-6">

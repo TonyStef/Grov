@@ -6,6 +6,7 @@ import {
   getUserRoleInTeam,
   getTeamInvitations,
 } from '@/lib/queries/teams';
+import { getCurrentTeamId } from '@/lib/queries/current-team';
 import { TeamPageClient } from './_components/team-page-client';
 
 export const metadata: Metadata = {
@@ -17,13 +18,14 @@ export default async function TeamPage() {
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    return null; // Middleware should handle this
+    return null;
   }
 
-  // Get user's teams
-  const teams = await getUserTeams();
+  const [teams, currentTeamId] = await Promise.all([
+    getUserTeams(),
+    getCurrentTeamId(),
+  ]);
 
-  // If no teams, show empty state
   if (teams.length === 0) {
     return (
       <TeamPageClient
@@ -36,10 +38,8 @@ export default async function TeamPage() {
     );
   }
 
-  // Use first team for now (will add team switcher later)
-  const team = teams[0];
+  const team = teams.find(t => t.id === currentTeamId) || teams[0];
 
-  // Fetch team data in parallel
   const [members, userRole, invitations] = await Promise.all([
     getTeamMembers(team.id),
     getUserRoleInTeam(team.id),

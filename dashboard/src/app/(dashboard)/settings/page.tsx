@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { getUserWithPreferences, getTeamWithSettings, isTeamAdmin } from '@/lib/queries/settings';
 import { getUserTeams } from '@/lib/queries/teams';
+import { getCurrentTeamId } from '@/lib/queries/current-team';
 import { SettingsClient } from './_components/settings-client';
 
 export const metadata: Metadata = {
@@ -8,9 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default async function SettingsPage() {
-  const [user, teams] = await Promise.all([
+  const [user, teams, currentTeamId] = await Promise.all([
     getUserWithPreferences(),
     getUserTeams(),
+    getCurrentTeamId(),
   ]);
 
   if (!user) {
@@ -21,15 +23,13 @@ export default async function SettingsPage() {
     );
   }
 
-  // Get settings for first team (or team from preferences)
   let team = null;
   let teamIsAdmin = false;
 
-  if (teams.length > 0) {
-    const teamId = teams[0].id;
+  if (currentTeamId) {
     [team, teamIsAdmin] = await Promise.all([
-      getTeamWithSettings(teamId),
-      isTeamAdmin(teamId),
+      getTeamWithSettings(currentTeamId),
+      isTeamAdmin(currentTeamId),
     ]);
   }
 

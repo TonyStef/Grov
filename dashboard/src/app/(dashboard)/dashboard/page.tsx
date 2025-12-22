@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Brain, ChevronRight, Clock, FileCode } from 'lucide-react';
 import { getDashboardData } from '@/lib/queries/dashboard-rpc';
 import { formatRelativeDate, truncate, getInitials } from '@/lib/utils';
@@ -94,10 +95,12 @@ export default async function DashboardPage() {
                     </p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-quiet">
                       {memory.profile?.avatar_url ? (
-                        <img
+                        <Image
                           src={memory.profile.avatar_url}
                           alt=""
-                          className="h-4 w-4 rounded"
+                          width={16}
+                          height={16}
+                          className="rounded"
                         />
                       ) : (
                         <div className="h-4 w-4 rounded bg-leaf/10 text-[8px] flex items-center justify-center text-leaf font-medium">

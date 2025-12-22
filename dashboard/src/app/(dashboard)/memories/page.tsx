@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Brain, FileCode, Clock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
-import { getUserTeams } from '@/lib/queries/teams';
+import { getCurrentTeam } from '@/lib/queries/current-team';
 import { getMemoriesList, getTeamTags } from '@/lib/queries/memories';
 import { formatRelativeDate, truncate, getInitials, getFileExtension } from '@/lib/utils';
 import { MemoriesFilters } from './_components/memories-filters';
@@ -29,13 +30,11 @@ export default async function MemoriesPage({ searchParams }: PageProps) {
     return null;
   }
 
-  const teams = await getUserTeams();
+  const team = await getCurrentTeam();
 
-  if (teams.length === 0) {
+  if (!team) {
     return <NoTeamState />;
   }
-
-  const team = teams[0];
 
   // Parse filters from URL
   const filters = {
@@ -135,10 +134,12 @@ function MemoryCard({ memory }: { memory: any }) {
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-text-quiet">
             <div className="flex items-center gap-1.5">
               {memory.profile?.avatar_url ? (
-                <img
+                <Image
                   src={memory.profile.avatar_url}
                   alt=""
-                  className="h-5 w-5 rounded"
+                  width={20}
+                  height={20}
+                  className="rounded"
                 />
               ) : (
                 <div className="h-5 w-5 rounded bg-leaf/10 text-[9px] flex items-center justify-center text-leaf font-medium">

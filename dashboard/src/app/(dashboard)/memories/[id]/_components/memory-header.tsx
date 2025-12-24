@@ -1,5 +1,6 @@
 // Memory header component - Shows query, goal, status, user, and date
 
+import Image from 'next/image';
 import type { Memory } from '@grov/shared';
 
 interface MemoryHeaderProps {
@@ -93,10 +94,12 @@ export function MemoryHeader({ memory }: MemoryHeaderProps) {
         {/* User */}
         <div className="flex items-center gap-2 text-sm text-text-secondary">
           {avatarUrl ? (
-            <img
+            <Image
               src={avatarUrl}
               alt={displayName}
-              className="h-5 w-5 rounded-full"
+              width={20}
+              height={20}
+              className="rounded-full"
             />
           ) : (
             <div className="flex h-5 w-5 items-center justify-center rounded-full bg-bg-3 text-xs">

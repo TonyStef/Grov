@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { Shield, Crown, User } from 'lucide-react';
 import { formatRelativeDate, getInitials } from '@/lib/utils';
 import type { TeamMemberWithProfile } from '@/lib/queries/teams';
@@ -65,10 +66,12 @@ export function TeamMembersTable({
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
                     {member.avatar_url ? (
-                      <img
+                      <Image
                         src={member.avatar_url}
                         alt={member.full_name || member.email}
-                        className="h-10 w-10 rounded-full"
+                        width={40}
+                        height={40}
+                        className="rounded-full"
                       />
                     ) : (
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent-400/20 font-medium text-accent-400">

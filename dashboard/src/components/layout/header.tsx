@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Search, Command, LogOut, Settings } from 'lucide-react';
 import { CommandMenu } from './command-menu';
@@ -47,10 +48,12 @@ export function Header({ user }: HeaderProps) {
               className="flex items-center gap-2 rounded-lg p-1 transition-all hover:bg-bark"
             >
               {user?.avatar_url ? (
-                <img
+                <Image
                   src={user.avatar_url}
                   alt={user.full_name || user.email}
-                  className="h-6 w-6 rounded"
+                  width={24}
+                  height={24}
+                  className="rounded"
                 />
               ) : (
                 <div className="flex h-6 w-6 items-center justify-center rounded bg-leaf/10 text-[10px] font-medium text-leaf">

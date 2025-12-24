@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import Image from 'next/image';
 import { LogOut } from 'lucide-react';
 import { updateProfile } from '../actions';
 import { createClient } from '@/lib/supabase/client';
@@ -60,10 +61,12 @@ export function ProfileSettings({ user }: ProfileSettingsProps) {
           {/* Avatar display */}
           <div className="flex items-center gap-4">
             {user.avatar_url ? (
-              <img
+              <Image
                 src={user.avatar_url}
                 alt={user.full_name || 'User'}
-                className="h-16 w-16 rounded-full"
+                width={64}
+                height={64}
+                className="rounded-full"
               />
             ) : (
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-bg-2 text-xl font-medium text-text-secondary">

@@ -4,6 +4,7 @@ Thanks for your interest in contributing to Grov! This document outlines how to 
 
 ## Community
 
+- **Discord:** [Join our server](https://discord.com/invite/Pz5P6Havr7) - Real-time discussions and support
 - **Reddit:** [r/useGrov](https://www.reddit.com/r/useGrov/) - Discuss ideas, ask questions, share feedback
 - **GitHub Issues:** Bug reports and feature requests
 

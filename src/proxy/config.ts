@@ -13,7 +13,7 @@ export const config = {
   BODY_LIMIT: parseInt(process.env.BODY_LIMIT || '10485760', 10), // 10MB
 
   // Drift settings
-  DRIFT_CHECK_INTERVAL: parseInt(process.env.DRIFT_CHECK_INTERVAL || '3', 10),
+  DRIFT_CHECK_INTERVAL: parseInt(process.env.DRIFT_CHECK_INTERVAL || '5', 10),
   TOKEN_WARNING_THRESHOLD: parseInt(process.env.TOKEN_WARNING_THRESHOLD || '160000', 10), // 80%
   TOKEN_CLEAR_THRESHOLD: parseInt(process.env.TOKEN_CLEAR_THRESHOLD || '180000', 10), // 90%
 

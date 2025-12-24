@@ -54,14 +54,55 @@ export async function checkDrift(input: DriftCheckInput): Promise<DriftCheckResu
 }
 
 /**
+ * Build repetition context for files edited 5+ times
+ */
+function buildRepetitionContext(steps: StepRecord[]): string {
+  const fileCounts = new Map<string, number>();
+  for (const step of steps) {
+    if (step.action_type === 'edit' || step.action_type === 'write') {
+      for (const file of step.files) {
+        fileCounts.set(file, (fileCounts.get(file) || 0) + 1);
+      }
+    }
+  }
+
+  const repeated = [...fileCounts.entries()]
+    .filter(([, count]) => count >= 5)
+    .map(([file, count]) => `${file} (${count}x)`);
+
+  return repeated.length > 0 ? repeated.join(', ') : '';
+}
+
+/**
  * LLM-based drift check using Haiku
  * Reference: plan_proxy_local.md Section 3.1
  */
 async function checkDriftWithLLM(input: DriftCheckInput): Promise<DriftCheckResult> {
   const client = getAnthropicClient();
 
-  const actionsText = input.recentSteps
+  // WHITELIST only modification actions for drift evaluation
+  // Reading/exploring is ALWAYS OK - we only care about actual changes
+  //
+  // Modification actions (INCLUDE in drift check):
+  //   - edit: file modifications
+  //   - write: new files created
+  //   - bash: commands that might modify state
+  //
+  // Read-like actions (EXCLUDE from drift check):
+  //   - read: Read tool, cat, head, tail, less, more, type (Windows)
+  //   - glob: Glob tool, find, ls, dir (Windows)
+  //   - grep: Grep tool, rg, ack, findstr (Windows)
+  //   - task: Subagent (usually research/exploration)
+  //   - other: Various non-modification tools
+  //
+  // Note: bash could be read-like (cat) or modify-like (rm, npm install).
+  // We include bash because modifications through it are significant.
+  const modificationActions = new Set(['edit', 'write', 'bash']);
+  const modificationSteps = input.recentSteps
     .slice(-10)
+    .filter(step => modificationActions.has(step.action_type));
+
+  const actionsText = modificationSteps
     .map(step => {
       if (step.action_type === 'bash' && step.command) {
         return `- ${step.action_type}: ${step.command.substring(0, 100)}`;
@@ -74,55 +115,190 @@ async function checkDriftWithLLM(input: DriftCheckInput): Promise<DriftCheckResu
     .join('\n');
 
   // If we have a latest user message, that's the CURRENT instruction
-  const currentInstruction = input.latestUserMessage?.substring(0, 500) || '';
+  // Use 1500 chars to avoid cutting off complex instructions mid-thought
+  const currentInstruction = input.latestUserMessage?.substring(0, 1500) || '';
   const hasCurrentInstruction = currentInstruction.length > 20;
+  const repetitionContext = buildRepetitionContext(input.recentSteps);
 
-  const prompt = `You are a drift detection system. Check if Claude is following the user's CURRENT instructions.
+  const prompt = `<purpose>
+You are a LENIENT drift detection system for a coding assistant.
+Your job: Check if Claude is following the user's instructions.
 
-${hasCurrentInstruction ? `CURRENT USER INSTRUCTION (PRIMARY - check against this!):
-"${currentInstruction}"
+CRITICAL MINDSET:
+- Default assumption: Claude is doing fine (score 8)
+- Only lower score when you see CLEAR, OBVIOUS problems
+- Scores 5-10 are all acceptable - no action needed for these scores
+</purpose>
 
-ORIGINAL SESSION GOAL (secondary context):
-${input.sessionState.original_goal || 'Not specified'}` : `ORIGINAL GOAL:
-${input.sessionState.original_goal || 'Not specified'}`}
+<context>
+<current_instruction priority="PRIMARY" weight="90%">
+This is what the user JUST asked for. Compare actions against THIS.
+"${hasCurrentInstruction ? currentInstruction : 'Not specified'}"
+</current_instruction>
 
-EXPECTED SCOPE: ${input.sessionState.expected_scope.length > 0 ? input.sessionState.expected_scope.join(', ') : 'Not specified'}
+<original_goal priority="SECONDARY" weight="10%">
+This was the initial goal. User may have changed direction - that's OK.
+"${input.sessionState.original_goal || 'Not specified'}"
+</original_goal>
 
-CONSTRAINTS FROM USER: ${input.sessionState.constraints.length > 0 ? input.sessionState.constraints.join(', ') : 'None'}
+<constraints>
+${input.sessionState.constraints.length > 0 ? input.sessionState.constraints.join(', ') : 'None'}
+</constraints>
 
-CLAUDE'S RECENT ACTIONS:
+<recent_actions context_only="true">
+These are Claude's recent actions. Use for understanding, NOT for automatic penalties.
 ${actionsText || 'No actions yet'}
+</recent_actions>
+${repetitionContext ? `
+<repetition_notice>
+Files edited 5+ times: ${repetitionContext}
 
-═══════════════════════════════════════════════════════════════
-CRITICAL: Compare Claude's actions against ${hasCurrentInstruction ? 'CURRENT USER INSTRUCTION' : 'ORIGINAL GOAL'}
-═══════════════════════════════════════════════════════════════
+This is NOT automatically bad. Check:
+- Is Claude making incremental progress?
+- Or is Claude stuck repeating the exact same fix?
+</repetition_notice>
+` : ''}
+</context>
 
-DRIFT = Claude doing something the user did NOT ask for, or IGNORING what user said.
-NOT DRIFT = Claude following user's instructions, even if different from original goal.
+<scoring_guide>
+<score_9_10 meaning="ON TRACK - Excellent">
+Claude is doing EXACTLY what user asked, or very close.
 
-Example:
-- Original goal: "analyze the code"
-- Current instruction: "now create the files"
-- Claude creates files → NOT DRIFT (following current instruction)
+GIVE 9-10 WHEN:
+- Actions directly match current_instruction
+- New files created that user requested (even if not explicitly named)
+- Working on files related to the task
+- Making clear progress toward goal
 
-CHECK FOR REAL DRIFT:
-1. Claude modifying files user said NOT to modify
-2. Claude ignoring explicit constraints ("don't run commands" but runs commands)
-3. Claude doing unrelated work (user asks about auth, Claude fixes CSS)
-4. Repetitive loops (editing same file 5+ times without progress)
+EXAMPLES:
+- User: "add login feature" → Claude creates src/auth/login.ts → Score: 10
+- User: "fix the bug in payments" → Claude edits src/payments/checkout.ts → Score: 10
+- User: "research how X works" → Claude creates docs/research-X.md → Score: 10
+- User: "refactor the API" → Claude edits multiple API files → Score: 9
+</score_9_10>
 
-Rate 1-10:
-- 10: Perfect - following current instruction exactly
-- 8-9: Good - on track with minor deviations
-- 6-7: Moderate drift - needs nudge
-- 4-5: Significant drift - ignoring parts of instruction
-- 2-3: Major drift - doing opposite of what user asked
-- 1: Critical - completely off track
+<score_5_8 meaning="ACCEPTABLE - Fine, no issues">
+Claude is doing related work, not perfect but acceptable.
 
-RESPONSE RULES:
-- English only
-- No emojis
-- Return JSON: {"score": N, "diagnostic": "brief reason", "suggestedAction": "what to do"}`;
+GIVE 5-8 WHEN:
+- Actions are RELATED to the task but not exact match
+- Claude is exploring/investigating before implementing
+- Some actions seem tangential but could be necessary
+
+EXAMPLES:
+- User: "fix auth bug" → Claude reads config files first → Score: 8 (investigating)
+- User: "add feature X" → Claude refactors nearby code first → Score: 7 (prep work)
+- User: "update the UI" → Claude also updates related tests → Score: 8 (good practice)
+</score_5_8>
+
+<score_4 meaning="MILD CONCERN - Yellow flag">
+Something seems off but not critically wrong.
+
+GIVE 4 WHEN:
+- Actions feel disconnected from instruction
+- Claude might be going in circles
+- Possible misunderstanding of task
+
+EXAMPLES:
+- User: "fix login" → Claude spends time on logout → Score: 4 (related but not asked)
+- Claude edits same file 5+ times with SAME reasoning repeated → Score: 4
+- User: "quick fix" → Claude starts major refactor → Score: 4 (scope mismatch)
+</score_4>
+
+<score_1_3 meaning="REAL DRIFT - Red flag">
+Claude is clearly doing something WRONG or STUCK.
+
+GIVE 1-3 ONLY WHEN:
+- Actions are COMPLETELY unrelated to instruction
+- Claude explicitly violates user's constraints
+- Clear evidence of being stuck in loop (same error, same fix, no progress)
+- Doing the OPPOSITE of what user asked
+
+EXAMPLES:
+- User: "fix auth bug" → Claude refactors CSS styling → Score: 2 (completely unrelated)
+- User: "don't modify config" → Claude modifies config → Score: 1 (violated constraint)
+- User: "just analyze, don't change" → Claude rewrites code → Score: 2 (opposite)
+- User: "work on backend" → Claude only touches frontend → Score: 2 (wrong area)
+</score_1_3>
+</scoring_guide>
+
+<detailed_rules>
+<rule name="NEW_FILES">
+WHEN IT'S OK (score 9-10):
+- User asked for something that requires new files
+- File is in a logical location for the task
+
+WHEN IT'S BAD (score 1-4):
+- File has nothing to do with current instruction
+- User explicitly said "don't create new files"
+
+EXAMPLES:
+- User: "create a plan" → Claude creates docs/plan.md → Score: 10
+- User: "fix typo in README" → Claude creates src/new-module.ts → Score: 2
+</rule>
+
+<rule name="MULTIPLE_EDITS">
+WHEN IT'S OK (score 8-10):
+- Each edit has DIFFERENT purpose
+- Claude is iterating: add feature → add tests → fix edge case
+
+WHEN IT'S BAD (score 3-4):
+- ALL edits have SAME reasoning: "fixing error" → "fixing error" → "fixing error"
+- No progress visible between edits
+
+EXAMPLES:
+- Edit 1: "added login" → Edit 2: "added validation" → Edit 3: "added tests" → Score: 9
+- Edit 1: "fix bug" → Edit 2: "fix bug" → Edit 3: "fix bug" → Edit 4: "fix bug" → Score: 3
+</rule>
+
+<rule name="WRONG_DIRECTION">
+HOW TO IDENTIFY:
+- Ask: "Does this action help achieve current_instruction?"
+- If answer is "no" or "I can't see how" → wrong direction (score 1-3)
+- If answer is "maybe" or "indirectly" → probably OK (score 6-8)
+
+EXAMPLES OF WRONG DIRECTION:
+- User wants backend fix → Claude only touches CSS (score 2)
+- User wants bug fix → Claude adds new features instead (score 3)
+- User wants analysis → Claude starts rewriting without being asked (score 2)
+
+NOT WRONG DIRECTION:
+- User wants feature A → Claude reads related code first (score 9)
+- User wants fix X → Claude also updates tests for X (score 9)
+</rule>
+
+<rule name="USER_CHANGED_DIRECTION">
+If current_instruction differs from original_goal:
+- ALWAYS prioritize current_instruction (90% weight)
+- If Claude follows current_instruction but not original_goal → Score 9-10
+
+EXAMPLE:
+- Original goal: "analyze the codebase"
+- Current instruction: "now create the implementation"
+- Claude creates files → Score: 10 (following CURRENT instruction)
+</rule>
+</detailed_rules>
+
+<anti_bias_rules>
+DO NOT:
+- Default to middle scores (5-7) without specific reason
+- Penalize for new files automatically
+- Penalize for multiple edits automatically
+
+DO:
+- Start with assumption of score 8
+- Only lower if you find SPECIFIC evidence
+- Give 9-10 generously when Claude is on track
+</anti_bias_rules>
+
+<response_format>
+Return ONLY valid JSON:
+{
+  "score": <number 1-10>,
+  "diagnostic": "<1-2 sentences explaining the score>",
+  "evidence": "<specific action or pattern that led to this score>"
+}
+</response_format>`;
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
@@ -140,51 +316,15 @@ RESPONSE RULES:
 
 /**
  * Basic drift check without LLM (fallback)
+ * Returns safe default - no penalties without LLM analysis
  */
-export function checkDriftBasic(input: DriftCheckInput): DriftCheckResult {
-  let score = 8;
-  const diagnostics: string[] = [];
-
-  const { sessionState, recentSteps } = input;
-  const expectedScope = sessionState.expected_scope;
-
-  // Check if actions touch files outside scope
-  for (const step of recentSteps) {
-    if (step.action_type === 'read') continue; // Read is OK
-
-    for (const file of step.files) {
-      if (expectedScope.length > 0) {
-        const inScope = expectedScope.some(scope => file.includes(scope));
-        if (!inScope) {
-          score -= 2;
-          diagnostics.push(`File outside scope: ${file}`);
-        }
-      }
-    }
-  }
-
-  // Check repetition (same file edited 3+ times recently)
-  const fileCounts = new Map<string, number>();
-  for (const step of recentSteps) {
-    if (step.action_type === 'edit' || step.action_type === 'write') {
-      for (const file of step.files) {
-        fileCounts.set(file, (fileCounts.get(file) || 0) + 1);
-      }
-    }
-  }
-  for (const [file, count] of fileCounts) {
-    if (count >= 3) {
-      score -= 1;
-      diagnostics.push(`Repeated edits to ${file} (${count}x)`);
-    }
-  }
-
-  score = Math.max(1, Math.min(10, score));
-
+export function checkDriftBasic(_input: DriftCheckInput): DriftCheckResult {
+  // Without LLM, we can't make intelligent decisions
+  // Return safe default to avoid false positives
   return {
-    score,
-    driftType: scoreToDriftType(score),
-    diagnostic: diagnostics.length > 0 ? diagnostics.join('; ') : 'On track',
+    score: 8,
+    driftType: 'none',
+    diagnostic: 'Basic check - assuming on track (LLM not available)',
   };
 }
 
@@ -230,13 +370,18 @@ function scoreToDriftType(score: number): DriftType {
 /**
  * Convert score to correction level
  * Reference: plan_proxy_local.md Section 4.3
+ *
+ * Thresholds (lenient):
+ * - 5-10: OK, no correction needed
+ * - 4: nudge (mild reminder)
+ * - 3: correct (full correction)
+ * - 1-2: intervene (strong intervention)
  */
 export function scoreToCorrectionLevel(score: number): CorrectionLevel | null {
-  if (score >= 8) return null;
-  if (score === 7) return 'nudge';
-  if (score >= 5) return 'correct';
-  if (score >= 3) return 'intervene';
-  return 'halt';
+  if (score >= 5) return null;      // 5-10 = OK
+  if (score === 4) return 'nudge';  // mild reminder
+  if (score === 3) return 'correct'; // full correction
+  return 'intervene';                // 1-2 = strong intervention
 }
 
 /**

@@ -4,7 +4,6 @@
 import { type Task, type TaskStatus } from '../lib/store.js';
 import { truncate } from '../lib/utils.js';
 import { fetchTeamMemories } from '../lib/api-client.js';
-import { isDebugMode } from './utils/logging.js';
 import type { Memory } from '@grov/shared';
 
 // Extended memory type with search scores (returned by hybrid search RPC)
@@ -45,17 +44,6 @@ export async function buildTeamMemoryContextCloud(
 
     if (memories.length === 0) {
       return null;
-    }
-
-    // Log injected memories (debug mode only)
-    if (isDebugMode()) {
-      for (const m of memories as MemoryWithScores[]) {
-        const label = m.goal || m.original_query;
-        const sem = m.semantic_score?.toFixed(2) || '-';
-        const lex = m.lexical_score?.toFixed(2) || '-';
-        const comb = m.combined_score?.toFixed(2) || '-';
-        console.log(`[INJECT] ${label.substring(0, 50)}... (${comb}|${sem}|${lex})`);
-      }
     }
 
     // Convert Memory[] to Task[] format for the existing formatter

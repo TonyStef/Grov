@@ -1225,16 +1225,28 @@ async function postProcessResponse(
     }
   }
 
-  // Run drift check every N prompts
+  // Run drift check every N prompts (only when files are being modified)
   let driftScore: number | undefined;
   let skipSteps = false;
   const memSessionInfo = activeSessions.get(activeSessionId);
   const promptCount = memSessionInfo?.promptCount || sessionInfo.promptCount;
 
-  if (promptCount % config.DRIFT_CHECK_INTERVAL === 0 && isDriftCheckAvailable()) {
+  // Skip drift check if no file modifications - drift detection only makes sense
+  // when Claude is actually changing files, not when reading/exploring/answering questions
+  const recentStepsForCheck = activeSessionId ? getRecentSteps(activeSessionId, 10) : [];
+  const hasFileModifications = recentStepsForCheck.some(s =>
+    s.action_type === 'edit' || s.action_type === 'write'
+  );
+
+  // Skip drift check if goal is missing or placeholder - Haiku needs context to evaluate
+  const hasValidGoal = activeSession?.original_goal &&
+    activeSession.original_goal.length > 10 &&
+    !activeSession.original_goal.includes('the original task');
+
+  if (hasValidGoal && hasFileModifications && promptCount % config.DRIFT_CHECK_INTERVAL === 0 && isDriftCheckAvailable()) {
     if (activeSession) {
-      const stepsForDrift = getRecentSteps(activeSessionId, 10);
-      const driftResult = await checkDrift({ sessionState: activeSession, recentSteps: stepsForDrift, latestUserMessage });
+      // Reuse recentStepsForCheck instead of calling getRecentSteps again
+      const driftResult = await checkDrift({ sessionState: activeSession, recentSteps: recentStepsForCheck, latestUserMessage });
 
       lastDriftResults.set(activeSessionId, driftResult);
 
@@ -1249,13 +1261,19 @@ async function postProcessResponse(
       });
 
       const correctionLevel = scoreToCorrectionLevel(driftScore);
-      if (correctionLevel === 'intervene' || correctionLevel === 'halt') {
+      const currentEscalation = activeSession.escalation_count || 0;
+
+      // LIMIT: Stop corrections after 2 attempts - if it didn't help, give up
+      // This prevents infinite correction loops from false positives
+      const maxCorrectionAttempts = 2;
+      const shouldCorrect = correctionLevel && currentEscalation < maxCorrectionAttempts;
+
+      if (shouldCorrect && (correctionLevel === 'intervene' || correctionLevel === 'halt')) {
         updateSessionMode(activeSessionId, 'drifted');
         markWaitingForRecovery(activeSessionId, true);
         incrementEscalation(activeSessionId);
 
         // Pre-compute correction for next request (fire-and-forget pattern)
-        // This avoids blocking Haiku calls in preProcessRequest
         const correction = buildCorrection(driftResult, activeSession, correctionLevel);
         const correctionText = formatCorrectionForInjection(correction);
         updateSessionState(activeSessionId, { pending_correction: correctionText });
@@ -1264,9 +1282,11 @@ async function postProcessResponse(
           msg: 'Pre-computed correction saved',
           level: correctionLevel,
           correctionLength: correctionText.length,
+          attempt: currentEscalation + 1,
         });
-      } else if (correctionLevel) {
+      } else if (shouldCorrect && correctionLevel) {
         // Nudge or correct level - still save correction but don't change mode
+        incrementEscalation(activeSessionId);
         const correction = buildCorrection(driftResult, activeSession, correctionLevel);
         const correctionText = formatCorrectionForInjection(correction);
         updateSessionState(activeSessionId, { pending_correction: correctionText });
@@ -1274,38 +1294,36 @@ async function postProcessResponse(
         logger.info({
           msg: 'Pre-computed mild correction saved',
           level: correctionLevel,
+          attempt: currentEscalation + 1,
         });
-      } else if (driftScore >= 8) {
+      } else if (currentEscalation >= maxCorrectionAttempts && correctionLevel) {
+        // Max attempts reached - give up, clear correction, reset to normal
+        logger.info({
+          msg: 'Max correction attempts reached - giving up',
+          attempts: currentEscalation,
+          lastScore: driftScore,
+        });
+        updateSessionMode(activeSessionId, 'normal');
+        markWaitingForRecovery(activeSessionId, false);
+        updateSessionState(activeSessionId, {
+          pending_correction: undefined,
+          escalation_count: 0,
+        });
+      } else if (driftScore >= 5) {
+        // Score OK (5-10) - reset everything, drift resolved
         updateSessionMode(activeSessionId, 'normal');
         markWaitingForRecovery(activeSessionId, false);
         lastDriftResults.delete(activeSessionId);
-        // Clear any pending correction since drift is resolved
-        updateSessionState(activeSessionId, { pending_correction: undefined });
-      }
-
-      // FORCED MODE: escalation >= 3 triggers Haiku-generated recovery
-      const currentEscalation = activeSession.escalation_count || 0;
-      if (currentEscalation >= 3 && driftScore < 8) {
-        updateSessionMode(activeSessionId, 'forced');
-
-        // Generate forced recovery asynchronously (fire-and-forget within fire-and-forget)
-        generateForcedRecovery(
-          activeSession,
-          recentSteps.map(s => ({ actionType: s.action_type, files: s.files })),
-          driftResult
-        ).then(forcedRecovery => {
-          updateSessionState(activeSessionId, {
-            pending_forced_recovery: forcedRecovery.injectionText,
-          });
-          logger.info({
-            msg: 'Pre-computed forced recovery saved',
-            escalation: currentEscalation,
-            mandatoryAction: forcedRecovery.mandatoryAction?.substring(0, 50),
-          });
-        }).catch(err => {
-          logger.info({ msg: 'Forced recovery generation failed', error: String(err) });
+        // Clear correction AND reset escalation so future drift starts fresh
+        updateSessionState(activeSessionId, {
+          pending_correction: undefined,
+          escalation_count: 0,
         });
       }
+
+      // NOTE: Forced mode removed - we give up after maxCorrectionAttempts (2)
+      // If 2 correction attempts didn't help, further escalation is unlikely to help
+      // and may be a false positive. Better to stop than to keep annoying the user.
 
       updateLastChecked(activeSessionId, Date.now());
 

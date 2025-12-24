@@ -17,8 +17,6 @@ export let globalTeamMemoryCache: { projectPath: string; content: string } | nul
  */
 export function invalidateTeamMemoryCache(): void {
   globalTeamMemoryCache = null;
-  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-  // console.log('[CACHE] Team memory cache invalidated');
 }
 
 /**
@@ -28,8 +26,6 @@ export function invalidateTeamMemoryCache(): void {
  */
 export function setTeamMemoryCache(projectPath: string, content: string): void {
   globalTeamMemoryCache = { projectPath, content };
-  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-  // console.log(`[CACHE] Team memory cache set for project: ${projectPath} (${content.length} chars)`);
 }
 
 /**

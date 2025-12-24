@@ -495,8 +495,6 @@ async function postProcessResponse(
 
   // Extract latest user message from request
   const latestUserMessage = extractGoalFromMessages(requestBody.messages) || '';
-  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-  // console.log(`[DEBUG] latestUserMessage extracted: "${latestUserMessage.substring(0, 80)}..." (${latestUserMessage.length} chars)`);
 
   // Get recent steps for context
   const recentSteps = sessionInfo.currentSession
@@ -550,13 +548,10 @@ async function postProcessResponse(
     if (sessionInfo.currentSession) {
       activeSessionId = sessionInfo.currentSession.session_id;
       activeSession = sessionInfo.currentSession;
-      // console.log(`[DEBUG] PATH A: Reusing existing session ${activeSessionId}, raw_user_prompt="${activeSession.raw_user_prompt?.substring(0, 50)}"`);
     } else if (!activeSession) {
       // First request, create session without task analysis
       // NOTE: Don't set original_goal to user prompt - let analyzeTaskContext synthesize it
-      // If we set it here, Haiku will "keep it stable" instead of synthesizing
       const newSessionId = randomUUID();
-      // console.log(`[DEBUG] PATH B: Creating NEW session, raw_user_prompt will be: "${latestUserMessage.substring(0, 50)}"`);
       activeSession = createSessionState({
         session_id: newSessionId,
         project_path: sessionInfo.projectPath,
@@ -564,7 +559,6 @@ async function postProcessResponse(
         raw_user_prompt: latestUserMessage.substring(0, 500),
         task_type: 'main',
       });
-      // console.log(`[DEBUG] PATH B: Session created, raw_user_prompt="${activeSession.raw_user_prompt?.substring(0, 50)}"`);
       activeSessionId = newSessionId;
       activeSessions.set(newSessionId, {
         sessionId: newSessionId,
@@ -712,8 +706,6 @@ async function postProcessResponse(
           }
 
           const newSessionId = randomUUID();
-          // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-          // console.log(`[DEBUG] PATH C (new_task): Creating session, latestUserMessage="${latestUserMessage.substring(0, 50)}", intentData.goal="${intentData.goal?.substring(0, 50)}"`);
           activeSession = createSessionState({
             session_id: newSessionId,
             project_path: sessionInfo.projectPath,
@@ -724,7 +716,6 @@ async function postProcessResponse(
             keywords: intentData.keywords,
             task_type: 'main',
           });
-          // console.log(`[DEBUG] PATH C: Session created, raw_user_prompt="${activeSession.raw_user_prompt?.substring(0, 50)}"`);
           activeSessionId = newSessionId;
           activeSessions.set(newSessionId, {
             sessionId: newSessionId,
@@ -943,8 +934,6 @@ async function postProcessResponse(
             // Example: user asks clarification question, answer is provided in single turn
             try {
               const newSessionId = randomUUID();
-              // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-              // console.log(`[DEBUG] PATH D (instant_complete): latestUserMessage="${latestUserMessage.substring(0, 50)}"`);
               const instantSession = createSessionState({
                 session_id: newSessionId,
                 project_path: sessionInfo.projectPath,
@@ -1125,39 +1114,17 @@ async function postProcessResponse(
   });
 
   // === CLEAR MODE PRE-COMPUTE (85% threshold) ===
-  // Pre-compute summary before hitting 100% threshold to avoid blocking Haiku call
   const preComputeThreshold = Math.floor(config.TOKEN_CLEAR_THRESHOLD * 0.85);
 
-  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-  // console.log('[CLEAR-PRECOMPUTE] ═══════════════════════════════════════');
-  // console.log('[CLEAR-PRECOMPUTE] actualContextSize:', actualContextSize);
-  // console.log('[CLEAR-PRECOMPUTE] preComputeThreshold:', preComputeThreshold);
-  // console.log('[CLEAR-PRECOMPUTE] hasActiveSession:', !!activeSession);
-  // console.log('[CLEAR-PRECOMPUTE] hasPendingSummary:', !!activeSession?.pending_clear_summary);
-  // console.log('[CLEAR-PRECOMPUTE] isSummaryAvailable:', isSummaryAvailable());
-  // console.log('[CLEAR-PRECOMPUTE] shouldPrecompute:',
-  //   !!activeSession &&
-  //   actualContextSize > preComputeThreshold &&
-  //   !activeSession?.pending_clear_summary &&
-  //   isSummaryAvailable());
-  // console.log('[CLEAR-PRECOMPUTE] ═══════════════════════════════════════');
-
-  // Use actualContextSize (cacheCreation + cacheRead) as the real context size
   if (activeSession &&
       actualContextSize > preComputeThreshold &&
       !activeSession.pending_clear_summary &&
       isSummaryAvailable()) {
 
-    // console.log('[CLEAR-PRECOMPUTE] >>> STARTING SUMMARY GENERATION <<<');
-
-    // Get all validated steps for comprehensive summary
     const allSteps = getValidatedSteps(activeSessionId);
-    // console.log('[CLEAR-PRECOMPUTE] validatedSteps:', allSteps.length);
 
-    // Generate summary asynchronously (fire-and-forget)
     generateSessionSummary(activeSession, allSteps, 15000).then(summary => {
       updateSessionState(activeSessionId, { pending_clear_summary: summary });
-      // console.log('[CLEAR-PRECOMPUTE] >>> SUMMARY SAVED <<<', summary.length, 'chars');
       logger.info({
         msg: 'CLEAR summary pre-computed',
         actualContextSize,
@@ -1165,7 +1132,6 @@ async function postProcessResponse(
         summaryLength: summary.length,
       });
     }).catch(err => {
-      // console.log('[CLEAR-PRECOMPUTE] >>> SUMMARY FAILED <<<', String(err));
       logger.info({ msg: 'CLEAR summary generation failed', error: String(err) });
     });
   }
@@ -1446,11 +1412,8 @@ function isAnthropicResponse(body: unknown): body is AnthropicResponse {
  * @param options.debug - Enable debug logging to grov-proxy.log
  */
 export async function startServer(options: { debug?: boolean } = {}): Promise<FastifyInstance> {
-  // Set debug mode based on flag
   if (options.debug) {
     setDebugMode(true);
-    // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-    // console.log('[DEBUG] Logging to grov-proxy.log');
   }
 
   const server = createServer();

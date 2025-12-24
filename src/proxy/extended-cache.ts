@@ -1,7 +1,7 @@
 // Extended Cache - Keep Anthropic cache alive during idle
 // Sends minimal keep-alive requests to prevent cache TTL expiration
 
-import { forwardToAnthropic } from './forwarder.js';
+import { forwardToAnthropic, isForwardError } from './forwarder.js';
 
 export interface ExtendedCacheEntry {
   headers: Record<string, string>;  // Safe headers via buildSafeHeaders()
@@ -172,7 +172,7 @@ export async function checkExtendedCache(): Promise<void> {
       })
       .catch((err) => {
         extendedCache.delete(projectPath);
-        const errMsg = err instanceof Error ? err.message : 'unknown';
+        const errMsg = isForwardError(err) ? err.message : (err instanceof Error ? err.message : 'unknown');
         console.error(`[CACHE] keep-alive ${projectName} failed: ${errMsg}`);
       });
 

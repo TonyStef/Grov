@@ -37,11 +37,8 @@ export async function preProcessRequest(
   const modified = { ...body };
 
   // Skip warmup requests - Claude Code sends "Warmup" as health check
-  // No need to do semantic search or cache operations for these
   const earlyUserPrompt = extractLastUserPrompt(modified.messages || []);
   if (earlyUserPrompt === 'Warmup') {
-    // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-    // console.log('[INJECT] Skipping warmup request (no search, no cache)');
     return modified;
   }
 
@@ -84,17 +81,13 @@ export async function preProcessRequest(
     const teamId = getSyncTeamId();
 
     if (isSyncEnabled() && teamId) {
-      // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-      // console.log(`[INJECT] PLANNING_CLEAR: Using cloud team memory (teamId=${teamId.substring(0, 8)}...)`);
       teamContext = await buildTeamMemoryContextCloud(
         teamId,
         sessionInfo.projectPath,
         mentionedFiles,
-        userPrompt  // For hybrid semantic search
+        userPrompt
       );
     } else {
-      // Sync not enabled - no injection (cloud-first approach)
-      // console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
       teamContext = null;
     }
 
@@ -115,24 +108,11 @@ export async function preProcessRequest(
   }
 
   // === CLEAR MODE (100% threshold) ===
-  // If token count exceeds threshold AND we have a pre-computed summary, apply CLEAR
   if (sessionState) {
     const currentTokenCount = sessionState.token_count || 0;
 
-    // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-    // console.log('[CLEAR-CHECK] ═══════════════════════════════════════════');
-    // console.log('[CLEAR-CHECK] currentTokenCount:', currentTokenCount);
-    // console.log('[CLEAR-CHECK] threshold:', config.TOKEN_CLEAR_THRESHOLD);
-    // console.log('[CLEAR-CHECK] exceedsThreshold:', currentTokenCount > config.TOKEN_CLEAR_THRESHOLD);
-    // console.log('[CLEAR-CHECK] hasPendingSummary:', !!sessionState.pending_clear_summary);
-    // console.log('[CLEAR-CHECK] summaryLength:', sessionState.pending_clear_summary?.length || 0);
-    // console.log('[CLEAR-CHECK] shouldClear:', currentTokenCount > config.TOKEN_CLEAR_THRESHOLD && !!sessionState.pending_clear_summary);
-    // console.log('[CLEAR-CHECK] ═══════════════════════════════════════════');
-
     if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD &&
         sessionState.pending_clear_summary) {
-
-      // console.log('[CLEAR-CHECK] >>> CLEAR MODE TRIGGERED! <<<');
 
       logger.info({
         msg: 'CLEAR MODE ACTIVATED - resetting conversation',
@@ -193,25 +173,15 @@ export async function preProcessRequest(
         userPrompt  // For hybrid semantic search
       );
     } else {
-      // Sync not enabled - no injection (cloud-first approach)
-      // console.log('[INJECT] Sync not enabled. Enable sync for team memory injection.');
       teamContext = null;
     }
-
-    // console.log(`[CACHE] Computing team memory (first/new), files=${mentionedFiles.length}, result=${teamContext ? teamContext.length : 'null'}`);
 
     if (teamContext) {
       (modified as Record<string, unknown>).__grovInjection = teamContext;
       (modified as Record<string, unknown>).__grovInjectionCached = false;
-      // Store in GLOBAL cache - stays constant until CLEAR or restart
       setTeamMemoryCache(sessionInfo.projectPath, teamContext);
     } else {
-      // No team memory available - clear global cache for this project
-      // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-      // console.log('[CACHE-INVALIDATE] teamContext is NULL - why?');
-      // console.log('[CACHE-INVALIDATE] isSameProject:', isSameProject);
       if (isSameProject) {
-        // console.log('[CACHE-INVALIDATE] >>> INVALIDATING CACHE (teamContext null) <<<');
         invalidateTeamMemoryCache();
       }
     }

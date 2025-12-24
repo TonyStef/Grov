@@ -59,8 +59,6 @@ function rowToSessionState(row: Record<string, unknown>): SessionState {
  * Uses INSERT OR IGNORE to handle race conditions safely.
  */
 export function createSessionState(input: CreateSessionStateInput): SessionState {
-  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-  // console.log(`[DEBUG-DB] createSessionState called with raw_user_prompt="${input.raw_user_prompt?.substring(0, 50)}"`);
   const database = getDb();
   const now = new Date().toISOString();
 
@@ -137,8 +135,6 @@ export function createSessionState(input: CreateSessionStateInput): SessionState
     JSON.stringify(sessionState.drift_history || []),
     sessionState.completed_at || null
   );
-  // DEBUG: Commented out for cleaner terminal - uncomment when debugging
-  // console.log(`[DEBUG-DB] INSERT done. sessionState.raw_user_prompt="${sessionState.raw_user_prompt?.substring(0, 50)}"`);
 
   return sessionState;
 }

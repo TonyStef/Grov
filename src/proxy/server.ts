@@ -1252,7 +1252,6 @@ async function postProcessResponse(
   }
 
   const toolNames = actions.map(a => a.toolName);
-  console.log(`[TOOLS] Claude called ${actions.length} tool(s): ${toolNames.join(', ')}`);
   logger.info({
     msg: 'Actions parsed',
     count: actions.length,

@@ -267,7 +267,7 @@ export async function syncTask(
     if (!matchResult.match) {
       const memory = taskToMemory(task);
       const result = await syncMemories(teamId, { memories: [memory] });
-      console.log(`[SYNC] ${taskId} -> INSERT ${result.synced === 1 ? 'OK' : 'FAILED'}`);
+      console.log(`[SYNC TO CLOUD] ${taskId} -> INSERT (${taskType || 'unknown'})`);
       return result.synced === 1;
     }
 
@@ -278,7 +278,7 @@ export async function syncTask(
     if (!isShouldUpdateAvailable() || !effectiveExtractedData) {
       const memory = taskToMemory(task);
       const result = await syncMemories(teamId, { memories: [memory] });
-      console.log(`[SYNC] ${taskId} -> INSERT (no haiku) ${result.synced === 1 ? 'OK' : 'FAILED'}`);
+      console.log(`[SYNC TO CLOUD] ${taskId} -> INSERT (${taskType || 'unknown'})`);
       return result.synced === 1;
     }
 
@@ -305,7 +305,7 @@ export async function syncTask(
 
     // If should NOT update, skip sync entirely
     if (!updateResult.should_update) {
-      console.log(`[SYNC] ${taskId} -> SKIP (matched ${matchedId}, score=${score})`);
+      console.log(`[SYNC TO CLOUD] ${taskId} -> SKIP (unchanged)`);
       return true;
     }
 
@@ -319,12 +319,12 @@ export async function syncTask(
 
     // Sync with memory_id for UPDATE path
     const result = await syncMemories(teamId, { memories: [payload as CreateMemoryInput] });
-    console.log(`[SYNC] ${taskId} -> UPDATE ${matchedId} (score=${score}) ${result.synced === 1 ? 'OK' : 'FAILED'}`);
+    console.log(`[SYNC TO CLOUD] ${taskId} -> UPDATE (${taskType || 'unknown'})`);
     return result.synced === 1;
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
-    console.error(`[SYNC] Error: ${msg}`);
+    console.error(`[SYNC TO CLOUD] ERROR: ${msg}`);
     return false;
   }
 }

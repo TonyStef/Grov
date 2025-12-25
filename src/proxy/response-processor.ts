@@ -154,16 +154,13 @@ export async function saveToTeamMemory(
     .then((success) => {
       if (success) {
         markTaskSynced(task.id);
-        console.log(`[SYNC] Task ${task.id.substring(0, 8)} synced to cloud (type=${taskType || 'unknown'})`);
       } else {
         setTaskSyncError(task.id, 'Sync not enabled or team not configured');
-        console.log(`[SYNC] Task ${task.id.substring(0, 8)} sync skipped (not enabled)`);
       }
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : 'Unknown sync error';
       setTaskSyncError(task.id, message);
-      console.error(`[SYNC] Task ${task.id.substring(0, 8)} sync failed: ${message}`);
       // NOTE: Do NOT invalidate cache - data not in cloud
     });
 }
@@ -271,7 +268,12 @@ async function buildTaskFromSession(
     }
   }
 
-  const original_query = sessionState.raw_user_prompt || sessionState.original_goal || 'Unknown task';
+  // Clean up original_query: remove leading artifacts from JSON parsing
+  // Handles: literal "\n" sequence, actual newlines, quotes, whitespace
+  const rawQuery = sessionState.raw_user_prompt || sessionState.original_goal || 'Unknown task';
+  const original_query = rawQuery
+    .replace(/^(\\n|\s|")+/, '')  // Remove leading \n literals, whitespace, quotes
+    .trim();
 
   return {
     project_path: sessionState.project_path,

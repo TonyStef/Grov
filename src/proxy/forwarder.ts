@@ -46,14 +46,23 @@ function parseSSEResponse(sseText: string): AnthropicResponse | null {
             break;
 
           case 'content_block_start':
-            // Add new content block
+            // Add new content block - preserve ALL properties (including signature for thinking)
             if (data.content_block) {
-              contentBlocks[data.index] = data.content_block;
+              contentBlocks[data.index] = { ...data.content_block };
               if (data.content_block.type === 'text') {
                 contentDeltas.set(data.index, []);
               } else if (data.content_block.type === 'thinking') {
-                // Initialize thinking with empty string, will accumulate via deltas
-                contentBlocks[data.index] = { type: 'thinking', thinking: '' };
+                // Initialize thinking, preserve signature if present
+                (contentBlocks[data.index] as { thinking: string }).thinking = '';
+              }
+            }
+            break;
+
+          case 'content_block_stop':
+            // Capture signature for thinking blocks (comes at end of block)
+            if (data.index !== undefined && contentBlocks[data.index]?.type === 'thinking') {
+              if (data.signature) {
+                (contentBlocks[data.index] as { signature?: string }).signature = data.signature;
               }
             }
             break;
@@ -65,10 +74,17 @@ function parseSSEResponse(sseText: string): AnthropicResponse | null {
               deltas.push(data.delta.text);
               contentDeltas.set(data.index, deltas);
             } else if (data.delta?.type === 'thinking_delta' && data.delta.thinking) {
-              // Handle thinking blocks
+              // Handle thinking content
               const block = contentBlocks[data.index];
               if (block && block.type === 'thinking') {
                 (block as { type: 'thinking'; thinking: string }).thinking += data.delta.thinking;
+              }
+            } else if (data.delta?.type === 'signature_delta' && data.delta.signature) {
+              // Handle thinking signature streaming
+              const block = contentBlocks[data.index];
+              if (block && block.type === 'thinking') {
+                const thinkingBlock = block as { type: 'thinking'; thinking: string; signature: string };
+                thinkingBlock.signature = (thinkingBlock.signature || '') + data.delta.signature;
               }
             } else if (data.delta?.type === 'input_json_delta' && data.delta.partial_json) {
               // Handle tool input streaming

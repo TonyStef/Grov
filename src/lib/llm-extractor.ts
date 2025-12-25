@@ -11,9 +11,9 @@ import { debugLLM } from './debug.js';
 import { truncate } from './utils.js';
 
 // Load ~/.grov/.env as fallback for API key
-// This allows users to store their API key in a safe location outside any repo
 const grovEnvPath = join(homedir(), '.grov', '.env');
-if (existsSync(grovEnvPath)) {
+const grovEnvExists = existsSync(grovEnvPath);
+if (grovEnvExists) {
   config({ path: grovEnvPath });
 }
 
@@ -26,11 +26,28 @@ function getAnthropicClient(): Anthropic {
   if (!anthropicClient) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required for drift detection');
+      console.error('[HAIKU] No ANTHROPIC_API_KEY found');
+      throw new Error('ANTHROPIC_API_KEY environment variable is required');
     }
+
     anthropicClient = new Anthropic({ apiKey });
   }
   return anthropicClient;
+}
+
+async function callHaiku(maxTokens: number, prompt: string): Promise<{ text: string; success: boolean }> {
+  const client = getAnthropicClient();
+  try {
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    return { text, success: true };
+  } catch {
+    return { text: '', success: false };
+  }
 }
 
 // ============================================
@@ -58,8 +75,6 @@ export async function extractIntent(firstPrompt: string): Promise<ExtractedInten
   }
 
   try {
-    const client = getAnthropicClient();
-
     const prompt = `Analyze this user request and extract structured intent for a coding assistant session.
 
 USER REQUEST:
@@ -111,16 +126,12 @@ RESPONSE RULES:
 - Valid JSON only
 - If no constraints found, return empty array []`;
 
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const content = response.content?.[0];
-    if (!content || content.type !== 'text') {
+    const haikuResult = await callHaiku(500, prompt);
+    if (!haikuResult.success || !haikuResult.text) {
       return createFallbackIntent(firstPrompt);
     }
+
+    const content = { type: 'text' as const, text: haikuResult.text };
 
     try {
       const jsonMatch = content.text.match(/\{[\s\S]*\}/);
@@ -206,8 +217,6 @@ export async function generateSessionSummary(
   steps: StepRecord[],
   maxTokens: number = 800  // Default 800, CLEAR mode uses 15000
 ): Promise<string> {
-  const client = getAnthropicClient();
-
   // For larger summaries, include more steps
   const stepLimit = maxTokens > 5000 ? 50 : 20;
   const wordLimit = Math.min(Math.floor(maxTokens / 2), 10000);  // ~2 tokens per word
@@ -252,20 +261,14 @@ ${maxTokens > 5000 ? '7. IMPORTANT CONTEXT: (any critical information that must 
 
 Format as plain text, not JSON.`;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const content = response.content?.[0];
-  if (!content || content.type !== 'text') {
+  const haikuResult = await callHaiku(maxTokens, prompt);
+  if (!haikuResult.success || !haikuResult.text) {
     return createFallbackSummary(sessionState, steps);
   }
 
   return `PREVIOUS SESSION CONTEXT (auto-generated after context limit):
 
-${content.text}`;
+${haikuResult.text}`;
 }
 
 /**
@@ -363,8 +366,6 @@ export async function analyzeTaskContext(
   assistantResponse: string,
   conversationHistory?: ConversationMessage[]
 ): Promise<TaskAnalysis> {
-  const client = getAnthropicClient();
-
   // Check if we need to compress reasoning
   const needsCompression = assistantResponse.length > 1000;
   const compressionInstruction = needsCompression
@@ -577,13 +578,21 @@ RESPONSE RULES:
 
   debugLLM('analyzeTaskContext', `Calling Haiku for task analysis (needsCompression=${needsCompression})`);
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: needsCompression ? 800 : 400,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  const haikuResult = await callHaiku(needsCompression ? 800 : 400, prompt);
+  if (!haikuResult.success) {
+    // Fallback on error
+    const fallbackGoal = currentSession?.original_goal || '';
+    return {
+      task_type: 'implementation',
+      action: currentSession ? 'continue' : 'new_task',
+      task_id: currentSession?.session_id || 'NEW',
+      current_goal: fallbackGoal,
+      reasoning: 'Fallback due to Haiku error',
+      step_reasoning: assistantResponse.substring(0, 1000),
+    };
+  }
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  const text = haikuResult.text;
 
   try {
     // Try to parse JSON from response (may have extra text)
@@ -672,8 +681,6 @@ export async function extractReasoningAndDecisions(
   formattedSteps: string,
   originalGoal: string
 ): Promise<ExtractedReasoningAndDecisions> {
-  const client = getAnthropicClient();
-
   if (formattedSteps.length < 50) {
     return { system_name: null, summary: null, reasoning_trace: [], decisions: [] };
   }
@@ -1031,18 +1038,16 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
 
   debugLLM('extractReasoningAndDecisions', `Analyzing formatted steps, ${formattedSteps.length} chars`);
 
-  try {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
-    });
+  const haikuResult = await callHaiku(1500, prompt);
+  if (!haikuResult.success) {
+    return { system_name: null, summary: null, reasoning_trace: [], decisions: [] };
+  }
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  try {
+    const text = haikuResult.text;
     const jsonMatch = text.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
-      console.error('[LLM-EXTRACTOR] No JSON in response');
       return { system_name: null, summary: null, reasoning_trace: [], decisions: [] };
     }
 
@@ -1071,12 +1076,10 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
             const systemMatch = jsonMatch[0].match(/"system_name"\s*:\s*"([^"]+)"/);
             const extractedSystemName = systemMatch ? systemMatch[1] : undefined;
             result = { system_name: extractedSystemName, knowledge_pairs: pairs, decisions: [] };
-          } catch (fallbackError) {
-            console.error('[LLM-EXTRACTOR] JSON parse failed');
+          } catch {
             throw parseError;
           }
         } else {
-          console.error('[LLM-EXTRACTOR] JSON parse failed');
           throw parseError;
         }
       }
@@ -1657,8 +1660,6 @@ export async function shouldUpdateMemory(
   newData: ExtractedReasoningAndDecisions,
   sessionContext: SessionContext
 ): Promise<ShouldUpdateResult> {
-  const client = getAnthropicClient();
-
   // Check if evolution_steps consolidation is needed
   const evolutionCount = existingMemory.evolution_steps?.length || 0;
   const needsConsolidation = evolutionCount > 10;
@@ -1674,19 +1675,15 @@ export async function shouldUpdateMemory(
 
   debugLLM('shouldUpdateMemory', `Analyzing memory update (needsConsolidation=${needsConsolidation})`);
 
+  const haikuResult = await callHaiku(needsConsolidation ? 1500 : 800, prompt);
+  if (!haikuResult.success) {
+    return createFallbackResult(sessionContext);
+  }
+
   try {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: needsConsolidation ? 1500 : 800,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
-
-    // Try to parse JSON from response
+    const text = haikuResult.text;
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('[HAIKU] No JSON in response');
       return createFallbackResult(sessionContext);
     }
 
@@ -1694,8 +1691,7 @@ export async function shouldUpdateMemory(
     let result: ShouldUpdateResult;
     try {
       result = JSON.parse(jsonMatch[0]) as ShouldUpdateResult;
-    } catch (parseErr) {
-      console.error('[HAIKU] JSON parse failed');
+    } catch {
       return createFallbackResult(sessionContext);
     }
 
@@ -1712,8 +1708,7 @@ export async function shouldUpdateMemory(
 
     return result;
 
-  } catch (error) {
-    console.error('[HAIKU] Error:', String(error));
+  } catch {
     return createFallbackResult(sessionContext);
   }
 }

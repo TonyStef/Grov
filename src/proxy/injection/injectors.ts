@@ -2,6 +2,68 @@
 
 import type { MessagesRequestBody } from '../types.js';
 
+/**
+ * Inject a tool definition into the raw JSON body's "tools" array.
+ * This preserves the original byte sequence for cache consistency.
+ */
+export function injectToolIntoRawBody(rawBody: string, toolDef: object): { modified: string; success: boolean } {
+  // Find the tools array in the raw JSON
+  // Pattern: "tools": [...]
+  const toolsMatch = rawBody.match(/"tools"\s*:\s*\[/);
+  if (!toolsMatch || toolsMatch.index === undefined) {
+    // No tools array found - need to add one
+    // Find a good insertion point (before "messages" or at end of object)
+    const messagesMatch = rawBody.match(/"messages"\s*:/);
+    if (messagesMatch && messagesMatch.index !== undefined) {
+      // Insert tools array before messages
+      const toolsJson = JSON.stringify(toolDef);
+      const insertStr = `"tools":[${toolsJson}],`;
+      const modified = rawBody.slice(0, messagesMatch.index) + insertStr + rawBody.slice(messagesMatch.index);
+      return { modified, success: true };
+    }
+    return { modified: rawBody, success: false };
+  }
+
+  // Find the matching closing bracket for the tools array
+  const startIndex = toolsMatch.index + toolsMatch[0].length;
+  let bracketCount = 1;
+  let endIndex = startIndex;
+
+  for (let i = startIndex; i < rawBody.length && bracketCount > 0; i++) {
+    const char = rawBody[i];
+    if (char === '[') bracketCount++;
+    else if (char === ']') bracketCount--;
+    else if (char === '"') {
+      // Skip string content
+      i++;
+      while (i < rawBody.length && rawBody[i] !== '"') {
+        if (rawBody[i] === '\\') i++;
+        i++;
+      }
+    }
+    if (bracketCount === 0) {
+      endIndex = i;
+      break;
+    }
+  }
+
+  if (bracketCount !== 0) {
+    return { modified: rawBody, success: false };
+  }
+
+  // Serialize the tool definition
+  const toolJson = JSON.stringify(toolDef);
+
+  // Check if array is empty (only whitespace between [ and ])
+  const arrayContent = rawBody.slice(startIndex, endIndex).trim();
+  const separator = arrayContent.length > 0 ? ',' : '';
+
+  // Insert before the closing bracket
+  const modified = rawBody.slice(0, endIndex) + separator + toolJson + rawBody.slice(endIndex);
+
+  return { modified, success: true };
+}
+
 export function appendToLastUserMessage(rawBody: string, injection: string): string {
   // Find the last occurrence of "role":"user" followed by content
   // We need to find the content field of the last user message and append to it

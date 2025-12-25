@@ -19,16 +19,34 @@ export interface DriftCheckResult {
 }
 
 let anthropicClient: Anthropic | null = null;
+let driftClientInitialized = false;
 
 function getAnthropicClient(): Anthropic {
   if (!anthropicClient) {
     const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY;
     if (!apiKey) {
+      console.error('[HAIKU-DRIFT] No API key found');
       throw new Error('ANTHROPIC_API_KEY or GROV_API_KEY required for drift checking');
     }
+    driftClientInitialized = true;
     anthropicClient = new Anthropic({ apiKey });
   }
   return anthropicClient;
+}
+
+async function callHaikuDrift(maxTokens: number, prompt: string): Promise<{ text: string; success: boolean }> {
+  const client = getAnthropicClient();
+  try {
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    return { text, success: true };
+  } catch {
+    return { text: '', success: false };
+  }
 }
 
 /**
@@ -78,8 +96,6 @@ function buildRepetitionContext(steps: StepRecord[]): string {
  * Reference: plan_proxy_local.md Section 3.1
  */
 async function checkDriftWithLLM(input: DriftCheckInput): Promise<DriftCheckResult> {
-  const client = getAnthropicClient();
-
   // WHITELIST only modification actions for drift evaluation
   // Reading/exploring is ALWAYS OK - we only care about actual changes
   //
@@ -300,18 +316,12 @@ Return ONLY valid JSON:
 }
 </response_format>`;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const content = response.content?.[0];
-  if (!content || content.type !== 'text') {
-    return createDefaultResult(8, 'Could not parse LLM response');
+  const haikuResult = await callHaikuDrift(300, prompt);
+  if (!haikuResult.success) {
+    return createDefaultResult(8, 'Haiku call failed');
   }
 
-  return parseLLMResponse(content.text);
+  return parseLLMResponse(haikuResult.text);
 }
 
 /**
@@ -469,8 +479,6 @@ export async function generateForcedRecovery(
   recentActions: Array<{ actionType: string; files: string[] }>,
   lastDriftResult: DriftCheckResult
 ): Promise<ForcedRecoveryResult> {
-  const client = getAnthropicClient();
-
   const actionsText = recentActions
     .slice(-5)
     .map(a => `- ${a.actionType}: ${a.files.join(', ')}`)
@@ -505,19 +513,13 @@ RESPONSE RULES:
   "mandatoryAction": "ONE specific action (e.g., 'Read src/auth/login.ts to refocus on authentication')"
 }`;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 600,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const content = response.content?.[0];
-  if (!content || content.type !== 'text') {
+  const haikuResult = await callHaikuDrift(600, prompt);
+  if (!haikuResult.success) {
     return createFallbackForcedRecovery(sessionState);
   }
 
   try {
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+    const jsonMatch = haikuResult.text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return createFallbackForcedRecovery(sessionState);
     }

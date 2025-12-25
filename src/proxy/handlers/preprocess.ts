@@ -1,19 +1,28 @@
 // Pre-process requests before forwarding to Anthropic
 
 import { config } from '../config.js';
-import { extractLastUserPrompt, extractFilesFromMessages, buildTeamMemoryContextCloud } from '../request-processor.js';
+import { extractLastUserPrompt, extractFilesFromMessages } from '../request-processor.js';
+import { fetchTeamMemories } from '../../lib/api-client.js';
 import {
   getSessionState,
   updateSessionState,
   markCleared,
 } from '../../lib/store.js';
 import { isSyncEnabled, getSyncTeamId } from '../../lib/cloud-sync.js';
-import { globalTeamMemoryCache, setTeamMemoryCache, invalidateTeamMemoryCache } from '../cache.js';
-import { buildDynamicInjection, clearSessionTracking } from '../injection/delta-tracking.js';
+import {
+  clearSessionState,
+  cacheMemories,
+  getCachedMemories,
+  buildMemoryPreview,
+  buildToolDescription,
+  buildToolDefinition,
+  buildDriftRecoveryInjection,
+  reconstructMessages,
+  addInjectionRecord,
+} from '../injection/memory-injection.js';
 import { appendToSystemPrompt } from '../injection/injectors.js';
 import type { MessagesRequestBody } from '../types.js';
 
-// Pending plan summary state - triggers CLEAR-like reset after planning task completes
 let pendingPlanClear: { projectPath: string; summary: string } | null = null;
 
 export function getPendingPlanClear(): { projectPath: string; summary: string } | null {
@@ -36,178 +45,163 @@ export async function preProcessRequest(
 ): Promise<MessagesRequestBody> {
   const modified = { ...body };
 
-  // Skip warmup requests - Claude Code sends "Warmup" as health check
   const earlyUserPrompt = extractLastUserPrompt(modified.messages || []);
   if (earlyUserPrompt === 'Warmup') {
     return modified;
   }
 
-  // Detect request type: first, continuation, or retry
   const requestType = detectRequestType(modified.messages || [], sessionInfo.projectPath);
-
-  // === NEW ARCHITECTURE: Separate static and dynamic injection ===
-  //
-  // STATIC (system prompt, cached):
-  //   - Team memory from PAST sessions only
-  //   - CLEAR summary when triggered
-  //   -> Uses __grovInjection + injectIntoRawBody()
-  //
-  // DYNAMIC (user message, delta only):
-  //   - Files edited in current session
-  //   - Key decisions with reasoning
-  //   - Drift correction, forced recovery
-  //   -> Uses __grovUserMsgInjection + appendToLastUserMessage()
-
-  // Get session state
   const sessionState = getSessionState(sessionInfo.sessionId);
 
-  // === PLANNING CLEAR: Reset after planning task completes ===
-  // This ensures implementation phase starts fresh with planning context from team memory
+  // === PLANNING CLEAR ===
   if (pendingPlanClear && pendingPlanClear.projectPath === sessionInfo.projectPath) {
-    // 1. Extract context BEFORE emptying messages (for hybrid search)
-    const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-    const userPrompt = extractLastUserPrompt(modified.messages || []);
-
-    // 2. Empty messages array (fresh start)
     modified.messages = [];
-
-    // 3. Inject planning summary into system prompt
     appendToSystemPrompt(modified, pendingPlanClear.summary);
-
-    // 4. Rebuild team memory NOW (includes the just-saved planning task)
-
-    // Use cloud-first approach if sync is enabled
-    let teamContext: string | null = null;
-    const teamId = getSyncTeamId();
-
-    if (isSyncEnabled() && teamId) {
-      teamContext = await buildTeamMemoryContextCloud(
-        teamId,
-        sessionInfo.projectPath,
-        mentionedFiles,
-        userPrompt
-      );
-    } else {
-      teamContext = null;
-    }
-
-    if (teamContext) {
-      (modified as Record<string, unknown>).__grovInjection = teamContext;
-      (modified as Record<string, unknown>).__grovInjectionCached = false;
-      // Update cache with fresh team memory
-      setTeamMemoryCache(sessionInfo.projectPath, teamContext);
-    }
-
-    // 4. Clear the pending plan (one-time use)
     pendingPlanClear = null;
-
-    // 5. Clear tracking (fresh start)
-    clearSessionTracking(sessionInfo.sessionId);
-
-    return modified;  // Skip other injections - this is a complete reset
+    clearSessionState(sessionInfo.projectPath);
+    return modified;
   }
 
-  // === CLEAR MODE (100% threshold) ===
+  // === CLEAR MODE (token threshold) ===
   if (sessionState) {
     const currentTokenCount = sessionState.token_count || 0;
 
-    if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD &&
-        sessionState.pending_clear_summary) {
-
+    if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD && sessionState.pending_clear_summary) {
       logger.info({
-        msg: 'CLEAR MODE ACTIVATED - resetting conversation',
+        msg: 'CLEAR MODE ACTIVATED',
         tokenCount: currentTokenCount,
         threshold: config.TOKEN_CLEAR_THRESHOLD,
-        summaryLength: sessionState.pending_clear_summary.length,
       });
 
-      // 1. Empty messages array (fundamental reset)
       modified.messages = [];
-
-      // 2. Inject summary into system prompt (this will cause cache miss - intentional)
       appendToSystemPrompt(modified, sessionState.pending_clear_summary);
-
-      // 3. Mark session as cleared
       markCleared(sessionInfo.sessionId);
-      console.log(`[CLEAR] Context reset (${sessionState.pending_clear_summary?.length || 0} chars summary)`);
 
-      // 4. Clear pending summary and invalidate GLOBAL team memory cache (new baseline)
       updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
-      invalidateTeamMemoryCache();  // Force recalculation on next request (CLEAR mode)
+      clearSessionState(sessionInfo.projectPath);
 
-      // 5. Clear tracking (fresh start after CLEAR)
-      clearSessionTracking(sessionInfo.sessionId);
-
-      logger.info({ msg: 'CLEAR complete - conversation reset with summary' });
-
-      return modified;  // Skip other injections - this is a complete reset
+      return modified;
     }
   }
 
-  // === STATIC INJECTION: Team memory (PAST sessions only) ===
-  // Cached per session - identical across all requests for cache preservation
+  // === RECONSTRUCT HISTORICAL INJECTIONS (for cache consistency) ===
+  const { messages: reconstructedMsgs, reconstructedCount } = reconstructMessages(
+    modified.messages || [],
+    sessionInfo.projectPath
+  );
+  if (reconstructedCount > 0) {
+    modified.messages = reconstructedMsgs;
+    (modified as Record<string, unknown>).__grovReconstructedCount = reconstructedCount;
+  }
 
-  // GLOBAL cache: same team memory for ALL requests (regardless of sessionId changes)
-  // Only recalculate on: first request ever, CLEAR/Summary, project change, proxy restart
-  const isSameProject = globalTeamMemoryCache?.projectPath === sessionInfo.projectPath;
-
-  if (globalTeamMemoryCache && isSameProject) {
-    // Reuse GLOBAL cached team memory (constant for entire conversation)
-    (modified as Record<string, unknown>).__grovInjection = globalTeamMemoryCache.content;
-    (modified as Record<string, unknown>).__grovInjectionCached = true;
-    // Using cached team memory
-  } else {
-    // First request OR project changed OR cache was invalidated: compute team memory
-    const mentionedFiles = extractFilesFromMessages(modified.messages || []);
-    const userPrompt = extractLastUserPrompt(modified.messages || []);
-
-    // Use cloud-first approach if sync is enabled
-    let teamContext: string | null = null;
+  // === MEMORY PREVIEW INJECTION (new system) ===
+  if (requestType === 'first') {
     const teamId = getSyncTeamId();
+    const userPrompt = extractLastUserPrompt(modified.messages || []);
+    const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+    const lastMsgPosition = (modified.messages?.length || 1) - 1;
 
-    if (isSyncEnabled() && teamId) {
-      teamContext = await buildTeamMemoryContextCloud(
-        teamId,
-        sessionInfo.projectPath,
-        mentionedFiles,
-        userPrompt  // For hybrid semantic search
+    if (isSyncEnabled() && teamId && userPrompt) {
+      try {
+        const memories = await fetchTeamMemories(teamId, sessionInfo.projectPath, {
+          status: 'complete',
+          limit: 3,
+          context: userPrompt,
+          current_files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
+        });
+
+        if (memories.length > 0) {
+          // Cache for expand tool (keyed by projectPath for cross-task persistence)
+          cacheMemories(sessionInfo.projectPath, memories);
+
+          // Build preview for user message
+          const preview = buildMemoryPreview(memories);
+
+          // Build drift/recovery if pending
+          const driftRecovery = buildDriftRecoveryInjection(
+            sessionState?.pending_correction,
+            sessionState?.pending_forced_recovery
+          );
+
+          // Combine preview + drift/recovery
+          let userMsgInjection = preview || '';
+          if (driftRecovery) {
+            userMsgInjection = userMsgInjection ? `${userMsgInjection}\n${driftRecovery}` : driftRecovery;
+          }
+
+          if (userMsgInjection) {
+            (modified as Record<string, unknown>).__grovUserMsgInjection = userMsgInjection;
+
+            // Track for reconstruction on next request
+            addInjectionRecord(sessionInfo.projectPath, {
+              position: lastMsgPosition,
+              type: 'preview',
+              preview: userMsgInjection,
+            });
+          }
+
+          logger.info({
+            msg: 'Memory preview injected',
+            memoriesCount: memories.length,
+            previewSize: preview?.length || 0,
+            hasDriftRecovery: !!driftRecovery,
+          });
+        } else {
+          // No memories found - only inject drift/recovery if pending
+          const driftRecovery = buildDriftRecoveryInjection(
+            sessionState?.pending_correction,
+            sessionState?.pending_forced_recovery
+          );
+          if (driftRecovery) {
+            (modified as Record<string, unknown>).__grovUserMsgInjection = driftRecovery;
+          }
+        }
+
+        // Clear pending corrections after injection
+        if (sessionState?.pending_correction || sessionState?.pending_forced_recovery) {
+          updateSessionState(sessionInfo.sessionId, {
+            pending_correction: undefined,
+            pending_forced_recovery: undefined,
+          });
+        }
+      } catch (err) {
+        console.error(`[PREPROCESS] Memory fetch failed: ${err}`);
+      }
+    } else {
+      // Sync not enabled - only inject drift/recovery if pending
+      const driftRecovery = buildDriftRecoveryInjection(
+        sessionState?.pending_correction,
+        sessionState?.pending_forced_recovery
       );
-    } else {
-      teamContext = null;
-    }
-
-    if (teamContext) {
-      (modified as Record<string, unknown>).__grovInjection = teamContext;
-      (modified as Record<string, unknown>).__grovInjectionCached = false;
-      setTeamMemoryCache(sessionInfo.projectPath, teamContext);
-    } else {
-      if (isSameProject) {
-        invalidateTeamMemoryCache();
+      if (driftRecovery) {
+        (modified as Record<string, unknown>).__grovUserMsgInjection = driftRecovery;
+        if (sessionState?.pending_correction || sessionState?.pending_forced_recovery) {
+          updateSessionState(sessionInfo.sessionId, {
+            pending_correction: undefined,
+            pending_forced_recovery: undefined,
+          });
+        }
       }
     }
   }
 
-  // SKIP dynamic injection for retries and continuations
-  if (requestType !== 'first') {
-    return modified;
-  }
+  // === TOOL INJECTION (on ALL requests when memories are cached) ===
+  // This ensures grov_expand is available even on continuation requests
+  const cachedMemories = getCachedMemories(sessionInfo.projectPath);
+  if (cachedMemories.length > 0) {
+    // Inject tool description into system prompt
+    const toolDesc = buildToolDescription();
+    (modified as Record<string, unknown>).__grovInjection = toolDesc;
+    (modified as Record<string, unknown>).__grovInjectionCached = false;
 
-  // === DYNAMIC INJECTION: User message (delta only) ===
-  // Includes: edited files, key decisions, drift correction, forced recovery
-  // This goes into the LAST user message, not system prompt
-
-  const dynamicInjection = buildDynamicInjection(sessionInfo.sessionId, sessionState, logger);
-
-  if (dynamicInjection) {
-    (modified as Record<string, unknown>).__grovUserMsgInjection = dynamicInjection;
-    logger.info({ msg: 'Dynamic injection ready for user message', size: dynamicInjection.length });
-
-    // Clear pending corrections after building injection
-    if (sessionState?.pending_correction || sessionState?.pending_forced_recovery) {
-      updateSessionState(sessionInfo.sessionId, {
-        pending_correction: undefined,
-        pending_forced_recovery: undefined,
-      });
+    // Add grov_expand tool to tools array
+    const toolDef = buildToolDefinition();
+    if (!modified.tools) {
+      modified.tools = [];
+    }
+    const hasGrovExpand = modified.tools.some((t: { name?: string }) => t.name === 'grov_expand');
+    if (!hasGrovExpand) {
+      modified.tools.push(toolDef as never);
     }
   }
 

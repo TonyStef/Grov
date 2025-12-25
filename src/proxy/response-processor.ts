@@ -19,6 +19,7 @@ import {
   isReasoningExtractionAvailable,
   type ExtractedReasoningAndDecisions,
 } from '../lib/llm-extractor.js';
+import { clearSessionState } from './injection/memory-injection.js';
 import type { ReasoningTraceEntry } from '@grov/shared';
 
 /**
@@ -292,8 +293,17 @@ async function buildTaskFromSession(
  * Clean up session data after save
  */
 export function cleanupSession(sessionId: string): void {
+  // Get project_path before deleting session state (needed for injection history cleanup)
+  const session = getSessionState(sessionId);
+  const projectPath = session?.project_path;
+
   deleteStepsForSession(sessionId);
   deleteSessionState(sessionId);
+
+  // Clear injection history (keyed by projectPath)
+  if (projectPath) {
+    clearSessionState(projectPath);
+  }
 }
 
 /**

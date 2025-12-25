@@ -162,7 +162,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           p_query_embedding: embeddingStr,
           p_query_text: context,
           p_current_files: currentFilesArray,
-          p_limit: 5,
+          p_limit: limit,
         });
 
         if (error) {

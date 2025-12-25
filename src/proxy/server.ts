@@ -8,7 +8,7 @@ import { forwardToAnthropic, isForwardError } from './forwarder.js';
 import { extendedCache, evictOldestCacheEntry, checkExtendedCache, log } from './extended-cache.js';
 import { setDebugMode, getNextRequestId, taskLog, proxyLog, logTokenUsage } from './utils/logging.js';
 import { detectKeyDecision, extractTextContent, extractProjectPath, extractGoalFromMessages, extractConversationHistory } from './utils/extractors.js';
-import { appendToLastUserMessage, injectIntoRawBody } from './injection/injectors.js';
+import { appendToLastUserMessage, injectIntoRawBody, injectToolIntoRawBody } from './injection/injectors.js';
 import { preProcessRequest, setPendingPlanClear } from './handlers/preprocess.js';
 import type { MessagesRequestBody } from './types.js';
 import { parseToolUseBlocks, extractTokenUsage, getAllFiles, getAllFolders } from './action-parser.js';
@@ -65,6 +65,13 @@ import {
   type ConversationMessage,
 } from '../lib/llm-extractor.js';
 import { saveToTeamMemory, cleanupSession } from './response-processor.js';
+import {
+  getCachedMemory,
+  buildExpandedMemory,
+  addInjectionRecord,
+  clearSessionState,
+  buildToolDefinition,
+} from './injection/memory-injection.js';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -225,11 +232,26 @@ async function handleMessages(
   if (userMsgInjection && rawBodyStr) {
     rawBodyStr = appendToLastUserMessage(rawBodyStr, userMsgInjection);
     userMsgInjectionSize = userMsgInjection.length;
-    userMsgSuccess = true;  // appendToLastUserMessage doesn't return success flag
+    userMsgSuccess = true;
+  }
+
+  // 3. Inject grov_expand tool into rawBodyStr (if it was added to processedBody)
+  const hasGrovExpandInProcessed = processedBody.tools?.some(
+    (t: { name?: string }) => t.name === 'grov_expand'
+  );
+  if (hasGrovExpandInProcessed && rawBodyStr) {
+    const toolDef = buildToolDefinition();
+    const result = injectToolIntoRawBody(rawBodyStr, toolDef);
+    if (result.success) {
+      rawBodyStr = result.modified;
+    }
   }
 
   // Determine final body to send
   let finalBodyToSend: string | Buffer;
+
+  // Check if we have historical reconstructions (even without new injections)
+  const reconstructedCount = (processedBody as Record<string, unknown>).__grovReconstructedCount as number || 0;
 
   if (systemInjection || userMsgInjection) {
     finalBodyToSend = rawBodyStr;
@@ -254,8 +276,12 @@ async function handleMessages(
         userMsgInjectionContent: userMsgInjection || null,  // Full content since it's small
       },
     });
+  } else if (reconstructedCount > 0) {
+    // Historical reconstructions but no NEW injections
+    const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, ...cleanBody } = processedBody as Record<string, unknown>;
+    finalBodyToSend = JSON.stringify(cleanBody);
   } else if (rawBody) {
-    // No injection, use original raw bytes
+    // No injection, no reconstruction, use original raw bytes
     finalBodyToSend = rawBody;
   } else {
     // Fallback to re-serialization (shouldn't happen normally)
@@ -263,20 +289,99 @@ async function handleMessages(
   }
 
   const forwardStart = Date.now();
+
   try {
     // Forward: raw bytes (with injection inserted) or original raw bytes
-    const result = await forwardToAnthropic(
+    let result = await forwardToAnthropic(
       processedBody,
       request.headers as Record<string, string | string[] | undefined>,
       logger,
       typeof finalBodyToSend === 'string' ? Buffer.from(finalBodyToSend, 'utf-8') : finalBodyToSend
     );
+
+
+    // === GROV_EXPAND TOOL HANDLER ===
+    // Handle grov_expand internally - Claude Code never sees it
+    let currentMessages = [...(processedBody.messages || [])];
+    let loopCount = 0;
+    const maxLoops = 5; // Safety limit
+
+    while (
+      result.statusCode === 200 &&
+      isAnthropicResponse(result.body) &&
+      result.body.stop_reason === 'tool_use' &&
+      loopCount < maxLoops
+    ) {
+      const grovExpandBlock = result.body.content.find(
+        (block): block is { type: 'tool_use'; id: string; name: string; input: { indices?: number[] } } =>
+          block.type === 'tool_use' && (block as { name?: string }).name === 'grov_expand'
+      );
+
+      if (!grovExpandBlock) break; // Not our tool, let it pass through
+
+      loopCount++;
+      const indices = grovExpandBlock.input?.indices || [];
+      console.log(`[MEMORY] Injected (${indices.length} expanded)`);
+
+      // Build expanded content for each index
+      const expandedParts: string[] = [];
+      for (const idx of indices) {
+        const memory = getCachedMemory(sessionInfo.projectPath, idx);
+        if (memory) {
+          expandedParts.push(buildExpandedMemory(memory));
+        } else {
+          expandedParts.push(`Memory #${idx} not found in cache`);
+        }
+      }
+
+      const toolResult = expandedParts.join('\n\n');
+
+      // Track tool cycle in injection history
+      addInjectionRecord(sessionInfo.projectPath, {
+        position: currentMessages.length,
+        type: 'tool_cycle',
+        toolUse: { id: grovExpandBlock.id, name: 'grov_expand', input: grovExpandBlock.input },
+        toolResult,
+      });
+
+      // Add assistant response with tool_use to messages
+      const assistantContent = result.body.content;
+      currentMessages.push({
+        role: 'assistant',
+        content: assistantContent,
+      });
+
+      // Add tool_result
+      currentMessages.push({
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: grovExpandBlock.id,
+          content: toolResult,
+        }],
+      });
+
+      // Continue conversation with tool result
+      // Clean up internal properties before sending to Anthropic
+      const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, ...cleanBody } = processedBody as Record<string, unknown>;
+      const continueBody = {
+        ...cleanBody,
+        messages: currentMessages,
+      };
+
+
+      result = await forwardToAnthropic(
+        continueBody,
+        request.headers as Record<string, string | string[] | undefined>,
+        logger,
+        Buffer.from(JSON.stringify(continueBody), 'utf-8')
+      );
+    }
+
     const forwardLatency = Date.now() - forwardStart;
 
     // FIRE-AND-FORGET: Don't block response to Claude Code
-    // This prevents retry loops caused by Haiku calls adding latency
     if (result.statusCode === 200 && isAnthropicResponse(result.body)) {
-      // Prepare extended cache data (only if enabled)
       const extendedCacheData = config.EXTENDED_CACHE_ENABLED ? {
         headers: buildSafeHeaders(request.headers as Record<string, string | string[] | undefined>),
         rawBody: typeof finalBodyToSend === 'string' ? Buffer.from(finalBodyToSend, 'utf-8') : finalBodyToSend,
@@ -289,14 +394,10 @@ async function handleMessages(
     const latency = Date.now() - startTime;
     const filteredHeaders = filterResponseHeaders(result.headers);
 
-    // Log token usage (always to console, file only in debug mode)
     if (isAnthropicResponse(result.body)) {
       const usage = extractTokenUsage(result.body);
-
-      // Console: compact token summary (always shown)
       logTokenUsage(currentRequestId, usage, latency);
 
-      // File: detailed response log (debug mode only)
       proxyLog({
         requestId: currentRequestId,
         type: 'RESPONSE',
@@ -311,12 +412,11 @@ async function handleMessages(
           cacheRead: usage.cacheRead,
           cacheHitRatio: usage.cacheRead > 0 ? (usage.cacheRead / (usage.cacheRead + usage.cacheCreation)).toFixed(2) : '0.00',
           wasSSE: result.wasSSE,
+          grovExpandLoops: loopCount > 0 ? loopCount : undefined,
         },
       });
     }
 
-    // If response was SSE, forward raw SSE to Claude Code (it expects streaming)
-    // Otherwise, send JSON
     const isSSEResponse = result.wasSSE;
     const responseContentType = isSSEResponse ? 'text/event-stream; charset=utf-8' : 'application/json';
     const responseBody = isSSEResponse ? result.rawBody : JSON.stringify(result.body);
@@ -326,6 +426,7 @@ async function handleMessages(
       statusCode: result.statusCode,
       latencyMs: latency,
       wasSSE: isSSEResponse,
+      grovExpandLoops: loopCount > 0 ? loopCount : undefined,
     });
 
     return reply
@@ -1150,10 +1251,12 @@ async function postProcessResponse(
     return;
   }
 
+  const toolNames = actions.map(a => a.toolName);
+  console.log(`[TOOLS] Claude called ${actions.length} tool(s): ${toolNames.join(', ')}`);
   logger.info({
     msg: 'Actions parsed',
     count: actions.length,
-    tools: actions.map(a => a.toolName),
+    tools: toolNames,
   });
 
   // Recovery alignment check (Section 4.4)
@@ -1320,19 +1423,9 @@ async function postProcessResponse(
   // and reconstruct the full context: reasoning + all associated files/actions.
   let previousReasoning: string | null = null;
 
-  logger.info({ msg: 'DEDUP_DEBUG', actionsCount: actions.length, textContentLen: textContent.length });
-
   for (const action of actions) {
     const currentReasoning = textContent.substring(0, 1000);
     const isDuplicate = currentReasoning === previousReasoning;
-
-    logger.info({
-      msg: 'DEDUP_STEP',
-      actionType: action.actionType,
-      isDuplicate,
-      prevLen: previousReasoning?.length || 0,
-      currLen: currentReasoning.length
-    });
 
     // Detect key decisions based on action type and reasoning content
     const isKeyDecision = !isDuplicate && detectKeyDecision(action, textContent);

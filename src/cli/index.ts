@@ -45,22 +45,24 @@ program
   .description('Collective AI memory for engineering teams')
   .version(pkg.version);
 
-// grov init - Configure Claude Code to use grov proxy
+// grov init - Configure AI agent to use grov proxy
 program
-  .command('init')
-  .description('Configure Claude Code to use grov proxy (run once)')
-  .action(safeAction(async () => {
+  .command('init [agent]')
+  .description('Configure AI agent to use grov proxy (claude or codex, defaults to claude)')
+  .action(safeAction(async (agent?: string) => {
     const { init } = await import('./commands/init.js');
-    await init();
+    const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
+    await init(agentName);
   }));
 
 // grov disable - Remove proxy configuration
 program
-  .command('disable')
-  .description('Disable grov and restore direct Anthropic connection')
-  .action(safeAction(async () => {
+  .command('disable [agent]')
+  .description('Disable grov for AI agent (claude or codex, defaults to claude)')
+  .action(safeAction(async (agent?: string) => {
     const { disable } = await import('./commands/disable.js');
-    await disable();
+    const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
+    await disable(agentName);
   }));
 
 // grov status - Show stored reasoning for current project

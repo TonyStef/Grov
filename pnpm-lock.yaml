@@ -41,6 +41,9 @@ importers:
       pino-pretty:
         specifier: ^13.1.2
         version: 13.1.3
+      smol-toml:
+        specifier: ^1.6.0
+        version: 1.6.0
       undici:
         specifier: ^7.16.0
         version: 7.16.0
@@ -3290,6 +3293,10 @@ packages:
 
   smol-toml@1.5.2:
     resolution: {integrity: sha512-QlaZEqcAH3/RtNyet1IPIYPsEWAaYyXXv1Krsi+1L/QHppjX4Ifm8MQsBISz9vE8cHicIq3clogsheili5vhaQ==}
+    engines: {node: '>= 18'}
+
+  smol-toml@1.6.0:
+    resolution: {integrity: sha512-4zemZi0HvTnYwLfrpk/CF9LOd9Lt87kAt50GnqhMpyF9U3poDAP2+iukq2bZsO/ufegbYehBkqINbsWxj4l4cw==}
     engines: {node: '>= 18'}
 
   sonic-boom@4.2.0:
@@ -7407,6 +7414,8 @@ snapshots:
   sisteransi@1.0.5: {}
 
   smol-toml@1.5.2: {}
+
+  smol-toml@1.6.0: {}
 
   sonic-boom@4.2.0:
     dependencies:

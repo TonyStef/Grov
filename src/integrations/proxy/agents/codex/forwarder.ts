@@ -2,7 +2,7 @@
 
 import { request, Agent } from 'undici';
 import { config } from '../../config.js';
-import type { CodexResponse, CodexOutputItem, CodexFunctionCall } from './types.js';
+import type { CodexResponse, CodexOutputItem } from './types.js';
 
 const OPENAI_BASE_URL = 'https://api.openai.com';
 
@@ -17,14 +17,18 @@ export interface CodexForwardResult {
   headers: Record<string, string | string[]>;
   body: CodexResponse | Record<string, unknown>;
   rawBody: string;
+  wasSSE: boolean;
 }
 
 export async function forwardToOpenAI(
   body: Record<string, unknown>,
-  headers: Record<string, string | string[] | undefined>
+  headers: Record<string, string | string[] | undefined>,
+  rawBody?: Buffer
 ): Promise<CodexForwardResult> {
   const targetUrl = `${OPENAI_BASE_URL}/v1/responses`;
   const safeHeaders = buildOpenAIHeaders(headers);
+
+  const requestBody = rawBody || JSON.stringify(body);
 
   const response = await request(targetUrl, {
     method: 'POST',
@@ -32,7 +36,7 @@ export async function forwardToOpenAI(
       ...safeHeaders,
       'content-type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: requestBody,
     bodyTimeout: config.REQUEST_TIMEOUT,
     headersTimeout: config.REQUEST_TIMEOUT,
     dispatcher: agent,
@@ -42,18 +46,18 @@ export async function forwardToOpenAI(
   for await (const chunk of response.body) {
     chunks.push(Buffer.from(chunk));
   }
-  const rawBody = Buffer.concat(chunks).toString('utf-8');
+  const responseRawBody = Buffer.concat(chunks).toString('utf-8');
 
   const contentType = response.headers['content-type'];
   const isSSE = typeof contentType === 'string' && contentType.includes('text/event-stream');
 
   let parsedBody: CodexResponse | Record<string, unknown>;
   if (isSSE) {
-    const sseResponse = parseOpenAISSE(rawBody);
+    const sseResponse = parseOpenAISSE(responseRawBody);
     parsedBody = sseResponse || { error: 'Failed to parse SSE response' };
   } else {
     try {
-      parsedBody = JSON.parse(rawBody);
+      parsedBody = JSON.parse(responseRawBody);
     } catch {
       parsedBody = { error: 'Invalid JSON response' };
     }
@@ -74,7 +78,8 @@ export async function forwardToOpenAI(
     statusCode: response.statusCode,
     headers: responseHeaders,
     body: parsedBody,
-    rawBody,
+    rawBody: responseRawBody,
+    wasSSE: isSSE,
   };
 }
 

@@ -32,4 +32,13 @@ export function getSupportedEndpoints(): string[] {
 
 export { ClaudeAdapter } from './claude/index.js';
 export { CodexAdapter } from './codex/index.js';
-export type { AgentAdapter, AgentName, AgentSettings, NormalizedAction, ForwardResult } from './types.js';
+export { BaseAdapter } from './base.js';
+export type {
+  AgentAdapter,
+  AgentName,
+  AgentSettings,
+  NormalizedAction,
+  ForwardResult,
+  TokenUsage,
+  ToolUseBlock,
+} from './types.js';

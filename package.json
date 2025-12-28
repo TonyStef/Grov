@@ -24,7 +24,8 @@
     "landing"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc && chmod +x dist/cli/index.js",
+    "build:quick": "tsc && chmod +x dist/cli/index.js",
     "build:all": "turbo run build",
     "dev": "tsc --watch",
     "dev:dashboard": "turbo run dev --filter=@grov/dashboard",

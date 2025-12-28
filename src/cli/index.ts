@@ -158,11 +158,21 @@ program
 
 // grov doctor - Diagnose setup issues
 program
-  .command('doctor')
-  .description('Check grov setup and diagnose issues')
-  .action(safeAction(async () => {
+  .command('doctor [agent]')
+  .description('Check grov setup and diagnose issues (optional: claude, codex)')
+  .action(safeAction(async (agent?: string) => {
     const { doctor } = await import('./commands/doctor.js');
-    await doctor();
+    const agentName = agent === 'claude' || agent === 'codex' ? agent : undefined;
+    await doctor(agentName);
+  }));
+
+// grov agents - List supported agents
+program
+  .command('agents')
+  .description('List supported AI agents and setup instructions')
+  .action(safeAction(async () => {
+    const { agents } = await import('./commands/agents.js');
+    agents();
   }));
 
 // grov mcp - Start MCP server (called by Cursor, not user)

@@ -75,6 +75,16 @@ export interface AgentAdapter {
   injectDelta(body: unknown, delta: string): unknown;
   injectTool(body: unknown, toolDef: unknown): unknown;
 
+  // Body access (for agent-agnostic preprocessing)
+  getMessages(body: unknown): unknown[];
+  setMessages(body: unknown, messages: unknown[]): unknown;
+  getLastUserContent(body: unknown): string;
+
+  // Raw body injection (preserves bytes for cache optimization)
+  injectIntoRawSystemPrompt(rawBody: string, injection: string): { modified: string; success: boolean };
+  injectIntoRawUserMessage(rawBody: string, injection: string): string;
+  injectToolIntoRawBody(rawBody: string, toolDef: unknown): { modified: string; success: boolean };
+
   filterResponseHeaders(headers: Record<string, string | string[]>): Record<string, string>;
   buildContinueBody(
     body: unknown,

@@ -46,6 +46,12 @@ export abstract class BaseAdapter implements AgentAdapter {
   abstract injectMemory(body: unknown, memory: string): unknown;
   abstract injectDelta(body: unknown, delta: string): unknown;
   abstract injectTool(body: unknown, toolDef: unknown): unknown;
+  abstract getMessages(body: unknown): unknown[];
+  abstract setMessages(body: unknown, messages: unknown[]): unknown;
+  abstract getLastUserContent(body: unknown): string;
+  abstract injectIntoRawSystemPrompt(rawBody: string, injection: string): { modified: string; success: boolean };
+  abstract injectIntoRawUserMessage(rawBody: string, injection: string): string;
+  abstract injectToolIntoRawBody(rawBody: string, toolDef: unknown): { modified: string; success: boolean };
   abstract filterResponseHeaders(headers: Record<string, string | string[]>): Record<string, string>;
   abstract buildContinueBody(body: unknown, assistantContent: unknown, toolResult: string, toolId: string): unknown;
   abstract getSettings(): AgentSettings;

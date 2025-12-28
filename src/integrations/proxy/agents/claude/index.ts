@@ -206,6 +206,184 @@ export class ClaudeAdapter extends BaseAdapter {
     return { ...claudeBody, tools };
   }
 
+  getMessages(body: unknown): unknown[] {
+    const claudeBody = body as MessagesRequestBody;
+    return claudeBody.messages || [];
+  }
+
+  setMessages(body: unknown, messages: unknown[]): unknown {
+    const claudeBody = body as MessagesRequestBody;
+    return { ...claudeBody, messages: messages as MessagesRequestBody['messages'] };
+  }
+
+  getLastUserContent(body: unknown): string {
+    const messages = this.getMessages(body) as Array<{ role: string; content: unknown }>;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        const content = messages[i].content;
+        if (typeof content === 'string') {
+          return content;
+        }
+        if (Array.isArray(content)) {
+          const textBlocks = content
+            .filter((b): b is { type: string; text: string } =>
+              typeof b === 'object' && b !== null && b.type === 'text' && typeof b.text === 'string'
+            )
+            .map(b => b.text);
+          return textBlocks.join('\n');
+        }
+      }
+    }
+    return '';
+  }
+
+  injectIntoRawSystemPrompt(rawBody: string, injection: string): { modified: string; success: boolean } {
+    const systemMatch = rawBody.match(/"system"\s*:\s*\[/);
+    if (!systemMatch || systemMatch.index === undefined) {
+      return { modified: rawBody, success: false };
+    }
+
+    const startIndex = systemMatch.index + systemMatch[0].length;
+    let bracketCount = 1;
+    let endIndex = startIndex;
+
+    for (let i = startIndex; i < rawBody.length && bracketCount > 0; i++) {
+      const char = rawBody[i];
+      if (char === '[') bracketCount++;
+      else if (char === ']') bracketCount--;
+      if (bracketCount === 0) {
+        endIndex = i;
+        break;
+      }
+    }
+
+    if (bracketCount !== 0) {
+      return { modified: rawBody, success: false };
+    }
+
+    const escapedText = JSON.stringify(injection).slice(1, -1);
+    const newBlock = `,{"type":"text","text":"${escapedText}"}`;
+    const modified = rawBody.slice(0, endIndex) + newBlock + rawBody.slice(endIndex);
+
+    return { modified, success: true };
+  }
+
+  injectIntoRawUserMessage(rawBody: string, injection: string): string {
+    const userRolePattern = /"role"\s*:\s*"user"/g;
+    let lastUserMatch: RegExpExecArray | null = null;
+    let match;
+
+    while ((match = userRolePattern.exec(rawBody)) !== null) {
+      lastUserMatch = match;
+    }
+
+    if (!lastUserMatch) {
+      return rawBody;
+    }
+
+    const afterRole = rawBody.slice(lastUserMatch.index);
+    const contentMatch = afterRole.match(/"content"\s*:\s*/);
+    if (!contentMatch || contentMatch.index === undefined) {
+      return rawBody;
+    }
+
+    const contentStartGlobal = lastUserMatch.index + contentMatch.index + contentMatch[0].length;
+    const afterContent = rawBody.slice(contentStartGlobal);
+
+    if (afterContent.startsWith('"')) {
+      let i = 1;
+      while (i < afterContent.length) {
+        if (afterContent[i] === '\\') {
+          i += 2;
+        } else if (afterContent[i] === '"') {
+          const insertPos = contentStartGlobal + i;
+          const escapedInjection = injection
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n');
+          return rawBody.slice(0, insertPos) + '\\n\\n' + escapedInjection + rawBody.slice(insertPos);
+        } else {
+          i++;
+        }
+      }
+    } else if (afterContent.startsWith('[')) {
+      let depth = 1;
+      let i = 1;
+
+      while (i < afterContent.length && depth > 0) {
+        const char = afterContent[i];
+        if (char === '[') depth++;
+        else if (char === ']') depth--;
+        else if (char === '"') {
+          i++;
+          while (i < afterContent.length && afterContent[i] !== '"') {
+            if (afterContent[i] === '\\') i++;
+            i++;
+          }
+        }
+        i++;
+      }
+
+      if (depth === 0) {
+        const insertPos = contentStartGlobal + i - 1;
+        const escapedInjection = injection
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, '\\n');
+        const newBlock = `,{"type":"text","text":"\\n\\n${escapedInjection}"}`;
+        return rawBody.slice(0, insertPos) + newBlock + rawBody.slice(insertPos);
+      }
+    }
+
+    return rawBody;
+  }
+
+  injectToolIntoRawBody(rawBody: string, toolDef: unknown): { modified: string; success: boolean } {
+    const toolsMatch = rawBody.match(/"tools"\s*:\s*\[/);
+    if (!toolsMatch || toolsMatch.index === undefined) {
+      const messagesMatch = rawBody.match(/"messages"\s*:/);
+      if (messagesMatch && messagesMatch.index !== undefined) {
+        const toolsJson = JSON.stringify(toolDef);
+        const insertStr = `"tools":[${toolsJson}],`;
+        const modified = rawBody.slice(0, messagesMatch.index) + insertStr + rawBody.slice(messagesMatch.index);
+        return { modified, success: true };
+      }
+      return { modified: rawBody, success: false };
+    }
+
+    const startIndex = toolsMatch.index + toolsMatch[0].length;
+    let bracketCount = 1;
+    let endIndex = startIndex;
+
+    for (let i = startIndex; i < rawBody.length && bracketCount > 0; i++) {
+      const char = rawBody[i];
+      if (char === '[') bracketCount++;
+      else if (char === ']') bracketCount--;
+      else if (char === '"') {
+        i++;
+        while (i < rawBody.length && rawBody[i] !== '"') {
+          if (rawBody[i] === '\\') i++;
+          i++;
+        }
+      }
+      if (bracketCount === 0) {
+        endIndex = i;
+        break;
+      }
+    }
+
+    if (bracketCount !== 0) {
+      return { modified: rawBody, success: false };
+    }
+
+    const toolJson = JSON.stringify(toolDef);
+    const arrayContent = rawBody.slice(startIndex, endIndex).trim();
+    const separator = arrayContent.length > 0 ? ',' : '';
+    const modified = rawBody.slice(0, endIndex) + separator + toolJson + rawBody.slice(endIndex);
+
+    return { modified, success: true };
+  }
+
   filterResponseHeaders(headers: Record<string, string | string[]>): Record<string, string> {
     const filtered: Record<string, string> = {};
     const allowedHeaders = [

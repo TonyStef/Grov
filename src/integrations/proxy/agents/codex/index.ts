@@ -196,6 +196,158 @@ export class CodexAdapter extends BaseAdapter {
     return { ...codexBody, tools };
   }
 
+  getMessages(body: unknown): unknown[] {
+    const codexBody = body as CodexRequestBody;
+    return codexBody.input || [];
+  }
+
+  setMessages(body: unknown, messages: unknown[]): unknown {
+    const codexBody = body as CodexRequestBody;
+    return { ...codexBody, input: messages as CodexInputItem[] };
+  }
+
+  getLastUserContent(body: unknown): string {
+    const input = this.getMessages(body) as CodexInputItem[];
+    for (let i = input.length - 1; i >= 0; i--) {
+      const item = input[i];
+      if ('role' in item && item.role === 'user') {
+        return item.content || '';
+      }
+    }
+    return '';
+  }
+
+  injectIntoRawSystemPrompt(rawBody: string, injection: string): { modified: string; success: boolean } {
+    // Codex uses "instructions" as a string field, not an array
+    const instructionsMatch = rawBody.match(/"instructions"\s*:\s*"/);
+    if (instructionsMatch && instructionsMatch.index !== undefined) {
+      // Find the end of the instructions string
+      const startQuote = instructionsMatch.index + instructionsMatch[0].length - 1;
+      let i = startQuote + 1;
+      while (i < rawBody.length) {
+        if (rawBody[i] === '\\') {
+          i += 2;
+        } else if (rawBody[i] === '"') {
+          const insertPos = i;
+          const escapedInjection = injection
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n');
+          const modified = rawBody.slice(0, insertPos) + '\\n\\n' + escapedInjection + rawBody.slice(insertPos);
+          return { modified, success: true };
+        } else {
+          i++;
+        }
+      }
+    }
+
+    // No instructions field found - try to add one
+    const inputMatch = rawBody.match(/"input"\s*:/);
+    if (inputMatch && inputMatch.index !== undefined) {
+      const escapedInjection = injection
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n');
+      const insertStr = `"instructions":"${escapedInjection}",`;
+      const modified = rawBody.slice(0, inputMatch.index) + insertStr + rawBody.slice(inputMatch.index);
+      return { modified, success: true };
+    }
+
+    return { modified: rawBody, success: false };
+  }
+
+  injectIntoRawUserMessage(rawBody: string, injection: string): string {
+    // Find the last user message in the input array
+    const userRolePattern = /"role"\s*:\s*"user"/g;
+    let lastUserMatch: RegExpExecArray | null = null;
+    let match;
+
+    while ((match = userRolePattern.exec(rawBody)) !== null) {
+      lastUserMatch = match;
+    }
+
+    if (!lastUserMatch) {
+      return rawBody;
+    }
+
+    // Find "content" field after role
+    const afterRole = rawBody.slice(lastUserMatch.index);
+    const contentMatch = afterRole.match(/"content"\s*:\s*"/);
+    if (!contentMatch || contentMatch.index === undefined) {
+      return rawBody;
+    }
+
+    const contentStartGlobal = lastUserMatch.index + contentMatch.index + contentMatch[0].length - 1;
+    const afterContent = rawBody.slice(contentStartGlobal);
+
+    // Codex user content is always a string
+    let i = 1;
+    while (i < afterContent.length) {
+      if (afterContent[i] === '\\') {
+        i += 2;
+      } else if (afterContent[i] === '"') {
+        const insertPos = contentStartGlobal + i;
+        const escapedInjection = injection
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, '\\n');
+        return rawBody.slice(0, insertPos) + '\\n\\n' + escapedInjection + rawBody.slice(insertPos);
+      } else {
+        i++;
+      }
+    }
+
+    return rawBody;
+  }
+
+  injectToolIntoRawBody(rawBody: string, toolDef: unknown): { modified: string; success: boolean } {
+    const toolsMatch = rawBody.match(/"tools"\s*:\s*\[/);
+    if (!toolsMatch || toolsMatch.index === undefined) {
+      // No tools array - add one before input
+      const inputMatch = rawBody.match(/"input"\s*:/);
+      if (inputMatch && inputMatch.index !== undefined) {
+        const toolsJson = JSON.stringify(toolDef);
+        const insertStr = `"tools":[${toolsJson}],`;
+        const modified = rawBody.slice(0, inputMatch.index) + insertStr + rawBody.slice(inputMatch.index);
+        return { modified, success: true };
+      }
+      return { modified: rawBody, success: false };
+    }
+
+    // Find closing bracket
+    const startIndex = toolsMatch.index + toolsMatch[0].length;
+    let bracketCount = 1;
+    let endIndex = startIndex;
+
+    for (let i = startIndex; i < rawBody.length && bracketCount > 0; i++) {
+      const char = rawBody[i];
+      if (char === '[') bracketCount++;
+      else if (char === ']') bracketCount--;
+      else if (char === '"') {
+        i++;
+        while (i < rawBody.length && rawBody[i] !== '"') {
+          if (rawBody[i] === '\\') i++;
+          i++;
+        }
+      }
+      if (bracketCount === 0) {
+        endIndex = i;
+        break;
+      }
+    }
+
+    if (bracketCount !== 0) {
+      return { modified: rawBody, success: false };
+    }
+
+    const toolJson = JSON.stringify(toolDef);
+    const arrayContent = rawBody.slice(startIndex, endIndex).trim();
+    const separator = arrayContent.length > 0 ? ',' : '';
+    const modified = rawBody.slice(0, endIndex) + separator + toolJson + rawBody.slice(endIndex);
+
+    return { modified, success: true };
+  }
+
   filterResponseHeaders(headers: Record<string, string | string[]>): Record<string, string> {
     const filtered: Record<string, string> = {};
     const allowedHeaders = [

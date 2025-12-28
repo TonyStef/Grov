@@ -1,7 +1,7 @@
-// Pre-process requests before forwarding to Anthropic
+// Pre-process requests before forwarding to upstream API (agent-agnostic)
 
 import { config } from '../config.js';
-import { extractLastUserPrompt, extractFilesFromMessages } from '../request-processor.js';
+import { extractFilesFromMessages } from '../request-processor.js';
 import { fetchTeamMemories } from '../../../core/cloud/api-client.js';
 import {
   getSessionState,
@@ -12,7 +12,6 @@ import { isSyncEnabled, getSyncTeamId } from '../../../core/cloud/cloud-sync.js'
 import {
   clearSessionState,
   cacheMemories,
-  getCachedMemories,
   buildMemoryPreview,
   buildToolDescription,
   buildToolDefinition,
@@ -20,8 +19,7 @@ import {
   reconstructMessages,
   addInjectionRecord,
 } from '../injection/memory-injection.js';
-import { appendToSystemPrompt } from '../injection/injectors.js';
-import type { MessagesRequestBody } from '../types.js';
+import type { AgentAdapter } from '../agents/types.js';
 
 let pendingPlanClear: { projectPath: string; summary: string } | null = null;
 
@@ -38,40 +36,37 @@ export function clearPendingPlan(): void {
 }
 
 export async function preProcessRequest(
-  body: MessagesRequestBody,
+  adapter: AgentAdapter,
+  body: unknown,
   sessionInfo: { sessionId: string; promptCount: number; projectPath: string },
   logger: { info: (data: Record<string, unknown>) => void },
   detectRequestType: (messages: Array<{ role: string; content: unknown }>, projectPath: string) => 'first' | 'continuation' | 'retry'
-): Promise<MessagesRequestBody> {
-  const modified = { ...body };
+): Promise<unknown> {
+  let modified = { ...(body as Record<string, unknown>) };
 
   // === TOOL INJECTION (FIRST - before any early returns for cache consistency) ===
   // System prompt must be identical from first request to maintain prefix cache
   const toolDesc = buildToolDescription();
-  (modified as Record<string, unknown>).__grovInjection = toolDesc;
-  (modified as Record<string, unknown>).__grovInjectionCached = false;
+  modified.__grovInjection = toolDesc;
+  modified.__grovInjectionCached = false;
 
   // Add grov_expand tool to tools array
   const toolDef = buildToolDefinition();
-  if (!modified.tools) {
-    modified.tools = [];
-  }
-  if (!modified.tools.some((t: { name?: string }) => t.name === 'grov_expand')) {
-    modified.tools.push(toolDef as never);
-  }
+  modified = adapter.injectTool(modified, toolDef) as Record<string, unknown>;
 
-  const earlyUserPrompt = extractLastUserPrompt(modified.messages || []);
+  const earlyUserPrompt = adapter.getLastUserContent(modified);
   if (earlyUserPrompt === 'Warmup') {
     return modified;
   }
 
-  const requestType = detectRequestType(modified.messages || [], sessionInfo.projectPath);
+  const messages = adapter.getMessages(modified) as Array<{ role: string; content: unknown }>;
+  const requestType = detectRequestType(messages, sessionInfo.projectPath);
   const sessionState = getSessionState(sessionInfo.sessionId);
 
   // === PLANNING CLEAR ===
   if (pendingPlanClear && pendingPlanClear.projectPath === sessionInfo.projectPath) {
-    modified.messages = [];
-    appendToSystemPrompt(modified, pendingPlanClear.summary);
+    modified = adapter.setMessages(modified, []) as Record<string, unknown>;
+    modified = adapter.injectMemory(modified, pendingPlanClear.summary) as Record<string, unknown>;
     pendingPlanClear = null;
     clearSessionState(sessionInfo.projectPath);
     return modified;
@@ -88,8 +83,8 @@ export async function preProcessRequest(
         threshold: config.TOKEN_CLEAR_THRESHOLD,
       });
 
-      modified.messages = [];
-      appendToSystemPrompt(modified, sessionState.pending_clear_summary);
+      modified = adapter.setMessages(modified, []) as Record<string, unknown>;
+      modified = adapter.injectMemory(modified, sessionState.pending_clear_summary) as Record<string, unknown>;
       markCleared(sessionInfo.sessionId);
 
       updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
@@ -100,7 +95,7 @@ export async function preProcessRequest(
   }
 
   // Capture original position BEFORE reconstruction (for injection tracking)
-  const originalMessages = modified.messages || [];
+  const originalMessages = adapter.getMessages(modified);
   let originalLastUserPos = originalMessages.length - 1;
   for (let i = originalMessages.length - 1; i >= 0; i--) {
     if ((originalMessages[i] as { role?: string })?.role === 'user') {
@@ -110,23 +105,25 @@ export async function preProcessRequest(
   }
 
   // === RECONSTRUCT HISTORICAL INJECTIONS (for cache consistency) ===
+  const currentMessages = adapter.getMessages(modified) as Array<{ role: string; content: unknown }>;
   const { messages: reconstructedMsgs, reconstructedCount } = reconstructMessages(
-    modified.messages || [],
+    currentMessages,
     sessionInfo.projectPath
   );
   if (reconstructedCount > 0) {
-    modified.messages = reconstructedMsgs;
-    (modified as Record<string, unknown>).__grovReconstructedCount = reconstructedCount;
+    modified = adapter.setMessages(modified, reconstructedMsgs) as Record<string, unknown>;
+    modified.__grovReconstructedCount = reconstructedCount;
   }
 
-  // Pass original position to server.ts for tool_cycle tracking
-  (modified as Record<string, unknown>).__grovOriginalLastUserPos = originalLastUserPos;
+  // Pass original position to orchestrator for tool_cycle tracking
+  modified.__grovOriginalLastUserPos = originalLastUserPos;
 
   // === MEMORY PREVIEW INJECTION (new system) ===
   if (requestType === 'first') {
     const teamId = getSyncTeamId();
-    const userPrompt = extractLastUserPrompt(modified.messages || []);
-    const mentionedFiles = extractFilesFromMessages(modified.messages || []);
+    const userPrompt = adapter.getLastUserContent(modified);
+    const messagesForFiles = adapter.getMessages(modified);
+    const mentionedFiles = extractFilesFromMessages(messagesForFiles as Array<{ role: string; content: unknown }>);
 
     if (isSyncEnabled() && teamId && userPrompt) {
       try {

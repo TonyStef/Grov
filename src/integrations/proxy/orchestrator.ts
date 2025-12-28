@@ -5,10 +5,8 @@ import { randomUUID } from 'crypto';
 import { config, buildSafeHeaders } from './config.js';
 import { extendedCache, evictOldestCacheEntry } from './cache/extended-cache.js';
 import { getNextRequestId, taskLog, proxyLog, logTokenUsage } from './utils/logging.js';
-import { appendToLastUserMessage, injectIntoRawBody, injectToolIntoRawBody } from './injection/injectors.js';
 import { preProcessRequest, setPendingPlanClear } from './handlers/preprocess.js';
 import type { AgentAdapter } from './agents/types.js';
-import type { MessagesRequestBody } from './types.js';
 import {
   createSessionState,
   getSessionState,
@@ -170,13 +168,12 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
     },
   });
 
-  // Pre-process request for memory injection
-  // Note: preProcessRequest is Claude-specific for now, will need adapter method later
-  const processedBody = await preProcessRequest(requestBody as MessagesRequestBody, sessionInfo, logger, detectRequestType);
+  // Pre-process request for memory injection (agent-agnostic)
+  const processedBody = await preProcessRequest(adapter, requestBody, sessionInfo, logger, detectRequestType);
   const systemInjection = (processedBody as Record<string, unknown>).__grovInjection as string | undefined;
   const userMsgInjection = (processedBody as Record<string, unknown>).__grovUserMsgInjection as string | undefined;
 
-  // Build final body with injections
+  // Build final body with injections using adapter methods
   let rawBodyStr = rawBody?.toString('utf-8') || '';
   let systemInjectionSize = 0;
   let userMsgInjectionSize = 0;
@@ -184,14 +181,14 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
   let userMsgSuccess = false;
 
   if (systemInjection && rawBodyStr) {
-    const result = injectIntoRawBody(rawBodyStr, '\n\n' + systemInjection);
+    const result = adapter.injectIntoRawSystemPrompt(rawBodyStr, '\n\n' + systemInjection);
     rawBodyStr = result.modified;
     systemInjectionSize = systemInjection.length;
     systemSuccess = result.success;
   }
 
   if (userMsgInjection && rawBodyStr) {
-    rawBodyStr = appendToLastUserMessage(rawBodyStr, userMsgInjection);
+    rawBodyStr = adapter.injectIntoRawUserMessage(rawBodyStr, userMsgInjection);
     userMsgInjectionSize = userMsgInjection.length;
     userMsgSuccess = true;
   }
@@ -205,7 +202,7 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
 
   if (hasGrovExpandInProcessed && rawBodyStr) {
     const toolDef = buildToolDefinition();
-    const result = injectToolIntoRawBody(rawBodyStr, toolDef);
+    const result = adapter.injectToolIntoRawBody(rawBodyStr, toolDef);
     if (result.success) {
       rawBodyStr = result.modified;
     }

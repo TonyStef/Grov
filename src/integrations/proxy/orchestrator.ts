@@ -50,7 +50,6 @@ import {
   getCachedMemory,
   buildExpandedMemory,
   addInjectionRecord,
-  buildToolDefinition,
 } from './injection/memory-injection.js';
 
 // In-memory state
@@ -201,7 +200,7 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
     );
 
   if (hasGrovExpandInProcessed && rawBodyStr) {
-    const toolDef = buildToolDefinition();
+    const toolDef = adapter.buildGrovExpandTool();
     const result = adapter.injectToolIntoRawBody(rawBodyStr, toolDef);
     if (result.success) {
       rawBodyStr = result.modified;

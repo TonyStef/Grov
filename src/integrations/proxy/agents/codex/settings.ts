@@ -55,8 +55,15 @@ export function setProxyEnv(enable: boolean): { action: 'added' | 'removed' | 'u
       config.model_providers = {};
     }
 
-    if (config.model_providers.grov?.base_url === PROXY_URL) {
+    const alreadyConfigured = config.model_providers.grov?.base_url === PROXY_URL &&
+                              config.model_provider === 'grov';
+    if (alreadyConfigured) {
       return { action: 'unchanged' };
+    }
+
+    // Store original provider to restore on disable
+    if (config.model_provider && config.model_provider !== 'grov') {
+      config._grov_original_provider = config.model_provider;
     }
 
     config.model_providers.grov = {
@@ -65,6 +72,9 @@ export function setProxyEnv(enable: boolean): { action: 'added' | 'removed' | 'u
       env_key: 'OPENAI_API_KEY',
       wire_api: 'responses',
     };
+
+    // Tell Codex to use the grov provider
+    config.model_provider = 'grov';
 
     writeCodexConfig(config);
     return { action: 'added' };
@@ -75,6 +85,14 @@ export function setProxyEnv(enable: boolean): { action: 'added' | 'removed' | 'u
   }
 
   delete config.model_providers.grov;
+
+  // Restore original provider or remove the setting
+  if (config._grov_original_provider) {
+    config.model_provider = config._grov_original_provider;
+    delete config._grov_original_provider;
+  } else {
+    delete config.model_provider;
+  }
 
   if (Object.keys(config.model_providers).length === 0) {
     delete config.model_providers;

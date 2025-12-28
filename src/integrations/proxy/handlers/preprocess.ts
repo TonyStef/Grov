@@ -14,7 +14,6 @@ import {
   cacheMemories,
   buildMemoryPreview,
   buildToolDescription,
-  buildToolDefinition,
   buildDriftRecoveryInjection,
   reconstructMessages,
   addInjectionRecord,
@@ -50,8 +49,8 @@ export async function preProcessRequest(
   modified.__grovInjection = toolDesc;
   modified.__grovInjectionCached = false;
 
-  // Add grov_expand tool to tools array
-  const toolDef = buildToolDefinition();
+  // Add grov_expand tool to tools array (agent-specific format)
+  const toolDef = adapter.buildGrovExpandTool();
   modified = adapter.injectTool(modified, toolDef) as Record<string, unknown>;
 
   const earlyUserPrompt = adapter.getLastUserContent(modified);

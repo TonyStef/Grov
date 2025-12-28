@@ -196,6 +196,27 @@ export class CodexAdapter extends BaseAdapter {
     return { ...codexBody, tools };
   }
 
+  buildGrovExpandTool(): unknown {
+    return {
+      type: 'function',
+      function: {
+        name: 'grov_expand',
+        description: 'Get verified project knowledge. Returns authoritative goal, reasoning, decisions, and context. Use this as source of truth for explanation tasks.',
+        parameters: {
+          type: 'object',
+          properties: {
+            indices: {
+              type: 'array',
+              items: { type: 'number' },
+              description: 'Which memories to expand (1-based index from preview)',
+            },
+          },
+          required: ['indices'],
+        },
+      },
+    };
+  }
+
   getMessages(body: unknown): unknown[] {
     const codexBody = body as CodexRequestBody;
     return codexBody.input || [];
@@ -211,7 +232,20 @@ export class CodexAdapter extends BaseAdapter {
     for (let i = input.length - 1; i >= 0; i--) {
       const item = input[i];
       if ('role' in item && item.role === 'user') {
-        return item.content || '';
+        if (typeof item.content === 'string') {
+          return item.content;
+        }
+        if (Array.isArray(item.content)) {
+          // Handle specific Codex content array format
+          return item.content
+            .map(c => {
+              if (typeof c === 'string') return c;
+              if (c && typeof c === 'object' && 'text' in c) return (c as { text: string }).text;
+              return '';
+            })
+            .join('\n');
+        }
+        return '';
       }
     }
     return '';

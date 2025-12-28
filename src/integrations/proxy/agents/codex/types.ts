@@ -11,14 +11,16 @@ export interface CodexRequestBody {
 }
 
 export type CodexInputItem =
-  | { role: 'user' | 'assistant'; content: string }
+  | { role: 'user' | 'assistant'; content: string | Array<{ type: string; text?: string;[key: string]: unknown }> }
   | { type: 'function_call_output'; call_id: string; output: string };
 
 export interface CodexTool {
   type: 'function';
-  name: string;
-  description?: string;
-  parameters?: Record<string, unknown>;
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
 }
 
 export interface CodexResponse {

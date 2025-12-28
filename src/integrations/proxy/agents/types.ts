@@ -75,6 +75,9 @@ export interface AgentAdapter {
   injectDelta(body: unknown, delta: string): unknown;
   injectTool(body: unknown, toolDef: unknown): unknown;
 
+  // Agent-specific tool definitions
+  buildGrovExpandTool(): unknown;
+
   // Body access (for agent-agnostic preprocessing)
   getMessages(body: unknown): unknown[];
   setMessages(body: unknown, messages: unknown[]): unknown;

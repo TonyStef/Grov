@@ -206,6 +206,24 @@ export class ClaudeAdapter extends BaseAdapter {
     return { ...claudeBody, tools };
   }
 
+  buildGrovExpandTool(): unknown {
+    return {
+      name: 'grov_expand',
+      description: 'Get verified project knowledge. Returns authoritative goal, reasoning, decisions, and context. Use this as source of truth for explanation tasks.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          indices: {
+            type: 'array',
+            items: { type: 'number' },
+            description: 'Which memories to expand (1-based index from preview)',
+          },
+        },
+        required: ['indices'],
+      },
+    };
+  }
+
   getMessages(body: unknown): unknown[] {
     const claudeBody = body as MessagesRequestBody;
     return claudeBody.messages || [];

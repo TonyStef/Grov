@@ -75,6 +75,9 @@ importers:
 
   api:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.32.1
+        version: 0.32.1
       '@fastify/cors':
         specifier: ^11.0.0
         version: 11.1.0

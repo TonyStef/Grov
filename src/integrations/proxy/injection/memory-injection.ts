@@ -2,6 +2,7 @@
 // Reference: docs/new_injection.md
 
 import type { Memory } from '@grov/shared';
+import { debugLog } from '../utils/logging.js';
 
 export interface InjectionRecord {
   position: number;
@@ -12,8 +13,9 @@ export interface InjectionRecord {
 }
 
 export interface SessionInjectionState {
-  memories: Memory[];
-  injectionHistory: InjectionRecord[];
+  memoriesById: Map<string, Memory>;  // Keyed by memory ID for unique lookup
+  injectionHistory: InjectionRecord[];  // Committed records (used for reconstruction)
+  pendingRecords: InjectionRecord[];    // New records waiting to be committed (next turn)
   lastOriginalMsgCount: number;  // Track original message count for stale detection
 }
 
@@ -22,8 +24,9 @@ const sessionState = new Map<string, SessionInjectionState>();
 export function getOrCreateState(sessionId: string): SessionInjectionState {
   if (!sessionState.has(sessionId)) {
     sessionState.set(sessionId, {
-      memories: [],
+      memoriesById: new Map(),
       injectionHistory: [],
+      pendingRecords: [],
       lastOriginalMsgCount: 0,
     });
   }
@@ -36,22 +39,70 @@ export function clearSessionState(sessionId: string): void {
 
 export function cacheMemories(sessionId: string, memories: Memory[]): void {
   const state = getOrCreateState(sessionId);
-  state.memories = memories;
+  state.memoriesById = new Map();
+  for (const memory of memories) {
+    state.memoriesById.set(memory.id, memory);
+  }
 }
 
+// Legacy function for backwards compatibility - deprecated
 export function getCachedMemory(sessionId: string, index: number): Memory | null {
+  const memories = getCachedMemories(sessionId);
+  return memories[index - 1] || null;
+}
+
+// New ID-based lookup
+export function getCachedMemoryById(sessionId: string, memoryId: string): Memory | null {
   const state = sessionState.get(sessionId);
-  if (!state?.memories) return null;
-  return state.memories[index - 1] || null;
+  if (!state?.memoriesById) return null;
+  // Support both full ID and 8-char prefix
+  if (state.memoriesById.has(memoryId)) {
+    return state.memoriesById.get(memoryId) || null;
+  }
+  // Try prefix match (first 8 chars)
+  for (const [id, memory] of state.memoriesById) {
+    if (id.startsWith(memoryId) || memoryId.startsWith(id.substring(0, 8))) {
+      return memory;
+    }
+  }
+  return null;
 }
 
 export function getCachedMemories(sessionId: string): Memory[] {
-  return sessionState.get(sessionId)?.memories || [];
+  const state = sessionState.get(sessionId);
+  if (!state?.memoriesById) return [];
+  return Array.from(state.memoriesById.values());
 }
 
+// Add record to PENDING (not committed yet - waits for next turn)
 export function addInjectionRecord(sessionId: string, record: InjectionRecord): void {
   const state = getOrCreateState(sessionId);
-  state.injectionHistory.push(record);
+  state.pendingRecords.push(record);
+}
+
+// Commit pending records to history (called at start of NEW turn)
+export function commitPendingRecords(sessionId: string): number {
+  const state = sessionState.get(sessionId);
+  if (!state || state.pendingRecords.length === 0) return 0;
+
+  const count = state.pendingRecords.length;
+  state.injectionHistory.push(...state.pendingRecords);
+  state.pendingRecords = [];
+  return count;
+}
+
+// Check if tool_cycle already exists for position (in committed OR pending)
+export function hasToolCycleAtPosition(sessionId: string, position: number): boolean {
+  const state = sessionState.get(sessionId);
+  if (!state) return false;
+  // Check both committed history and pending records
+  const inHistory = state.injectionHistory.some(
+    (r) => r.type === 'tool_cycle' && r.position === position
+  );
+  const inPending = state.pendingRecords.some(
+    (r) => r.type === 'tool_cycle' && r.position === position
+  );
+  return inHistory || inPending;
 }
 
 export function getInjectionHistory(sessionId: string): InjectionRecord[] {
@@ -80,15 +131,17 @@ export function formatAge(updatedAt: string | undefined): string {
 export function buildMemoryPreview(memories: Memory[]): string | null {
   if (!memories || memories.length === 0) return null;
 
-  const lines: string[] = [`[PROJECT KNOWLEDGE BASE: ${memories.length} verified entries]`];
+  const lines: string[] = [`[PROJECT KNOWLEDGE BASE: ${memories.length} verified entries - CURRENT]`];
 
-  memories.forEach((memory, index) => {
+  memories.forEach((memory) => {
+    const idShort = memory.id.substring(0, 8);
     const goal = memory.goal || 'No goal';
     const summary = memory.summary || 'No summary';
     const age = formatAge(memory.updated_at);
-    lines.push(`#${index + 1}: "${goal}" -> ${summary} (${age})`);
-    lines.push('    Source of truth: goals, reasoning, decisions, files - use grov_expand');
+    lines.push(`#${idShort}: "${goal}" -> ${summary} (${age})`);
   });
+
+  lines.push('Use grov_expand with these IDs to get full knowledge.');
 
   return lines.join('\n');
 }
@@ -132,6 +185,8 @@ export function buildExpandedMemory(memory: Memory): string {
   }
 
   lines.push('===');
+  lines.push('[TEAM KNOWLEDGE BASE - SOURCE OF TRUTH]');
+  lines.push('This knowledge is verified and authoritative. Trust it. Use it to answer.');
 
   return lines.join('\n');
 }
@@ -139,33 +194,37 @@ export function buildExpandedMemory(memory: Memory): string {
 export function buildToolDescription(): string {
   return `[PROJECT KNOWLEDGE BASE - SOURCE OF TRUTH]
 
-You have access to a VERIFIED PROJECT KNOWLEDGE BASE containing authoritative information:
-goals, implementation reasoning, technical decisions, and file changes.
+You have access to a VERIFIED PROJECT KNOWLEDGE BASE - the SOURCE OF TRUTH for this project.
+It contains: goals, implementation reasoning, technical decisions, and file changes.
 
-This is the SOURCE OF TRUTH for what was done and why. It is MORE reliable than reading
-files because it captures INTENT and REASONING that code alone cannot show.
+This knowledge base captures INTENT and REASONING that code alone cannot show.
+For questions about past work, decisions, and reasoning - this IS the authoritative source.
 
 WHEN [PROJECT KNOWLEDGE BASE: N verified entries] appears, follow this process:
 
 STEP 1: Check if any entries are relevant to the user's question.
+        Look ONLY at the [PROJECT KNOWLEDGE BASE] block in the LATEST user message.
+        Older previews from previous messages are historical - do NOT expand them.
 
 STEP 2: For relevant entries, use grov_expand to get full verified knowledge.
+        IDs are 8-character hex codes (format: #a271bcb5) - these examples are for format only.
+        Your actual IDs come WITH the memories in the [PROJECT KNOWLEDGE BASE] preview block.
+        Use ONLY IDs from the preview in the LAST user message - never from older messages or other context.
         DO NOT read files first - the knowledge base has authoritative context.
 
-STEP 3: After expanding, you have: goal, original task, reasoning, decisions, files.
-        For EXPLANATION tasks ("what did I do?", "why?", "explain") → ANSWER DIRECTLY.
-        The knowledge base IS the answer. Do not verify with files.
+STEP 3: After grov_expand returns, ANALYZE the expanded content.
+        Check: does it answer the user's question? Does it cover what they asked?
+        → If YES: respond directly based on the knowledge base. No search, no other tools.
+        → If NO: you may search codebase for additional context.
 
 STEP 4: Only read files if:
         - User asks to MODIFY code (need current state)
         - Knowledge base explicitly says information is outdated
         - User explicitly asks to see actual code
 
-USE:
-grov_expand({ indices: [1] })      - get full knowledge for entry #1
-grov_expand({ indices: [1, 2] })   - get multiple entries
+SYNTAX: grov_expand({ ids: [...] }) where ids are from LAST user message preview only
 
-The knowledge base contains verified decisions and reasoning. Trust it.`;
+The knowledge base is the source of truth. Trust it.`;
 }
 
 export function buildToolDefinition(): object {
@@ -175,13 +234,13 @@ export function buildToolDefinition(): object {
     input_schema: {
       type: 'object',
       properties: {
-        indices: {
+        ids: {
           type: 'array',
-          items: { type: 'number' },
-          description: 'Which memories to expand (1-based index from preview)',
+          items: { type: 'string' },
+          description: 'Memory IDs to expand (8-character IDs from the knowledge base preview)',
         },
       },
-      required: ['indices'],
+      required: ['ids'],
     },
   };
 }
@@ -247,25 +306,13 @@ export function reconstructMessages(
         appendTextToMessage(msg as { role: string; content: MessageContent }, record.preview);
         count++;
       }
-    } else if (record.type === 'tool_cycle' && record.toolUse && record.toolResult) {
-      // Insert assistant message with tool_use after the position
-      const assistantMsg = {
-        role: 'assistant',
-        content: [{ type: 'tool_use', id: record.toolUse.id, name: record.toolUse.name, input: record.toolUse.input }],
-      };
-      const toolResultMsg = {
-        role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: record.toolUse.id, content: record.toolResult }],
-      };
-
-      reconstructed.splice(adjustedPosition + 1, 0, assistantMsg, toolResultMsg);
-      insertOffset += 2;
-      count++;
     }
+    // NOTE: tool_cycle reconstruction disabled - can't fake redacted_thinking for extended thinking
+    // Preview reconstruction is sufficient for context
   }
 
   if (count > 0) {
-    console.log(`[MEMORY] Reconstructed ${count} injection(s) for cache consistency`);
+    debugLog(`Reconstructed ${count} preview(s) from history`);
   }
 
   return { messages: reconstructed, reconstructedCount: count };

@@ -17,6 +17,12 @@ export function isDebugMode(): boolean {
   return debugMode;
 }
 
+export function debugLog(message: string): void {
+  if (debugMode) {
+    console.log(`[DEBUG] ${message}`);
+  }
+}
+
 export function getNextRequestId(): number {
   return ++requestCounter;
 }

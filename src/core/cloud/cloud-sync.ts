@@ -305,7 +305,7 @@ export async function syncTask(
 
     // If should NOT update, skip sync entirely
     if (!updateResult.should_update) {
-      console.log(`[SYNC TO CLOUD] ${taskId} -> SKIP (unchanged)`);
+      console.log(`[SYNC TO CLOUD] ${taskId} -> SKIP (unchanged) [matched: ${matchedId}]`);
       return true;
     }
 
@@ -319,7 +319,7 @@ export async function syncTask(
 
     // Sync with memory_id for UPDATE path
     const result = await syncMemories(teamId, { memories: [payload as CreateMemoryInput] });
-    console.log(`[SYNC TO CLOUD] ${taskId} -> UPDATE (${taskType || 'unknown'})`);
+    console.log(`[SYNC TO CLOUD] ${taskId} -> UPDATE (${taskType || 'unknown'}) [matched: ${matchedId}]`);
     return result.synced === 1;
 
   } catch (err) {

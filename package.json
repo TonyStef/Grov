@@ -3,10 +3,10 @@
   "version": "0.5.11",
   "description": "Collective AI memory for Claude Code - captures reasoning from sessions and injects context into future sessions",
   "type": "module",
-  "main": "dist/cli.js",
-  "types": "dist/cli.d.ts",
+  "main": "dist/cli/index.js",
+  "types": "dist/cli/index.d.ts",
   "bin": {
-    "grov": "dist/cli.js"
+    "grov": "dist/cli/index.js"
   },
   "files": [
     "dist/**/*.js",
@@ -24,13 +24,14 @@
     "landing"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc && chmod +x dist/cli/index.js",
+    "build:quick": "tsc",
     "build:all": "turbo run build",
     "dev": "tsc --watch",
     "dev:dashboard": "turbo run dev --filter=@grov/dashboard",
     "dev:api": "turbo run dev --filter=@grov/api",
     "start": "node dist/cli.js",
-    "proxy": "node dist/proxy/index.js",
+    "proxy": "node dist/integrations/proxy/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:all": "turbo run test",

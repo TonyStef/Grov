@@ -6,7 +6,7 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { config, maskSensitiveValue, buildSafeHeaders } from './config.js';
 import { forwardToAnthropic, isForwardError } from './agents/claude/forwarder.js';
 import { extendedCache, evictOldestCacheEntry, checkExtendedCache, log } from './cache/extended-cache.js';
-import { setDebugMode, getNextRequestId, taskLog, proxyLog, logTokenUsage } from './utils/logging.js';
+import { setDebugMode, getNextRequestId, taskLog, proxyLog, logTokenUsage, debugLog } from './utils/logging.js';
 import { detectKeyDecision, extractTextContent, extractProjectPath, extractGoalFromMessages, extractConversationHistory } from './utils/extractors.js';
 import { appendToLastUserMessage, injectIntoRawBody, injectToolIntoRawBody } from './injection/injectors.js';
 import { preProcessRequest, setPendingPlanClear } from './handlers/preprocess.js';
@@ -66,9 +66,11 @@ import {
 } from '../../core/extraction/llm-extractor.js';
 import { saveToTeamMemory, cleanupSession } from './response-processor.js';
 import {
-  getCachedMemory,
+  getCachedMemoryById,
+  getCachedMemories,
   buildExpandedMemory,
   addInjectionRecord,
+  hasToolCycleAtPosition,
   clearSessionState,
   buildToolDefinition,
 } from './injection/memory-injection.js';
@@ -207,8 +209,8 @@ async function handleMessages(
   // __grovInjection = team memory (system prompt, cached)
   // __grovUserMsgInjection = dynamic content (user message, delta only)
   const processedBody = await preProcessRequest(request.body, sessionInfo, logger, detectRequestType);
-  const systemInjection = (processedBody as Record<string, unknown>).__grovInjection as string | undefined;
-  const userMsgInjection = (processedBody as Record<string, unknown>).__grovUserMsgInjection as string | undefined;
+  const systemInjection = processedBody['__grovInjection'] as string | undefined;
+  const userMsgInjection = processedBody['__grovUserMsgInjection'] as string | undefined;
 
   // Get raw body bytes
   const rawBody = (request as unknown as { rawBody?: Buffer }).rawBody;
@@ -251,14 +253,14 @@ async function handleMessages(
   let finalBodyToSend: string | Buffer;
 
   // Check if we have historical reconstructions (even without new injections)
-  const reconstructedCount = (processedBody as Record<string, unknown>).__grovReconstructedCount as number || 0;
-  const originalLastUserPos = (processedBody as Record<string, unknown>).__grovOriginalLastUserPos as number;
+  const reconstructedCount = (processedBody['__grovReconstructedCount'] as number) || 0;
+  const originalLastUserPos = processedBody['__grovOriginalLastUserPos'] as number;
 
   if (systemInjection || userMsgInjection) {
     finalBodyToSend = rawBodyStr;
 
     // Log INJECTION to file with full details
-    const wasCached = (processedBody as Record<string, unknown>).__grovInjectionCached as boolean;
+    const wasCached = processedBody['__grovInjectionCached'] as boolean;
     proxyLog({
       requestId: currentRequestId,
       type: 'INJECTION',
@@ -279,7 +281,7 @@ async function handleMessages(
     });
   } else if (reconstructedCount > 0) {
     // Historical reconstructions but no NEW injections
-    const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, ...cleanBody } = processedBody as Record<string, unknown>;
+    const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, ...cleanBody } = processedBody;
     finalBodyToSend = JSON.stringify(cleanBody);
   } else if (rawBody) {
     // No injection, no reconstruction, use original raw bytes
@@ -314,37 +316,65 @@ async function handleMessages(
       loopCount < maxLoops
     ) {
       const grovExpandBlock = result.body.content.find(
-        (block): block is { type: 'tool_use'; id: string; name: string; input: { indices?: number[] } } =>
+        (block): block is { type: 'tool_use'; id: string; name: string; input: { ids?: string[]; indices?: number[] } } =>
           block.type === 'tool_use' && (block as { name?: string }).name === 'grov_expand'
       );
 
       if (!grovExpandBlock) break; // Not our tool, let it pass through
 
       loopCount++;
-      const indices = grovExpandBlock.input?.indices || [];
-      console.log(`[MEMORY] Injected (${indices.length} expanded)`);
+      // Support both new 'ids' and legacy 'indices' format
+      const ids = grovExpandBlock.input?.ids || [];
+      const legacyIndices = grovExpandBlock.input?.indices || [];
 
-      // Build expanded content for each index
+      const cachedMemories = getCachedMemories(sessionInfo.projectPath);
+      const cachedIds = cachedMemories.map(m => m.id.substring(0, 8)).join(', ') || 'empty';
+      debugLog(`grov_expand: requested=[${ids.join(',')}] cache=[${cachedIds}]`);
       const expandedParts: string[] = [];
-      for (const idx of indices) {
-        const memory = getCachedMemory(sessionInfo.projectPath, idx);
+
+      // Handle new ID-based expand
+      for (const memoryId of ids) {
+        const memory = getCachedMemoryById(sessionInfo.projectPath, memoryId);
         if (memory) {
           expandedParts.push(buildExpandedMemory(memory));
         } else {
-          expandedParts.push(`Memory #${idx} not found in cache`);
+          console.log(`[MEMORY] NOT FOUND: #${memoryId} (cache has: ${cachedMemories.map(m => m.id.substring(0, 8)).join(', ') || 'empty'})`);
+          expandedParts.push(`Memory #${memoryId} not found - it may be from an older conversation. Only expand IDs from the CURRENT knowledge base.`);
+        }
+      }
+
+      // Handle legacy index-based expand (backwards compatibility)
+      if (legacyIndices.length > 0 && ids.length === 0) {
+        for (const idx of legacyIndices) {
+          const memory = cachedMemories[idx - 1];
+          if (memory) {
+            expandedParts.push(buildExpandedMemory(memory));
+          } else {
+            console.log(`[MEMORY] NOT FOUND: legacy #${idx}`);
+            expandedParts.push(`Memory #${idx} not found in cache`);
+          }
         }
       }
 
       const toolResult = expandedParts.join('\n\n');
+      const requestedCount = ids.length || legacyIndices.length;
+      if (requestedCount > 0) {
+        const expandedCount = expandedParts.filter(p => !p.includes('not found')).length;
+        console.log(`[MEMORY] Expanded ${expandedCount}/${requestedCount} memories`);
+      }
 
       // Track tool cycle in injection history (use ORIGINAL position from preprocess)
-      const originalPos = (processedBody as Record<string, unknown>).__grovOriginalLastUserPos as number;
-      addInjectionRecord(sessionInfo.projectPath, {
-        position: originalPos ?? 0,
-        type: 'tool_cycle',
-        toolUse: { id: grovExpandBlock.id, name: 'grov_expand', input: grovExpandBlock.input },
-        toolResult,
-      });
+      // Skip if already exists for this position (prevents cache invalidation on retry)
+      const originalPos = processedBody['__grovOriginalLastUserPos'] as number;
+      const pos = originalPos ?? 0;
+      if (!hasToolCycleAtPosition(sessionInfo.projectPath, pos)) {
+        addInjectionRecord(sessionInfo.projectPath, {
+          position: pos,
+          type: 'tool_cycle',
+          toolUse: { id: grovExpandBlock.id, name: 'grov_expand', input: grovExpandBlock.input },
+          toolResult,
+        });
+      }
 
       // Add assistant response with tool_use to messages
       const assistantContent = result.body.content;
@@ -365,7 +395,7 @@ async function handleMessages(
 
       // Continue conversation with tool result
       // Clean up internal properties before sending to Anthropic
-      const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, ...cleanBody } = processedBody as Record<string, unknown>;
+      const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, ...cleanBody } = processedBody;
       const continueBody = {
         ...cleanBody,
         messages: currentMessages,
@@ -566,7 +596,9 @@ function detectRequestType(
       const hasToolResult = content.some(
         (block: unknown) => typeof block === 'object' && block !== null && (block as Record<string, unknown>).type === 'tool_result'
       );
-      if (hasToolResult) return 'continuation';
+      if (hasToolResult) {
+        return 'continuation';
+      }
     }
   }
 

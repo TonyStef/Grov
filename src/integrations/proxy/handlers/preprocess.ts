@@ -12,15 +12,16 @@ import { isSyncEnabled, getSyncTeamId } from '../../../core/cloud/cloud-sync.js'
 import {
   clearSessionState,
   cacheMemories,
-  getCachedMemories,
   buildMemoryPreview,
   buildToolDescription,
   buildToolDefinition,
   buildDriftRecoveryInjection,
   reconstructMessages,
   addInjectionRecord,
+  commitPendingRecords,
 } from '../injection/memory-injection.js';
 import { appendToSystemPrompt } from '../injection/injectors.js';
+import { debugLog } from '../utils/logging.js';
 import type { MessagesRequestBody } from '../types.js';
 
 let pendingPlanClear: { projectPath: string; summary: string } | null = null;
@@ -48,8 +49,8 @@ export async function preProcessRequest(
   // === TOOL INJECTION (FIRST - before any early returns for cache consistency) ===
   // System prompt must be identical from first request to maintain prefix cache
   const toolDesc = buildToolDescription();
-  (modified as Record<string, unknown>).__grovInjection = toolDesc;
-  (modified as Record<string, unknown>).__grovInjectionCached = false;
+  modified['__grovInjection'] = toolDesc;
+  modified['__grovInjectionCached'] = false;
 
   // Add grov_expand tool to tools array
   const toolDef = buildToolDefinition();
@@ -67,6 +68,13 @@ export async function preProcessRequest(
 
   const requestType = detectRequestType(modified.messages || [], sessionInfo.projectPath);
   const sessionState = getSessionState(sessionInfo.sessionId);
+  debugLog(`requestType=${requestType}, msgCount=${(modified.messages || []).length}`);
+
+  // === COMMIT PENDING RECORDS FROM PREVIOUS TURN ===
+  // When a new turn starts, commit any pending records so reconstruction stays consistent
+  if (requestType === 'first') {
+    commitPendingRecords(sessionInfo.projectPath);
+  }
 
   // === PLANNING CLEAR ===
   if (pendingPlanClear && pendingPlanClear.projectPath === sessionInfo.projectPath) {
@@ -116,11 +124,11 @@ export async function preProcessRequest(
   );
   if (reconstructedCount > 0) {
     modified.messages = reconstructedMsgs;
-    (modified as Record<string, unknown>).__grovReconstructedCount = reconstructedCount;
+    modified['__grovReconstructedCount'] = reconstructedCount;
   }
 
   // Pass original position to server.ts for tool_cycle tracking
-  (modified as Record<string, unknown>).__grovOriginalLastUserPos = originalLastUserPos;
+  modified['__grovOriginalLastUserPos'] = originalLastUserPos;
 
   // === MEMORY PREVIEW INJECTION (new system) ===
   if (requestType === 'first') {
@@ -128,7 +136,12 @@ export async function preProcessRequest(
     const userPrompt = extractLastUserPrompt(modified.messages || []);
     const mentionedFiles = extractFilesFromMessages(modified.messages || []);
 
-    if (isSyncEnabled() && teamId && userPrompt) {
+    const syncEnabled = isSyncEnabled();
+    if (!syncEnabled || !teamId) {
+      debugLog(`Memory fetch skipped: sync=${syncEnabled}, team=${!!teamId}`);
+    }
+
+    if (syncEnabled && teamId && userPrompt) {
       try {
         const memories = await fetchTeamMemories(teamId, sessionInfo.projectPath, {
           status: 'complete',
@@ -137,8 +150,15 @@ export async function preProcessRequest(
           current_files: mentionedFiles.length > 0 ? mentionedFiles : undefined,
         });
 
+        if (memories.length === 0) {
+          debugLog(`Search returned 0 memories for: "${userPrompt.substring(0, 50)}..."`);
+        }
+
         if (memories.length > 0) {
-          // Cache for expand tool (keyed by projectPath for cross-task persistence)
+          const memoryIds = memories.map(m => m.id.substring(0, 8)).join(', ');
+          console.log(`[MEMORY] ${memories.length} memories found: [${memoryIds}]`);
+
+          // Cache for expand tool
           cacheMemories(sessionInfo.projectPath, memories);
 
           // Build preview for user message
@@ -157,7 +177,7 @@ export async function preProcessRequest(
           }
 
           if (userMsgInjection) {
-            (modified as Record<string, unknown>).__grovUserMsgInjection = userMsgInjection;
+            modified['__grovUserMsgInjection'] = userMsgInjection;
 
             // Track for reconstruction on next request (use ORIGINAL position)
             addInjectionRecord(sessionInfo.projectPath, {
@@ -174,14 +194,23 @@ export async function preProcessRequest(
             hasDriftRecovery: !!driftRecovery,
           });
         } else {
-          // No memories found - only inject drift/recovery if pending
+          // No memories found - inject explicit "no entries" so Claude doesn't use old previews
+          let noMemoriesMsg = '[PROJECT KNOWLEDGE BASE: No relevant entries for this query]';
           const driftRecovery = buildDriftRecoveryInjection(
             sessionState?.pending_correction,
             sessionState?.pending_forced_recovery
           );
           if (driftRecovery) {
-            (modified as Record<string, unknown>).__grovUserMsgInjection = driftRecovery;
+            noMemoriesMsg = `${noMemoriesMsg}\n${driftRecovery}`;
           }
+          modified['__grovUserMsgInjection'] = noMemoriesMsg;
+
+          // Track for reconstruction
+          addInjectionRecord(sessionInfo.projectPath, {
+            position: originalLastUserPos,
+            type: 'preview',
+            preview: noMemoriesMsg,
+          });
         }
 
         // Clear pending corrections after injection
@@ -192,7 +221,7 @@ export async function preProcessRequest(
           });
         }
       } catch (err) {
-        console.error(`[PREPROCESS] Memory fetch failed: ${err}`);
+        console.error(`[MEMORY] fetchTeamMemories error: ${err}`);
       }
     } else {
       // Sync not enabled - only inject drift/recovery if pending
@@ -201,7 +230,7 @@ export async function preProcessRequest(
         sessionState?.pending_forced_recovery
       );
       if (driftRecovery) {
-        (modified as Record<string, unknown>).__grovUserMsgInjection = driftRecovery;
+        modified['__grovUserMsgInjection'] = driftRecovery;
         if (sessionState?.pending_correction || sessionState?.pending_forced_recovery) {
           updateSessionState(sessionInfo.sessionId, {
             pending_correction: undefined,

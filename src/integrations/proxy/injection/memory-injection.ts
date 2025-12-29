@@ -2,7 +2,6 @@
 // Reference: docs/new_injection.md
 
 import type { Memory } from '@grov/shared';
-import { debugLog } from '../utils/logging.js';
 
 export interface InjectionRecord {
   position: number;
@@ -17,6 +16,7 @@ export interface SessionInjectionState {
   injectionHistory: InjectionRecord[];  // Committed records (used for reconstruction)
   pendingRecords: InjectionRecord[];    // New records waiting to be committed (next turn)
   lastOriginalMsgCount: number;  // Track original message count for stale detection
+  cachedPreview?: { preview: string; msgCount: number };  // Same-turn retry cache
 }
 
 const sessionState = new Map<string, SessionInjectionState>();
@@ -45,16 +45,13 @@ export function cacheMemories(sessionId: string, memories: Memory[]): void {
   }
 }
 
-// Legacy function for backwards compatibility - deprecated
-export function getCachedMemory(sessionId: string, index: number): Memory | null {
-  const memories = getCachedMemories(sessionId);
-  return memories[index - 1] || null;
-}
-
-// New ID-based lookup
+// ID-based lookup
 export function getCachedMemoryById(sessionId: string, memoryId: string): Memory | null {
   const state = sessionState.get(sessionId);
-  if (!state?.memoriesById) return null;
+  if (!state?.memoriesById) {
+    return null;
+  }
+
   // Support both full ID and 8-char prefix
   if (state.memoriesById.has(memoryId)) {
     return state.memoriesById.get(memoryId) || null;
@@ -68,10 +65,16 @@ export function getCachedMemoryById(sessionId: string, memoryId: string): Memory
   return null;
 }
 
-export function getCachedMemories(sessionId: string): Memory[] {
+export function setCachedPreview(sessionId: string, preview: string, msgCount: number): void {
+  const state = getOrCreateState(sessionId);
+  state.cachedPreview = { preview, msgCount };
+}
+
+export function getCachedPreview(sessionId: string, currentMsgCount: number): string | null {
   const state = sessionState.get(sessionId);
-  if (!state?.memoriesById) return [];
-  return Array.from(state.memoriesById.values());
+  if (!state?.cachedPreview) return null;
+  if (state.cachedPreview.msgCount !== currentMsgCount) return null;
+  return state.cachedPreview.preview;
 }
 
 // Add record to PENDING (not committed yet - waits for next turn)
@@ -105,9 +108,6 @@ export function hasToolCycleAtPosition(sessionId: string, position: number): boo
   return inHistory || inPending;
 }
 
-export function getInjectionHistory(sessionId: string): InjectionRecord[] {
-  return sessionState.get(sessionId)?.injectionHistory || [];
-}
 
 export function formatAge(updatedAt: string | undefined): string {
   if (!updatedAt) return 'unknown';
@@ -196,53 +196,34 @@ export function buildToolDescription(): string {
 
 You have access to a VERIFIED PROJECT KNOWLEDGE BASE - the SOURCE OF TRUTH for this project.
 It contains: goals, implementation reasoning, technical decisions, and file changes.
-
 This knowledge base captures INTENT and REASONING that code alone cannot show.
-For questions about past work, decisions, and reasoning - this IS the authoritative source.
 
-WHEN [PROJECT KNOWLEDGE BASE: N verified entries] appears, follow this process:
+WHEN [PROJECT KNOWLEDGE BASE: N entries] appears in user message, follow this EXACT process:
 
-STEP 1: Check if any entries are relevant to the user's question.
-        Look ONLY at the [PROJECT KNOWLEDGE BASE] block in the LATEST user message.
-        Older previews from previous messages are historical - do NOT expand them.
+STEP 1: READ the preview block in the LATEST user message.
+        Identify IDs (8-char hex like #96937bd5).
+        Older previews from previous messages are HISTORICAL - ignore them.
+        NO other tool calls yet. Just read.
 
-STEP 2: For relevant entries, use grov_expand to get full verified knowledge.
-        IDs are 8-character hex codes (format: #a271bcb5) - these examples are for format only.
-        Your actual IDs come WITH the memories in the [PROJECT KNOWLEDGE BASE] preview block.
-        Use ONLY IDs from the preview in the LAST user message - never from older messages or other context.
-        DO NOT read files first - the knowledge base has authoritative context.
+STEP 2: IMMEDIATELY call grov_expand({ ids: ["id1", "id2"] }) with relevant IDs.
+        Use ONLY IDs from the LATEST preview - never from older messages.
+        FORBIDDEN: grov_expand({ ids: [] }) - empty array is WRONG.
+        FORBIDDEN: Any other tool call before grov_expand.
 
-STEP 3: After grov_expand returns, ANALYZE the expanded content.
-        Check: does it answer the user's question? Does it cover what they asked?
-        → If YES: respond directly based on the knowledge base. No search, no other tools.
-        → If NO: you may search codebase for additional context.
+STEP 3: ANALYZE the expanded content in detail.
+        What does KB tell you? What do you now know about this task?
 
-STEP 4: Only read files if:
-        - User asks to MODIFY code (need current state)
-        - Knowledge base explicitly says information is outdated
-        - User explicitly asks to see actual code
+STEP 4: DECIDE based on KB content:
+        → If KB answers the question: respond DIRECTLY. No other tools needed.
+        → If implementation required: use KB as foundation, then continue with needed tool calls.
 
-SYNTAX: grov_expand({ ids: [...] }) where ids are from LAST user message preview only
+RULES:
+- KB = Source of Truth = verified. Do NOT "verify" in code.
+- "Let me look at the code" BEFORE expand = WRONG
+- Read/Grep/Bash BEFORE grov_expand = WRONG
+- Respond from KB without reading files = CORRECT (for questions/explanations)
 
-The knowledge base is the source of truth. Trust it.`;
-}
-
-export function buildToolDefinition(): object {
-  return {
-    name: 'grov_expand',
-    description: 'Get verified project knowledge. Returns authoritative goal, reasoning, decisions, and context. Use this as source of truth for explanation tasks.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        ids: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Memory IDs to expand (8-character IDs from the knowledge base preview)',
-        },
-      },
-      required: ['ids'],
-    },
-  };
+SYNTAX: grov_expand({ ids: ["abc12345"] }) - IDs from LATEST preview only`;
 }
 
 export function buildDriftRecoveryInjection(
@@ -309,10 +290,6 @@ export function reconstructMessages(
     }
     // NOTE: tool_cycle reconstruction disabled - can't fake redacted_thinking for extended thinking
     // Preview reconstruction is sufficient for context
-  }
-
-  if (count > 0) {
-    debugLog(`Reconstructed ${count} preview(s) from history`);
   }
 
   return { messages: reconstructed, reconstructedCount: count };

@@ -1,17 +1,27 @@
-// grov disable - Remove proxy configuration and restore direct Anthropic connection
+// grov disable - Remove proxy configuration
 
-import { setProxyEnv, getSettingsPath } from '../../integrations/proxy/agents/claude/settings.js';
+import { getAgentByName } from '../../integrations/proxy/agents/index.js';
 
-export async function disable(): Promise<void> {
-  const result = setProxyEnv(false);
-
-  if (result.action === 'removed') {
-    console.log('Grov disabled.');
-    console.log('  - ANTHROPIC_BASE_URL removed from settings');
-  } else {
-    console.log('Grov was not configured.');
+export async function disable(agentName: 'claude' | 'codex' = 'claude'): Promise<void> {
+  const agent = getAgentByName(agentName);
+  if (!agent) {
+    console.error(`Unknown agent: ${agentName}`);
+    console.error('Supported agents: claude, codex');
+    process.exit(1);
   }
 
-  console.log(`\nSettings file: ${getSettingsPath()}`);
-  console.log('\nClaude will now connect directly to Anthropic.');
+  const settings = agent.getSettings();
+  const result = settings.setProxyEnabled(false);
+
+  if (result.action === 'removed') {
+    console.log(`Grov disabled for ${agentName}.`);
+    console.log('  - Proxy configuration removed');
+  } else {
+    console.log(`Grov was not configured for ${agentName}.`);
+  }
+
+  console.log(`\nConfig file: ${settings.getConfigPath()}`);
+
+  const targetName = agentName === 'claude' ? 'Anthropic' : 'OpenAI';
+  console.log(`\n${agentName} will now connect directly to ${targetName}.`);
 }

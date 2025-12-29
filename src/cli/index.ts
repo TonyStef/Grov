@@ -45,22 +45,24 @@ program
   .description('Collective AI memory for engineering teams')
   .version(pkg.version);
 
-// grov init - Configure Claude Code to use grov proxy
+// grov init - Configure AI agent to use grov proxy
 program
-  .command('init')
-  .description('Configure Claude Code to use grov proxy (run once)')
-  .action(safeAction(async () => {
+  .command('init [agent]')
+  .description('Configure AI agent to use grov proxy (claude or codex, defaults to claude)')
+  .action(safeAction(async (agent?: string) => {
     const { init } = await import('./commands/init.js');
-    await init();
+    const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
+    await init(agentName);
   }));
 
 // grov disable - Remove proxy configuration
 program
-  .command('disable')
-  .description('Disable grov and restore direct Anthropic connection')
-  .action(safeAction(async () => {
+  .command('disable [agent]')
+  .description('Disable grov for AI agent (claude or codex, defaults to claude)')
+  .action(safeAction(async (agent?: string) => {
     const { disable } = await import('./commands/disable.js');
-    await disable();
+    const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
+    await disable(agentName);
   }));
 
 // grov status - Show stored reasoning for current project
@@ -156,11 +158,21 @@ program
 
 // grov doctor - Diagnose setup issues
 program
-  .command('doctor')
-  .description('Check grov setup and diagnose issues')
-  .action(safeAction(async () => {
+  .command('doctor [agent]')
+  .description('Check grov setup and diagnose issues (optional: claude, codex)')
+  .action(safeAction(async (agent?: string) => {
     const { doctor } = await import('./commands/doctor.js');
-    await doctor();
+    const agentName = agent === 'claude' || agent === 'codex' ? agent : undefined;
+    await doctor(agentName);
+  }));
+
+// grov agents - List supported agents
+program
+  .command('agents')
+  .description('List supported AI agents and setup instructions')
+  .action(safeAction(async () => {
+    const { agents } = await import('./commands/agents.js');
+    agents();
   }));
 
 // grov mcp - Start MCP server (called by Cursor, not user)

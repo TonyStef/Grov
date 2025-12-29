@@ -4,38 +4,42 @@ import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { request } from 'undici';
+import { parse } from 'smol-toml';
 import { readCredentials, getSyncStatus } from '../../core/cloud/credentials.js';
 import { initDatabase } from '../../core/store/database.js';
 
 const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
+const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const DB_PATH = join(homedir(), '.grov', 'memory.db');
 
-export async function doctor(): Promise<void> {
+type AgentName = 'claude' | 'codex';
+
+export async function doctor(agent?: AgentName): Promise<void> {
   console.log('\nGrov Doctor');
   console.log('===========\n');
 
-  // Check proxy
+  if (!agent) {
+    await runGeneralChecks();
+    console.log('\n--- Agent Status ---\n');
+    checkAgentStatus('claude');
+    checkAgentStatus('codex');
+    console.log('\n\x1b[90mRun grov doctor <agent> for detailed checks\x1b[0m');
+  } else if (agent === 'claude') {
+    await runClaudeChecks();
+  } else if (agent === 'codex') {
+    await runCodexChecks();
+  }
+
+  console.log('');
+}
+
+async function runGeneralChecks(): Promise<void> {
   const proxyRunning = await checkProxy();
   printCheck('Proxy', proxyRunning, 'Running on port 8080', 'Not running', 'grov proxy');
 
-  // Check Claude settings
-  const baseUrlConfigured = checkBaseUrl();
-  printCheck('ANTHROPIC_BASE_URL', baseUrlConfigured, 'Configured for proxy', 'Not configured', 'grov init');
-
-  // Check API key
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const hasApiKey = !!(apiKey && apiKey.length > 10);
-  const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
-  const apiKeyFix = process.platform === 'win32'
-    ? 'setx ANTHROPIC_API_KEY "sk-ant-..." (permanent) or add to System Environment Variables'
-    : `Add to ${shell}: echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ${shell} && source ${shell}`;
-  printCheck('ANTHROPIC_API_KEY', hasApiKey, 'Set', 'NOT SET - memories will not sync!', apiKeyFix);
-
-  // Check login
   const creds = readCredentials();
   printCheck('Login', !!creds, creds ? `Logged in as ${creds.email}` : 'Not logged in', 'Not logged in', 'grov login');
 
-  // Check sync
   const syncStatus = getSyncStatus();
   const syncOk = syncStatus?.enabled && syncStatus?.teamId;
   const syncMsg = syncOk
@@ -43,13 +47,74 @@ export async function doctor(): Promise<void> {
     : syncStatus?.teamId ? 'Disabled' : 'No team';
   printCheck('Cloud Sync', !!syncOk, syncMsg, syncMsg, 'grov sync --enable --team <id>');
 
-  // Check database
   const dbStats = checkDatabase();
   const dbOk = dbStats.tasks > 0 || dbStats.sessions > 0;
   const dbMsg = `${dbStats.tasks} tasks, ${dbStats.unsynced} unsynced, ${dbStats.sessions} active`;
-  printCheck('Local Database', dbOk, dbMsg, 'Empty', 'Use Claude Code with proxy running');
+  printCheck('Local Database', dbOk, dbMsg, 'Empty', 'Use an AI agent with proxy running');
+}
 
-  console.log('');
+function checkAgentStatus(agent: AgentName): void {
+  if (agent === 'claude') {
+    const configured = isClaudeConfigured();
+    const icon = configured ? '\x1b[32m●\x1b[0m' : '\x1b[90m○\x1b[0m';
+    const status = configured ? 'Configured' : 'Not configured';
+    console.log(`${icon} Claude Code: ${status}`);
+    if (!configured) {
+      console.log('  \x1b[90m→ grov init claude\x1b[0m');
+    }
+  } else if (agent === 'codex') {
+    const configured = isCodexConfigured();
+    const icon = configured ? '\x1b[32m●\x1b[0m' : '\x1b[90m○\x1b[0m';
+    const status = configured ? 'Configured' : 'Not configured';
+    console.log(`${icon} Codex CLI: ${status}`);
+    if (!configured) {
+      console.log('  \x1b[90m→ grov init codex\x1b[0m');
+    }
+  }
+}
+
+async function runClaudeChecks(): Promise<void> {
+  console.log('Claude Code Checks\n');
+
+  const proxyRunning = await checkProxy();
+  printCheck('Proxy', proxyRunning, 'Running on port 8080', 'Not running', 'grov proxy');
+
+  const baseUrlConfigured = isClaudeConfigured();
+  printCheck('ANTHROPIC_BASE_URL', baseUrlConfigured, 'Configured for proxy', 'Not configured', 'grov init claude');
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const hasApiKey = !!(apiKey && apiKey.length > 10);
+  const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
+  const apiKeyFix = process.platform === 'win32'
+    ? 'setx ANTHROPIC_API_KEY "sk-ant-..." (permanent)'
+    : `Add to ${shell}: export ANTHROPIC_API_KEY=sk-ant-...`;
+  printCheck('ANTHROPIC_API_KEY', hasApiKey, 'Set', 'NOT SET - Claude will not work', apiKeyFix);
+
+  const settingsPath = CLAUDE_SETTINGS_PATH;
+  const hasSettings = existsSync(settingsPath);
+  printCheck('Settings file', hasSettings, settingsPath, 'Not found', 'Run claude once to create settings');
+}
+
+async function runCodexChecks(): Promise<void> {
+  console.log('Codex CLI Checks\n');
+
+  const proxyRunning = await checkProxy();
+  printCheck('Proxy', proxyRunning, 'Running on port 8080', 'Not running', 'grov proxy');
+
+  const configured = isCodexConfigured();
+  printCheck('model_provider', configured, 'Set to grov', 'Not configured', 'grov init codex');
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  const hasApiKey = !!(apiKey && apiKey.length > 10);
+  const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
+  const apiKeyFix = process.platform === 'win32'
+    ? 'setx OPENAI_API_KEY "sk-..." (permanent)'
+    : `Add to ${shell}: export OPENAI_API_KEY=sk-...`;
+  printCheck('OPENAI_API_KEY', hasApiKey, 'Set', 'NOT SET - Codex will not work', apiKeyFix);
+
+  const configPath = CODEX_CONFIG_PATH;
+  const hasConfig = existsSync(configPath);
+  printCheck('Config file', hasConfig, configPath, 'Not found', 'Run codex once to create config');
 }
 
 async function checkProxy(): Promise<boolean> {
@@ -64,11 +129,22 @@ async function checkProxy(): Promise<boolean> {
   }
 }
 
-function checkBaseUrl(): boolean {
+function isClaudeConfigured(): boolean {
   if (!existsSync(CLAUDE_SETTINGS_PATH)) return false;
   try {
     const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, 'utf-8'));
     return settings.env?.ANTHROPIC_BASE_URL === 'http://127.0.0.1:8080';
+  } catch {
+    return false;
+  }
+}
+
+function isCodexConfigured(): boolean {
+  if (!existsSync(CODEX_CONFIG_PATH)) return false;
+  try {
+    const content = readFileSync(CODEX_CONFIG_PATH, 'utf-8');
+    const config = parse(content) as { model_provider?: string; model_providers?: { grov?: unknown } };
+    return config.model_provider === 'grov' && !!config.model_providers?.grov;
   } catch {
     return false;
   }

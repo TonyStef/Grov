@@ -39,7 +39,6 @@ import {
 import { buildCorrection, formatCorrectionForInjection } from '../../core/extraction/correction-builder-proxy.js';
 import {
   generateSessionSummary,
-  extractIntent,
   analyzeTaskContext,
 } from '../../core/extraction/llm-extractor.js';
 import { saveToTeamMemory } from './response-processor.js';
@@ -653,45 +652,13 @@ async function postProcessResponse(
             deleteSessionState(sessionInfo.completedSession.session_id);
           }
 
-          let intentData = {
-            goal: taskAnalysis.current_goal,
-            expected_scope: [] as string[],
-            constraints: [] as string[],
-            keywords: [] as string[],
-          };
-
-          if (latestUserMessage.length > 10) {
-            try {
-              intentData = await extractIntent(latestUserMessage, requestHeaders);
-              logger.info({ msg: 'Intent extracted for new task', scopeCount: intentData.expected_scope.length });
-              taskLog('INTENT_EXTRACTION', {
-                sessionId: sessionInfo.sessionId,
-                context: 'new_task',
-                goal: intentData.goal,
-                scopeCount: intentData.expected_scope.length,
-                scope: intentData.expected_scope.join(', '),
-                constraints: intentData.constraints.join(', '),
-                keywords: intentData.keywords.join(', '),
-              });
-            } catch (err) {
-              logger.info({ msg: 'Intent extraction failed, using basic goal', error: String(err) });
-              taskLog('INTENT_EXTRACTION_FAILED', {
-                sessionId: sessionInfo.sessionId,
-                context: 'new_task',
-                error: String(err),
-              });
-            }
-          }
-
           const newSessionId = randomUUID();
           activeSession = createSessionState({
             session_id: newSessionId,
             project_path: sessionInfo.projectPath,
-            original_goal: intentData.goal,
+            original_goal: taskAnalysis.current_goal,
             raw_user_prompt: latestUserMessage.substring(0, 500),
-            expected_scope: intentData.expected_scope,
-            constraints: intentData.constraints,
-            keywords: intentData.keywords,
+            constraints: taskAnalysis.constraints || [],
             task_type: 'main',
           });
           activeSessionId = newSessionId;
@@ -704,9 +671,8 @@ async function postProcessResponse(
           logger.info({ msg: 'Created new task session', sessionId: newSessionId.substring(0, 8) });
           taskLog('ORCHESTRATION_NEW_TASK', {
             sessionId: newSessionId,
-            goal: intentData.goal,
-            scopeCount: intentData.expected_scope.length,
-            keywordsCount: intentData.keywords.length,
+            goal: taskAnalysis.current_goal,
+            constraintsCount: (taskAnalysis.constraints || []).length,
           });
 
           // Q&A auto-save
@@ -714,7 +680,7 @@ async function postProcessResponse(
             logger.info({ msg: 'Q&A detected (pure text) - saving immediately', sessionId: newSessionId.substring(0, 8) });
             taskLog('QA_AUTO_SAVE', {
               sessionId: newSessionId,
-              goal: intentData.goal,
+              goal: taskAnalysis.current_goal,
               responseLength: textContent.length,
               toolCalls: 0,
             });
@@ -729,7 +695,7 @@ async function postProcessResponse(
             logger.info({ msg: 'Q&A with tool calls - waiting for completion', sessionId: newSessionId.substring(0, 8), toolCalls: actions.length });
             taskLog('QA_DEFERRED', {
               sessionId: newSessionId,
-              goal: intentData.goal,
+              goal: taskAnalysis.current_goal,
               toolCalls: actions.length,
             });
           }
@@ -737,38 +703,14 @@ async function postProcessResponse(
         }
 
         case 'subtask': {
-          let intentData = {
-            goal: taskAnalysis.current_goal,
-            expected_scope: [] as string[],
-            constraints: [] as string[],
-            keywords: [] as string[],
-          };
-
-          if (latestUserMessage.length > 10) {
-            try {
-              intentData = await extractIntent(latestUserMessage, requestHeaders);
-              taskLog('INTENT_EXTRACTION', {
-                sessionId: sessionInfo.sessionId,
-                context: 'subtask',
-                goal: intentData.goal,
-                scope: intentData.expected_scope.join(', '),
-                keywords: intentData.keywords.join(', '),
-              });
-            } catch (err) {
-              taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'subtask', error: String(err) });
-            }
-          }
-
           const parentId = sessionInfo.currentSession?.session_id || taskAnalysis.parent_task_id;
           const subtaskId = randomUUID();
           activeSession = createSessionState({
             session_id: subtaskId,
             project_path: sessionInfo.projectPath,
-            original_goal: intentData.goal,
+            original_goal: taskAnalysis.current_goal,
             raw_user_prompt: latestUserMessage.substring(0, 500),
-            expected_scope: intentData.expected_scope,
-            constraints: intentData.constraints,
-            keywords: intentData.keywords,
+            constraints: taskAnalysis.constraints || [],
             task_type: 'subtask',
             parent_session_id: parentId,
           });
@@ -783,44 +725,20 @@ async function postProcessResponse(
           taskLog('ORCHESTRATION_SUBTASK', {
             sessionId: subtaskId,
             parentId: parentId || 'none',
-            goal: intentData.goal,
+            goal: taskAnalysis.current_goal,
           });
           break;
         }
 
         case 'parallel_task': {
-          let intentData = {
-            goal: taskAnalysis.current_goal,
-            expected_scope: [] as string[],
-            constraints: [] as string[],
-            keywords: [] as string[],
-          };
-
-          if (latestUserMessage.length > 10) {
-            try {
-              intentData = await extractIntent(latestUserMessage, requestHeaders);
-              taskLog('INTENT_EXTRACTION', {
-                sessionId: sessionInfo.sessionId,
-                context: 'parallel_task',
-                goal: intentData.goal,
-                scope: intentData.expected_scope.join(', '),
-                keywords: intentData.keywords.join(', '),
-              });
-            } catch (err) {
-              taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'parallel_task', error: String(err) });
-            }
-          }
-
           const parentId = sessionInfo.currentSession?.session_id || taskAnalysis.parent_task_id;
           const parallelId = randomUUID();
           activeSession = createSessionState({
             session_id: parallelId,
             project_path: sessionInfo.projectPath,
-            original_goal: intentData.goal,
+            original_goal: taskAnalysis.current_goal,
             raw_user_prompt: latestUserMessage.substring(0, 500),
-            expected_scope: intentData.expected_scope,
-            constraints: intentData.constraints,
-            keywords: intentData.keywords,
+            constraints: taskAnalysis.constraints || [],
             task_type: 'parallel',
             parent_session_id: parentId,
           });
@@ -835,7 +753,7 @@ async function postProcessResponse(
           taskLog('ORCHESTRATION_PARALLEL', {
             sessionId: parallelId,
             parentId: parentId || 'none',
-            goal: intentData.goal,
+            goal: taskAnalysis.current_goal,
           });
           break;
         }
@@ -951,42 +869,25 @@ async function postProcessResponse(
         }
       }
     } catch (error) {
-      logger.info({ msg: 'Task analysis failed, using existing session', error: String(error) });
+      logger.info({ msg: 'Task analysis failed, creating fallback session', error: String(error) });
 
       if (!sessionInfo.currentSession) {
-        let intentData = {
-          goal: '',
-          expected_scope: [] as string[],
-          constraints: [] as string[],
-          keywords: [] as string[],
-        };
-
-        if (latestUserMessage.length > 10) {
-          try {
-            intentData = await extractIntent(latestUserMessage, requestHeaders);
-            taskLog('INTENT_EXTRACTION', {
-              sessionId: sessionInfo.sessionId,
-              context: 'fallback_analysis_failed',
-              goal: intentData.goal,
-              scope: intentData.expected_scope.join(', '),
-            });
-          } catch (err) {
-            taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'fallback_analysis_failed', error: String(err) });
-          }
-        }
-
         const newSessionId = randomUUID();
         activeSession = createSessionState({
           session_id: newSessionId,
           project_path: sessionInfo.projectPath,
-          original_goal: intentData.goal,
+          original_goal: latestUserMessage.substring(0, 200),
           raw_user_prompt: latestUserMessage.substring(0, 500),
-          expected_scope: intentData.expected_scope,
-          constraints: intentData.constraints,
-          keywords: intentData.keywords,
+          constraints: [],
           task_type: 'main',
         });
         activeSessionId = newSessionId;
+
+        taskLog('FALLBACK_SESSION_CREATED', {
+          sessionId: newSessionId,
+          reason: 'task_analysis_failed',
+          goal: latestUserMessage.substring(0, 80),
+        });
       }
     }
   }

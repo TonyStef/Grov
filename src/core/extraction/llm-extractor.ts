@@ -56,141 +56,6 @@ async function callHaiku(
 }
 
 // ============================================
-// INTENT EXTRACTION (First prompt analysis)
-// Reference: plan_proxy_local.md Section 3.1
-// ============================================
-
-export interface ExtractedIntent {
-  goal: string;
-  expected_scope: string[];
-  constraints: string[];
-  success_criteria?: string[];  // Optional - hook uses, proxy ignores
-  keywords: string[];
-}
-
-/**
- * Extract intent from first user prompt using Haiku
- * Called once at session start to populate session_states
- * Falls back to basic extraction if API unavailable (for hook compatibility)
- */
-export async function extractIntent(firstPrompt: string, headers: RequestHeaders): Promise<ExtractedIntent> {
-  try {
-    const prompt = `Analyze this user request and extract structured intent for a coding assistant session.
-
-USER REQUEST:
-${firstPrompt.substring(0, 2000)}
-
-Extract as JSON:
-{
-  "goal": "A single, high-density sentence describing the technical intent. RULES: 1. No bullet points, no newlines. 2. Must include the main Technology Name (e.g. 'Prometheus', 'React', 'AWS') if inferred. 3. If the user provided a list, synthesize it into one summary statement. Example: 'Implement Prometheus metrics collection with counter and gauge primitives' instead of 'Add metrics: - counters - gauges'.",
-  "expected_scope": ["list", "of", "files/folders", "likely", "to", "be", "modified"],
-  "constraints": ["EXPLICIT restrictions from the user - see examples below"],
-  "success_criteria": ["How to know when the task is complete"],
-  "keywords": ["relevant", "technical", "terms"]
-}
-
-═══════════════════════════════════════════════════════════════
-CONSTRAINTS EXTRACTION - BE VERY THOROUGH
-═══════════════════════════════════════════════════════════════
-
-Look for NEGATIVE constraints (things NOT to do):
-- "NU modifica" / "DON'T modify" / "NEVER change" / "don't touch"
-- "NU rula" / "DON'T run" / "NO commands" / "don't execute"
-- "fără X" / "without X" / "except X" / "not including"
-- "nu scrie cod" / "don't write code" / "just plan"
-
-Look for POSITIVE constraints (things MUST do / ONLY do):
-- "ONLY modify X" / "DOAR în X" / "only in folder Y"
-- "must use Y" / "trebuie să folosești Y"
-- "keep it simple" / "no external dependencies"
-- "use TypeScript" / "must be async"
-
-EXAMPLES:
-Input: "Fix bug in auth. NU modifica nimic in afara de sandbox/, NU rula comenzi."
-Output constraints: ["DO NOT modify files outside sandbox/", "DO NOT run commands"]
-
-Input: "Add feature X. Only use standard library, keep backward compatible."
-Output constraints: ["ONLY use standard library", "Keep backward compatible"]
-
-Input: "Analyze code and create plan. Nu scrie cod inca, doar planifica."
-Output constraints: ["DO NOT write code yet", "Only create plan/analysis"]
-
-For expected_scope:
-- Include file patterns (e.g., "src/auth/", "*.test.ts", "sandbox/")
-- Include component/module names mentioned
-- Be conservative - only include clearly relevant areas
-
-RESPONSE RULES:
-- English only (translate Romanian/other languages to English)
-- No emojis
-- Valid JSON only
-- If no constraints found, return empty array []`;
-
-    const haikuResult = await callHaiku(500, prompt, headers, 'extractIntent');
-    if (!haikuResult.success || !haikuResult.text) {
-      return createFallbackIntent(firstPrompt);
-    }
-
-    const content = { type: 'text' as const, text: haikuResult.text };
-
-    try {
-      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        return createFallbackIntent(firstPrompt);
-      }
-
-      const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-
-      return {
-        goal: typeof parsed.goal === 'string' ? parsed.goal : '',  // Don't fallback to prompt
-        expected_scope: Array.isArray(parsed.expected_scope)
-          ? parsed.expected_scope.filter((s): s is string => typeof s === 'string')
-          : [],
-        constraints: Array.isArray(parsed.constraints)
-          ? parsed.constraints.filter((c): c is string => typeof c === 'string')
-          : [],
-        success_criteria: Array.isArray(parsed.success_criteria)
-          ? parsed.success_criteria.filter((s): s is string => typeof s === 'string')
-          : [],
-        keywords: Array.isArray(parsed.keywords)
-          ? parsed.keywords.filter((k): k is string => typeof k === 'string')
-          : [],
-      };
-    } catch {
-      return createFallbackIntent(firstPrompt);
-    }
-  } catch {
-    // Outer catch - API errors, network issues, etc.
-    return createFallbackIntent(firstPrompt);
-  }
-}
-
-/**
- * Fallback intent extraction without LLM
- */
-function createFallbackIntent(prompt: string): ExtractedIntent {
-  // Basic keyword extraction
-  const words = prompt.toLowerCase().split(/\s+/);
-  const techKeywords = words.filter(w =>
-    w.length > 3 &&
-    /^[a-z]+$/.test(w) &&
-    !['this', 'that', 'with', 'from', 'have', 'will', 'would', 'could', 'should'].includes(w)
-  );
-
-  // Extract file patterns
-  const filePatterns = prompt.match(/[\w\/.-]+\.(ts|js|tsx|jsx|py|go|rs|java|css|html|md)/g) || [];
-
-  return {
-    goal: '',  // Empty - don't copy user prompt as goal; goal should be synthesized only
-    expected_scope: [...new Set(filePatterns)].slice(0, 5),
-    constraints: [],
-    success_criteria: [],
-    keywords: [...new Set(techKeywords)].slice(0, 10),
-  };
-}
-
-
-// ============================================
 // SESSION SUMMARY FOR CLEAR OPERATION
 // Reference: plan_proxy_local.md Section 2.3, 4.5
 // ============================================
@@ -230,8 +95,6 @@ export async function generateSessionSummary(
   const prompt = `Create a ${maxTokens > 5000 ? 'comprehensive' : 'concise'} summary of this coding session for context continuation.
 
 ORIGINAL GOAL: ${sessionState.original_goal || 'Not specified'}
-
-EXPECTED SCOPE: ${sessionState.expected_scope.join(', ') || 'Not specified'}
 
 CONSTRAINTS: ${sessionState.constraints.join(', ') || 'None'}
 
@@ -293,6 +156,7 @@ export interface TaskAnalysis {
   parent_task_id?: string;
   reasoning: string;
   step_reasoning?: string;  // Compressed reasoning for steps (if assistantResponse > 1000 chars)
+  constraints?: string[];   // Explicit restrictions from user (only for new_task/subtask/parallel_task)
 }
 
 /**
@@ -377,10 +241,13 @@ ${toolCallsText}
 <output>
 Return a JSON object with these fields:
 - task_type: one of "information", "planning", or "implementation"
-- action: one of "continue", "task_complete", "new_task", or "subtask_complete"
+- action: one of "continue", "task_complete", "new_task", "subtask", "parallel_task", or "subtask_complete"
 - task_id: existing session_id "${currentSession?.session_id || 'NEW'}" or "NEW" for new task
 - current_goal: "SYNTHESIZE a concise goal (max 150 chars). RULES: 1. If original_goal is empty, SYNTHESIZE from user messages. 2. DO NOT copy the user's request verbatim - summarize it. 3. Start with Technology/Component name. 4. One sentence, no newlines. Example: 'TypeScript Logger with level filtering and JSON output' NOT 'Create a structured logger in /home/... with debug, info...'"
 - reasoning: brief explanation of why you made this decision${compressionInstruction}
+
+CONDITIONAL FIELD (only include when action is "new_task", "subtask", or "parallel_task"):
+- constraints: array of explicit restrictions from user (see step_4_extract_constraints). If no restrictions found, use empty array [].
 </output>
 
 <step_1_identify_task_type>
@@ -539,6 +406,57 @@ Reason: The new task was requested AND completed. Use task_complete so it gets s
 The key insight: task_complete saves the memory. If you return new_task, the work won't be saved until a FUTURE completion. If Claude already finished the work, use task_complete.
 </step_3_detect_new_task>
 
+<step_4_extract_constraints>
+ONLY perform this step if action is "new_task", "subtask", or "parallel_task".
+If action is "continue" or "task_complete", skip this and set constraints to empty array [].
+
+WHAT IS A CONSTRAINT?
+A constraint is an EXPLICIT restriction the user stated about HOW to do the task.
+It is NOT the task itself - it is a LIMIT on how the task should be done.
+
+TWO TYPES:
+
+1. NEGATIVE CONSTRAINTS - Things Claude must NOT do:
+   Pattern: "don't", "do not", "never", "no", "without", "except", "avoid"
+
+   Examples:
+   - "Don't modify files outside src/" becomes "DO NOT modify files outside src/"
+   - "No external dependencies" becomes "DO NOT add external dependencies"
+   - "Just plan, don't code yet" becomes "DO NOT write code"
+
+2. POSITIVE CONSTRAINTS - Things Claude MUST do or ONLY do:
+   Pattern: "only", "must", "always", "keep", "use only"
+
+   Examples:
+   - "Only modify the auth module" becomes "ONLY modify auth module"
+   - "Must use TypeScript" becomes "MUST use TypeScript"
+   - "Keep backward compatible" becomes "MUST keep backward compatible"
+
+WHAT IS NOT A CONSTRAINT:
+- The task itself: "Fix the bug" is the goal, not a constraint
+- General preferences: "Make it fast" is too vague, not an explicit restriction
+- Questions: "Should I use Redis?" is not a restriction
+
+OUTPUT FORMAT:
+- Start each constraint with "DO NOT", "ONLY", or "MUST"
+- Be specific and actionable
+- If no constraints found, return empty array []
+
+EXAMPLES:
+
+User message: "Fix the auth bug. Don't touch the database code."
+constraints: ["DO NOT modify database code"]
+
+User message: "Add caching. Only use Redis, must be async."
+constraints: ["ONLY use Redis", "MUST be async"]
+
+User message: "Explain how auth works"
+constraints: []
+
+User message: "Implement feature X"
+constraints: []
+</step_4_extract_constraints>
+
 <important_notes>
 Do not rely on specific keywords in any language. The same intent can be expressed many different ways across languages and phrasings. Always understand the intent from the full context.
 
@@ -571,6 +489,7 @@ RESPONSE RULES:
       current_goal: fallbackGoal,
       reasoning: 'Fallback due to Haiku error',
       step_reasoning: assistantResponse.substring(0, 1000),
+      constraints: [],
     };
   }
 
@@ -594,7 +513,16 @@ RESPONSE RULES:
       analysis.step_reasoning = assistantResponse.substring(0, 1000);
     }
 
-    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal="${analysis.current_goal?.substring(0, 50) || 'N/A'}" reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
+    // Parse constraints (only for new_task/subtask/parallel_task actions)
+    if (analysis.constraints) {
+      analysis.constraints = Array.isArray(analysis.constraints)
+        ? analysis.constraints.filter((c): c is string => typeof c === 'string')
+        : [];
+    } else {
+      analysis.constraints = [];
+    }
+
+    debugLLM('analyzeTaskContext', `Result: task_type=${analysis.task_type}, action=${analysis.action}, goal="${analysis.current_goal?.substring(0, 50) || 'N/A'}" constraints=${analysis.constraints.length} reasoning="${analysis.reasoning?.substring(0, 150) || 'none'}"`);
 
     return analysis;
   } catch (parseError) {
@@ -613,6 +541,7 @@ RESPONSE RULES:
       current_goal: fallbackGoal,
       reasoning: 'Fallback due to parse error',
       step_reasoning: assistantResponse.substring(0, 1000),
+      constraints: [],
     };
   }
 }

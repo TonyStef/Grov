@@ -6,10 +6,9 @@
 
 import 'dotenv/config';
 import { getSessionState, createSessionState, type SessionState, type StepRecord } from '../../core/store/store.js';
-import { extractIntent } from '../../core/extraction/llm-extractor.js';
+import { analyzeTaskContext, type RequestHeaders } from '../../core/extraction/llm-extractor.js';
 import { checkDrift, checkDriftBasic, scoreToCorrectionLevel, type DriftCheckResult } from '../../core/extraction/drift-checker-proxy.js';
 import { buildCorrection, formatCorrectionForInjection } from '../../core/extraction/correction-builder-proxy.js';
-import type { RequestHeaders } from '../../core/extraction/llm-extractor.js';
 
 // CLI uses env var for auth (not proxy headers)
 // Creates mock headers matching what Claude Code would send
@@ -50,23 +49,30 @@ export async function driftTest(prompt: string, options: DriftTestOptions): Prom
     console.log('No session provided, creating test session...');
 
     const goalText = options.goal || prompt;
-    const intent = await extractIntent(goalText, headers);
 
-    console.log('\n--- Extracted Intent ---');
-    console.log(`Goal: ${intent.goal}`);
-    console.log(`Scope: ${intent.expected_scope.join(', ') || 'none'}`);
-    console.log(`Constraints: ${intent.constraints.join(', ') || 'none'}`);
-    console.log(`Keywords: ${intent.keywords.join(', ')}`);
+    // Use analyzeTaskContext with mock context to extract goal and constraints
+    const mockConversation = [{ role: 'user' as const, content: goalText }];
+    const taskAnalysis = await analyzeTaskContext(
+      null,                    // no existing session
+      goalText,                // latest user message
+      [],                      // no recent steps
+      '',                      // no assistant response yet
+      mockConversation,        // conversation history
+      headers
+    );
+
+    console.log('\n--- Task Analysis ---');
+    console.log(`Goal: ${taskAnalysis.current_goal}`);
+    console.log(`Action: ${taskAnalysis.action}`);
+    console.log(`Constraints: ${(taskAnalysis.constraints || []).join(', ') || 'none'}`);
     console.log('');
 
     // Create temporary session state
     sessionState = createSessionState({
       session_id: options.session || 'test-session-' + Date.now(),
       project_path: process.cwd(),
-      original_goal: intent.goal,
-      expected_scope: intent.expected_scope,
-      constraints: intent.constraints,
-      keywords: intent.keywords,
+      original_goal: taskAnalysis.current_goal,
+      constraints: taskAnalysis.constraints || [],
       task_type: 'main',
     });
   } else {

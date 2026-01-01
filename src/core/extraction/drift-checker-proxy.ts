@@ -434,20 +434,8 @@ export function checkRecoveryAlignment(
   sessionState: SessionState
 ): { aligned: boolean; reason: string } {
   if (!recoveryPlan || recoveryPlan.steps.length === 0) {
-    // No recovery plan - check if action is within scope
-    if (sessionState.expected_scope.length === 0) {
-      return { aligned: true, reason: 'No recovery plan or scope defined' };
-    }
-
-    // Check if files are in expected scope
-    const inScope = proposedAction.files.every(file =>
-      sessionState.expected_scope.some(scope => file.includes(scope))
-    );
-
-    return {
-      aligned: inScope,
-      reason: inScope ? 'Files within expected scope' : 'Files outside expected scope',
-    };
+    // No recovery plan - allow action (scope checking removed)
+    return { aligned: true, reason: 'No recovery plan defined' };
   }
 
   const firstStep = recoveryPlan.steps[0].toLowerCase();
@@ -494,8 +482,6 @@ export async function generateForcedRecovery(
   const prompt = `You are helping recover a coding assistant that has COMPLETELY DRIFTED from its goal.
 
 ORIGINAL GOAL: ${sessionState.original_goal || 'Not specified'}
-
-EXPECTED SCOPE: ${sessionState.expected_scope.join(', ') || 'Not specified'}
 
 CONSTRAINTS: ${sessionState.constraints.join(', ') || 'None'}
 

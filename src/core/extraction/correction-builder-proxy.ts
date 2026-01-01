@@ -51,15 +51,11 @@ ${result.diagnostic}
  */
 function buildCorrect(result: DriftCheckResult, sessionState: SessionState): CorrectionMessage {
   const goal = sessionState.original_goal || 'the original task';
-  const scope = sessionState.expected_scope.length > 0
-    ? sessionState.expected_scope.join(', ')
-    : 'the relevant files';
 
   let message = `<grov_correction>
 DRIFT DETECTED - Please refocus on the original goal.
 
 Original goal: ${goal}
-Expected scope: ${scope}
 
 Issue: ${result.diagnostic}
 `;

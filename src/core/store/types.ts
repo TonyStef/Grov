@@ -83,9 +83,7 @@ interface SessionStateBase {
   project_path: string;
   original_goal?: string;
   raw_user_prompt?: string;  // Original user prompt, never overwritten
-  expected_scope: string[];
   constraints: string[];
-  keywords: string[];
   escalation_count: number;
   last_checked_at: number;
   start_time: string;
@@ -131,9 +129,7 @@ export interface CreateSessionStateInput {
   project_path: string;
   original_goal?: string;
   raw_user_prompt?: string;  // Original user prompt, never overwritten
-  expected_scope?: string[];
   constraints?: string[];
-  keywords?: string[];
   success_criteria?: string[];
   parent_session_id?: string;
   task_type?: TaskType;

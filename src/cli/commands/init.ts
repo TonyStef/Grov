@@ -44,28 +44,32 @@ export async function init(agentName: 'claude' | 'codex' = 'claude'): Promise<vo
 
   console.log(`\nConfig file: ${settings.getConfigPath()}`);
 
-  const isWindows = process.platform === 'win32';
-  const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
+  // Claude Code: no API key needed (auth comes from request headers)
+  // Codex: needs OPENAI_API_KEY for main requests
+  if (agentName === 'codex') {
+    const isWindows = process.platform === 'win32';
+    const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
 
-  if (!process.env[instructions.envVar]) {
-    console.log('\n╔═══════════════════════════════════════════════════════════╗');
-    console.log(`║  ⚠️  ${instructions.envVar} NOT SET - MEMORIES WILL NOT SYNC!  ║`);
-    console.log('╚═══════════════════════════════════════════════════════════╝');
-    console.log('\n  1. Get your API key at:');
-    console.log(`     ${instructions.keyUrl}\n`);
+    if (!process.env[instructions.envVar]) {
+      console.log('\n╔═══════════════════════════════════════════════════════════╗');
+      console.log(`║  ⚠️  ${instructions.envVar} NOT SET                              ║`);
+      console.log('╚═══════════════════════════════════════════════════════════╝');
+      console.log('\n  1. Get your API key at:');
+      console.log(`     ${instructions.keyUrl}\n`);
 
-    if (isWindows) {
-      console.log('  2. Set PERMANENTLY (run in Command Prompt as Admin):');
-      console.log(`     setx ${instructions.envVar} "your-key-here"\n`);
-      console.log('  3. Restart your terminal\n');
+      if (isWindows) {
+        console.log('  2. Set PERMANENTLY (run in Command Prompt as Admin):');
+        console.log(`     setx ${instructions.envVar} "your-key-here"\n`);
+        console.log('  3. Restart your terminal\n');
+      } else {
+        console.log('  2. Add PERMANENTLY to your shell:');
+        console.log(`     echo 'export ${instructions.envVar}=your-key-here' >> ${shell}\n`);
+        console.log('  3. Apply changes:');
+        console.log(`     source ${shell}\n`);
+      }
     } else {
-      console.log('  2. Add PERMANENTLY to your shell:');
-      console.log(`     echo 'export ${instructions.envVar}=your-key-here' >> ${shell}\n`);
-      console.log('  3. Apply changes:');
-      console.log(`     source ${shell}\n`);
+      console.log(`\n  ✓ ${instructions.envVar} found`);
     }
-  } else {
-    console.log(`\n  ✓ ${instructions.envVar} found`);
   }
 
   console.log('\n--- Next Steps ---');

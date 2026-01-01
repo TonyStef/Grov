@@ -7,8 +7,21 @@
 import 'dotenv/config';
 import { getSessionState, createSessionState, type SessionState, type StepRecord } from '../../core/store/store.js';
 import { extractIntent } from '../../core/extraction/llm-extractor.js';
-import { checkDrift, checkDriftBasic, isDriftCheckAvailable, scoreToCorrectionLevel, type DriftCheckResult } from '../../core/extraction/drift-checker-proxy.js';
+import { checkDrift, checkDriftBasic, scoreToCorrectionLevel, type DriftCheckResult } from '../../core/extraction/drift-checker-proxy.js';
 import { buildCorrection, formatCorrectionForInjection } from '../../core/extraction/correction-builder-proxy.js';
+import type { RequestHeaders } from '../../core/extraction/llm-extractor.js';
+
+// CLI uses env var for auth (not proxy headers)
+// Creates mock headers matching what Claude Code would send
+function getCliHeaders(): RequestHeaders | null {
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY;
+  if (!apiKey) return null;
+  return {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'content-type': 'application/json',
+  };
+}
 
 export interface DriftTestOptions {
   session?: string;
@@ -19,10 +32,15 @@ export interface DriftTestOptions {
 export async function driftTest(prompt: string, options: DriftTestOptions): Promise<void> {
   console.log('=== GROV DRIFT TEST ===\n');
 
-  // Check API availability
-  const llmAvailable = isDriftCheckAvailable();
-  console.log(`Anthropic API: ${llmAvailable ? 'AVAILABLE' : 'NOT AVAILABLE (using fallback)'}`);
+  // Get headers from env (CLI mode)
+  const headers = getCliHeaders();
+  console.log(`Anthropic API: ${headers ? 'AVAILABLE' : 'NOT AVAILABLE (using fallback)'}`);
   console.log('');
+
+  if (!headers) {
+    console.log('Set ANTHROPIC_API_KEY or GROV_API_KEY to enable LLM drift checking.');
+    return;
+  }
 
   // Get or create session state
   let sessionState = options.session ? getSessionState(options.session) : null;
@@ -32,7 +50,7 @@ export async function driftTest(prompt: string, options: DriftTestOptions): Prom
     console.log('No session provided, creating test session...');
 
     const goalText = options.goal || prompt;
-    const intent = await extractIntent(goalText);
+    const intent = await extractIntent(goalText, headers);
 
     console.log('\n--- Extracted Intent ---');
     console.log(`Goal: ${intent.goal}`);
@@ -108,14 +126,8 @@ export async function driftTest(prompt: string, options: DriftTestOptions): Prom
   // Run drift check
   console.log('--- Running Drift Check ---');
 
-  let result: DriftCheckResult;
-  if (llmAvailable) {
-    console.log('Using LLM-based detection...');
-    result = await checkDrift(driftInput);
-  } else {
-    console.log('Using basic (fallback) detection...');
-    result = checkDriftBasic(driftInput);
-  }
+  console.log('Using LLM-based detection...');
+  const result = await checkDrift(driftInput, headers);
 
   console.log('');
   console.log('--- Drift Check Result ---');

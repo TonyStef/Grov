@@ -16,8 +16,8 @@ import {
 import { syncTask } from '../../core/cloud/cloud-sync.js';
 import {
   extractReasoningAndDecisions,
-  isReasoningExtractionAvailable,
   type ExtractedReasoningAndDecisions,
+  type RequestHeaders,
 } from '../../core/extraction/llm-extractor.js';
 import { clearSessionState } from './injection/memory-injection.js';
 import type { ReasoningTraceEntry } from '@grov/shared';
@@ -127,7 +127,8 @@ ${actionLines}
 export async function saveToTeamMemory(
   sessionId: string,
   triggerReason: TriggerReason,
-  taskType?: 'information' | 'planning' | 'implementation'
+  taskType: 'information' | 'planning' | 'implementation' | undefined,
+  headers: RequestHeaders
 ): Promise<void> {
   const sessionState = getSessionState(sessionId);
   if (!sessionState) {
@@ -142,7 +143,7 @@ export async function saveToTeamMemory(
   }
 
   // Build task data from session state and steps
-  const taskData = await buildTaskFromSession(sessionState, steps, triggerReason);
+  const taskData = await buildTaskFromSession(sessionState, steps, triggerReason, headers);
 
   // Create task in team memory
   const task = createTask(taskData);
@@ -150,7 +151,7 @@ export async function saveToTeamMemory(
   // Fire-and-forget cloud sync; never block capture path
   // NOTE: Do NOT invalidate cache after sync - cache persists until CLEAR/Summary/restart
   // Next SESSION will get fresh data, current session keeps its context
-  syncTask(task, undefined, taskType)
+  syncTask(task, undefined, taskType, headers)
     .then((success) => {
       if (success) {
         markTaskSynced(task.id);
@@ -171,7 +172,8 @@ export async function saveToTeamMemory(
 async function buildTaskFromSession(
   sessionState: SessionState,
   steps: StepRecord[],
-  triggerReason: TriggerReason
+  triggerReason: TriggerReason,
+  headers: RequestHeaders
 ): Promise<{
   project_path: string;
   user?: string;
@@ -225,8 +227,7 @@ async function buildTaskFromSession(
   let summary: string | undefined = undefined;
   let systemName: string | undefined = undefined;  // Parent system anchor for semantic search
 
-  if (isReasoningExtractionAvailable()) {
-    try {
+  try {
       // Group steps by reasoning to avoid duplicates and preserve action context
       const groups = groupStepsByReasoning(steps);
       let formattedSteps = formatGroupsForHaiku(groups);
@@ -247,7 +248,8 @@ async function buildTaskFromSession(
       if (formattedSteps.length > 50) {
         const extracted = await extractReasoningAndDecisions(
           formattedSteps,
-          sessionState.original_goal || ''
+          sessionState.original_goal || '',
+          headers
         );
 
         if (extracted.system_name) {
@@ -263,9 +265,8 @@ async function buildTaskFromSession(
           decisions = extracted.decisions;
         }
       }
-    } catch {
-      // Fall back to basic extraction
-    }
+  } catch {
+    // Fall back to basic extraction
   }
 
   // Clean up original_query: remove leading artifacts from JSON parsing
@@ -314,8 +315,9 @@ export function cleanupSession(sessionId: string): void {
 export async function saveAndCleanupSession(
   sessionId: string,
   triggerReason: TriggerReason,
-  taskType?: 'information' | 'planning' | 'implementation'
+  taskType: 'information' | 'planning' | 'implementation' | undefined,
+  headers: RequestHeaders
 ): Promise<void> {
-  await saveToTeamMemory(sessionId, triggerReason, taskType);
+  await saveToTeamMemory(sessionId, triggerReason, taskType, headers);
   cleanupSession(sessionId);
 }

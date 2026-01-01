@@ -1,51 +1,56 @@
 // LLM-based extraction using Anthropic Claude Haiku for drift detection
 
-import Anthropic from '@anthropic-ai/sdk';
-import { config } from 'dotenv';
-import { join } from 'path';
-import { homedir } from 'os';
-import { existsSync } from 'fs';
 import type { SessionState, StepRecord } from '../store/store.js';
 import type { ReasoningTraceEntry } from '@grov/shared';
 import { debugLLM } from '../../utils/debug.js';
 import { truncate } from '../../utils/utils.js';
+import { forwardToAnthropic } from '../../integrations/proxy/agents/claude/forwarder.js';
+import { buildSafeHeaders } from '../../integrations/proxy/config.js';
+import { isDebugMode } from '../../integrations/proxy/utils/logging.js';
 
-// Load ~/.grov/.env as fallback for API key
-const grovEnvPath = join(homedir(), '.grov', '.env');
-const grovEnvExists = existsSync(grovEnvPath);
-if (grovEnvExists) {
-  config({ path: grovEnvPath });
-}
+// Haiku model constant
+// Model list: https://docs.anthropic.com/en/docs/about-claude/models
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
-let anthropicClient: Anthropic | null = null;
+// Type for headers passed from orchestrator (same as Claude Code request headers)
+export type RequestHeaders = Record<string, string | string[] | undefined>;
 
-/**
- * Initialize the Anthropic client
- */
-function getAnthropicClient(): Anthropic {
-  if (!anthropicClient) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      console.error('[HAIKU] No ANTHROPIC_API_KEY found');
-      throw new Error('ANTHROPIC_API_KEY environment variable is required');
+async function callHaiku(
+  maxTokens: number,
+  prompt: string,
+  headers: RequestHeaders,
+  context: string = 'unknown'
+): Promise<{ text: string; success: boolean }> {
+  if (isDebugMode()) console.log(`[HAIKU] ${context} started`);
+
+  // Use same header filtering as proxy forward - includes all Claude Code headers
+  const safeHeaders = buildSafeHeaders(headers);
+
+  try {
+    const result = await forwardToAnthropic(
+      {
+        model: HAIKU_MODEL,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      safeHeaders
+    );
+
+    // Check for error response
+    if (result.statusCode >= 400) {
+      const errorBody = result.body as { error?: { message?: string } };
+      throw new Error(errorBody.error?.message || `HTTP ${result.statusCode}`);
     }
 
-    anthropicClient = new Anthropic({ apiKey });
-  }
-  return anthropicClient;
-}
+    // Parse response
+    const body = result.body as { content?: Array<{ type: string; text?: string }> };
+    const text = body.content?.[0]?.type === 'text' ? body.content[0].text || '' : '';
 
-async function callHaiku(maxTokens: number, prompt: string): Promise<{ text: string; success: boolean }> {
-  const client = getAnthropicClient();
-  try {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    if (isDebugMode()) console.log(`[HAIKU] ${context} success`);
     return { text, success: true };
-  } catch {
+  } catch (err) {
+    // Always log errors
+    console.error(`[HAIKU] ${context} error:`, (err as Error).message);
     return { text: '', success: false };
   }
 }
@@ -68,12 +73,7 @@ export interface ExtractedIntent {
  * Called once at session start to populate session_states
  * Falls back to basic extraction if API unavailable (for hook compatibility)
  */
-export async function extractIntent(firstPrompt: string): Promise<ExtractedIntent> {
-  // Check availability first - allows hook to work without API key
-  if (!isIntentExtractionAvailable()) {
-    return createFallbackIntent(firstPrompt);
-  }
-
+export async function extractIntent(firstPrompt: string, headers: RequestHeaders): Promise<ExtractedIntent> {
   try {
     const prompt = `Analyze this user request and extract structured intent for a coding assistant session.
 
@@ -126,7 +126,7 @@ RESPONSE RULES:
 - Valid JSON only
 - If no constraints found, return empty array []`;
 
-    const haikuResult = await callHaiku(500, prompt);
+    const haikuResult = await callHaiku(500, prompt, headers, 'extractIntent');
     if (!haikuResult.success || !haikuResult.text) {
       return createFallbackIntent(firstPrompt);
     }
@@ -189,24 +189,11 @@ function createFallbackIntent(prompt: string): ExtractedIntent {
   };
 }
 
-/**
- * Check if intent extraction is available
- */
-export function isIntentExtractionAvailable(): boolean {
-  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
-}
 
 // ============================================
 // SESSION SUMMARY FOR CLEAR OPERATION
 // Reference: plan_proxy_local.md Section 2.3, 4.5
 // ============================================
-
-/**
- * Check if session summary generation is available
- */
-export function isSummaryAvailable(): boolean {
-  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
-}
 
 /**
  * Generate session summary for CLEAR operation
@@ -215,7 +202,8 @@ export function isSummaryAvailable(): boolean {
 export async function generateSessionSummary(
   sessionState: SessionState,
   steps: StepRecord[],
-  maxTokens: number = 800  // Default 800, CLEAR mode uses 15000
+  maxTokens: number = 800,  // Default 800, CLEAR mode uses 15000
+  headers: RequestHeaders
 ): Promise<string> {
   // For larger summaries, include more steps
   const stepLimit = maxTokens > 5000 ? 50 : 20;
@@ -261,7 +249,7 @@ ${maxTokens > 5000 ? '7. IMPORTANT CONTEXT: (any critical information that must 
 
 Format as plain text, not JSON.`;
 
-  const haikuResult = await callHaiku(maxTokens, prompt);
+  const haikuResult = await callHaiku(maxTokens, prompt, headers, 'generateSessionSummary');
   if (!haikuResult.success || !haikuResult.text) {
     return createFallbackSummary(sessionState, steps);
   }
@@ -316,13 +304,6 @@ export interface ConversationMessage {
 }
 
 /**
- * Check if task analysis is available
- */
-export function isTaskAnalysisAvailable(): boolean {
-  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
-}
-
-/**
  * Format conversation messages for prompt
  */
 function formatConversationHistory(messages: ConversationMessage[]): string {
@@ -364,7 +345,8 @@ export async function analyzeTaskContext(
   latestUserMessage: string,
   recentSteps: StepRecord[],
   assistantResponse: string,
-  conversationHistory?: ConversationMessage[]
+  conversationHistory: ConversationMessage[] | undefined,
+  headers: RequestHeaders
 ): Promise<TaskAnalysis> {
   // Check if we need to compress reasoning
   const needsCompression = assistantResponse.length > 1000;
@@ -578,7 +560,7 @@ RESPONSE RULES:
 
   debugLLM('analyzeTaskContext', `Calling Haiku for task analysis (needsCompression=${needsCompression})`);
 
-  const haikuResult = await callHaiku(needsCompression ? 800 : 400, prompt);
+  const haikuResult = await callHaiku(needsCompression ? 800 : 400, prompt, headers, 'analyzeTaskContext');
   if (!haikuResult.success) {
     // Fallback on error
     const fallbackGoal = currentSession?.original_goal || '';
@@ -664,13 +646,6 @@ interface HaikuExtractionResponse {
 }
 
 /**
- * Check if reasoning extraction is available
- */
-export function isReasoningExtractionAvailable(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY || !!process.env.GROV_API_KEY;
-}
-
-/**
  * Extract reasoning trace and decisions from steps
  * Called at task_complete to populate team memory with rich context
  *
@@ -679,7 +654,8 @@ export function isReasoningExtractionAvailable(): boolean {
  */
 export async function extractReasoningAndDecisions(
   formattedSteps: string,
-  originalGoal: string
+  originalGoal: string,
+  headers: RequestHeaders
 ): Promise<ExtractedReasoningAndDecisions> {
   if (formattedSteps.length < 50) {
     return { system_name: null, summary: null, reasoning_trace: [], decisions: [] };
@@ -1038,7 +1014,7 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
 
   debugLLM('extractReasoningAndDecisions', `Analyzing formatted steps, ${formattedSteps.length} chars`);
 
-  const haikuResult = await callHaiku(1500, prompt);
+  const haikuResult = await callHaiku(1500, prompt, headers, 'extractReasoningAndDecisions');
   if (!haikuResult.success) {
     return { system_name: null, summary: null, reasoning_trace: [], decisions: [] };
   }
@@ -1175,13 +1151,6 @@ export interface SessionContext {
   task_type: 'information' | 'planning' | 'implementation';
   original_query: string;
   files_touched: string[];
-}
-
-/**
- * Check if shouldUpdateMemory is available
- */
-export function isShouldUpdateAvailable(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY || !!process.env.GROV_API_KEY;
 }
 
 /**
@@ -1658,7 +1627,8 @@ Output: {"should_update": false, "reason": "User acknowledged explanation but di
 export async function shouldUpdateMemory(
   existingMemory: ExistingMemory,
   newData: ExtractedReasoningAndDecisions,
-  sessionContext: SessionContext
+  sessionContext: SessionContext,
+  headers: RequestHeaders
 ): Promise<ShouldUpdateResult> {
   // Check if evolution_steps consolidation is needed
   const evolutionCount = existingMemory.evolution_steps?.length || 0;
@@ -1675,7 +1645,7 @@ export async function shouldUpdateMemory(
 
   debugLLM('shouldUpdateMemory', `Analyzing memory update (needsConsolidation=${needsConsolidation})`);
 
-  const haikuResult = await callHaiku(needsConsolidation ? 1500 : 800, prompt);
+  const haikuResult = await callHaiku(needsConsolidation ? 1500 : 800, prompt, headers, 'shouldUpdateMemory');
   if (!haikuResult.success) {
     return createFallbackResult(sessionContext);
   }

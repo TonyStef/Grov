@@ -82,13 +82,7 @@ async function runClaudeChecks(): Promise<void> {
   const baseUrlConfigured = isClaudeConfigured();
   printCheck('ANTHROPIC_BASE_URL', baseUrlConfigured, 'Configured for proxy', 'Not configured', 'grov init claude');
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const hasApiKey = !!(apiKey && apiKey.length > 10);
-  const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
-  const apiKeyFix = process.platform === 'win32'
-    ? 'setx ANTHROPIC_API_KEY "sk-ant-..." (permanent)'
-    : `Add to ${shell}: export ANTHROPIC_API_KEY=sk-ant-...`;
-  printCheck('ANTHROPIC_API_KEY', hasApiKey, 'Set', 'NOT SET - Claude will not work', apiKeyFix);
+  // Note: ANTHROPIC_API_KEY not needed - Claude Code auth comes from request headers
 
   const settingsPath = CLAUDE_SETTINGS_PATH;
   const hasSettings = existsSync(settingsPath);

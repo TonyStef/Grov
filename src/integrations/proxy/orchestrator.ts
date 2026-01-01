@@ -7,6 +7,7 @@ import { extendedCache, evictOldestCacheEntry } from './cache/extended-cache.js'
 import { getNextRequestId, taskLog, proxyLog, logTokenUsage } from './utils/logging.js';
 import { preProcessRequest, setPendingPlanClear } from './handlers/preprocess.js';
 import type { AgentAdapter } from './agents/types.js';
+import type { RequestHeaders } from '../../core/extraction/llm-extractor.js';
 import {
   createSessionState,
   getSessionState,
@@ -32,18 +33,14 @@ import {
   checkDrift,
   scoreToCorrectionLevel,
   shouldSkipSteps,
-  isDriftCheckAvailable,
   checkRecoveryAlignment,
   type DriftCheckResult,
 } from '../../core/extraction/drift-checker-proxy.js';
 import { buildCorrection, formatCorrectionForInjection } from '../../core/extraction/correction-builder-proxy.js';
 import {
   generateSessionSummary,
-  isSummaryAvailable,
   extractIntent,
-  isIntentExtractionAvailable,
   analyzeTaskContext,
-  isTaskAnalysisAvailable,
 } from '../../core/extraction/llm-extractor.js';
 import { saveToTeamMemory } from './response-processor.js';
 import {
@@ -322,7 +319,8 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
         sessionInfo,
         processedBody,
         logger,
-        extendedCacheData
+        extendedCacheData,
+        headers
       ).catch(err => console.error('[GROV] postProcess error:', err));
     }
 
@@ -504,7 +502,8 @@ async function postProcessResponse(
   sessionInfo: SessionContext,
   requestBody: unknown,
   logger: { info: (data: Record<string, unknown>) => void },
-  extendedCacheData?: { headers: Record<string, string>; rawBody: Buffer }
+  extendedCacheData: { headers: Record<string, string>; rawBody: Buffer } | undefined,
+  requestHeaders: RequestHeaders
 ): Promise<void> {
   const actions = adapter.parseActions(response);
   const textContent = adapter.extractTextContent(response);
@@ -561,7 +560,7 @@ async function postProcessResponse(
         projectPath: sessionInfo.projectPath,
       });
     }
-  } else if (isTaskAnalysisAvailable()) {
+  } else {
     const sessionForComparison = sessionInfo.currentSession || sessionInfo.completedSession;
     const conversationHistory = adapter.extractHistory(messages);
 
@@ -571,7 +570,8 @@ async function postProcessResponse(
         latestUserMessage,
         recentSteps,
         textContent,
-        conversationHistory
+        conversationHistory,
+        requestHeaders
       );
 
       logger.info({
@@ -660,9 +660,9 @@ async function postProcessResponse(
             keywords: [] as string[],
           };
 
-          if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
+          if (latestUserMessage.length > 10) {
             try {
-              intentData = await extractIntent(latestUserMessage);
+              intentData = await extractIntent(latestUserMessage, requestHeaders);
               logger.info({ msg: 'Intent extracted for new task', scopeCount: intentData.expected_scope.length });
               taskLog('INTENT_EXTRACTION', {
                 sessionId: sessionInfo.sessionId,
@@ -723,7 +723,7 @@ async function postProcessResponse(
               final_response: textContent.substring(0, 10000),
             });
 
-            await saveToTeamMemory(newSessionId, 'complete', taskAnalysis.task_type);
+            await saveToTeamMemory(newSessionId, 'complete', taskAnalysis.task_type, requestHeaders);
             markSessionCompleted(newSessionId);
           } else if (taskAnalysis.task_type === 'information' && actions.length > 0) {
             logger.info({ msg: 'Q&A with tool calls - waiting for completion', sessionId: newSessionId.substring(0, 8), toolCalls: actions.length });
@@ -744,9 +744,9 @@ async function postProcessResponse(
             keywords: [] as string[],
           };
 
-          if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
+          if (latestUserMessage.length > 10) {
             try {
-              intentData = await extractIntent(latestUserMessage);
+              intentData = await extractIntent(latestUserMessage, requestHeaders);
               taskLog('INTENT_EXTRACTION', {
                 sessionId: sessionInfo.sessionId,
                 context: 'subtask',
@@ -796,9 +796,9 @@ async function postProcessResponse(
             keywords: [] as string[],
           };
 
-          if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
+          if (latestUserMessage.length > 10) {
             try {
-              intentData = await extractIntent(latestUserMessage);
+              intentData = await extractIntent(latestUserMessage, requestHeaders);
               taskLog('INTENT_EXTRACTION', {
                 sessionId: sessionInfo.sessionId,
                 context: 'parallel_task',
@@ -854,7 +854,7 @@ async function postProcessResponse(
                 final_response: textContent.substring(0, 10000),
               });
 
-              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete', taskAnalysis.task_type);
+              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete', taskAnalysis.task_type, requestHeaders);
               markSessionCompleted(sessionInfo.currentSession.session_id);
               activeSessions.delete(sessionInfo.currentSession.session_id);
               lastDriftResults.delete(sessionInfo.currentSession.session_id);
@@ -864,10 +864,10 @@ async function postProcessResponse(
                 goal: sessionInfo.currentSession.original_goal,
               });
 
-              if (taskAnalysis.task_type === 'planning' && isSummaryAvailable()) {
+              if (taskAnalysis.task_type === 'planning') {
                 try {
                   const allSteps = getValidatedSteps(sessionInfo.currentSession.session_id);
-                  const planSummary = await generateSessionSummary(sessionInfo.currentSession, allSteps, 2000);
+                  const planSummary = await generateSessionSummary(sessionInfo.currentSession, allSteps, 2000, requestHeaders);
 
                   setPendingPlanClear({
                     projectPath: sessionInfo.projectPath,
@@ -904,7 +904,7 @@ async function postProcessResponse(
                 final_response: textContent.substring(0, 10000),
               });
 
-              await saveToTeamMemory(newSessionId, 'complete', taskAnalysis.task_type);
+              await saveToTeamMemory(newSessionId, 'complete', taskAnalysis.task_type, requestHeaders);
               markSessionCompleted(newSessionId);
 
               logger.info({ msg: 'Instant complete - new task saved immediately', sessionId: newSessionId.substring(0, 8) });
@@ -924,7 +924,7 @@ async function postProcessResponse(
           if (sessionInfo.currentSession) {
             const parentId = sessionInfo.currentSession.parent_session_id;
             try {
-              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete', taskAnalysis.task_type);
+              await saveToTeamMemory(sessionInfo.currentSession.session_id, 'complete', taskAnalysis.task_type, requestHeaders);
               markSessionCompleted(sessionInfo.currentSession.session_id);
               activeSessions.delete(sessionInfo.currentSession.session_id);
               lastDriftResults.delete(sessionInfo.currentSession.session_id);
@@ -961,9 +961,9 @@ async function postProcessResponse(
           keywords: [] as string[],
         };
 
-        if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
+        if (latestUserMessage.length > 10) {
           try {
-            intentData = await extractIntent(latestUserMessage);
+            intentData = await extractIntent(latestUserMessage, requestHeaders);
             taskLog('INTENT_EXTRACTION', {
               sessionId: sessionInfo.sessionId,
               context: 'fallback_analysis_failed',
@@ -988,52 +988,6 @@ async function postProcessResponse(
         });
         activeSessionId = newSessionId;
       }
-    }
-  } else {
-    taskLog('TASK_ANALYSIS_UNAVAILABLE', {
-      sessionId: sessionInfo.sessionId,
-      hasCurrentSession: !!sessionInfo.currentSession,
-      userMessage: latestUserMessage.substring(0, 80),
-    });
-
-    if (!sessionInfo.currentSession) {
-      let intentData = {
-        goal: '',
-        expected_scope: [] as string[],
-        constraints: [] as string[],
-        keywords: [] as string[],
-      };
-
-      if (isIntentExtractionAvailable() && latestUserMessage.length > 10) {
-        try {
-          intentData = await extractIntent(latestUserMessage);
-          logger.info({ msg: 'Intent extracted (fallback)', scopeCount: intentData.expected_scope.length });
-          taskLog('INTENT_EXTRACTION', {
-            sessionId: sessionInfo.sessionId,
-            context: 'no_analysis_available',
-            goal: intentData.goal,
-            scope: intentData.expected_scope.join(', '),
-          });
-        } catch (err) {
-          taskLog('INTENT_EXTRACTION_FAILED', { sessionId: sessionInfo.sessionId, context: 'no_analysis_available', error: String(err) });
-        }
-      }
-
-      const newSessionId = randomUUID();
-      activeSession = createSessionState({
-        session_id: newSessionId,
-        project_path: sessionInfo.projectPath,
-        original_goal: intentData.goal,
-        raw_user_prompt: latestUserMessage.substring(0, 500),
-        expected_scope: intentData.expected_scope,
-        constraints: intentData.constraints,
-        keywords: intentData.keywords,
-        task_type: 'main',
-      });
-      activeSessionId = newSessionId;
-    } else {
-      activeSession = sessionInfo.currentSession;
-      activeSessionId = sessionInfo.currentSession.session_id;
     }
   }
 
@@ -1061,12 +1015,11 @@ async function postProcessResponse(
 
   if (activeSession &&
       actualContextSize > preComputeThreshold &&
-      !activeSession.pending_clear_summary &&
-      isSummaryAvailable()) {
+      !activeSession.pending_clear_summary) {
 
     const allSteps = getValidatedSteps(activeSessionId);
 
-    generateSessionSummary(activeSession, allSteps, 15000).then(summary => {
+    generateSessionSummary(activeSession, allSteps, 15000, requestHeaders).then(summary => {
       updateSessionState(activeSessionId, { pending_clear_summary: summary });
       logger.info({
         msg: 'CLEAR summary pre-computed',
@@ -1146,9 +1099,9 @@ async function postProcessResponse(
     activeSession.original_goal.length > 10 &&
     !activeSession.original_goal.includes('the original task');
 
-  if (hasValidGoal && hasFileModifications && promptCount % config.DRIFT_CHECK_INTERVAL === 0 && isDriftCheckAvailable()) {
+  if (hasValidGoal && hasFileModifications && promptCount % config.DRIFT_CHECK_INTERVAL === 0) {
     if (activeSession) {
-      const driftResult = await checkDrift({ sessionState: activeSession, recentSteps: recentStepsForCheck, latestUserMessage });
+      const driftResult = await checkDrift({ sessionState: activeSession, recentSteps: recentStepsForCheck, latestUserMessage }, requestHeaders);
 
       lastDriftResults.set(activeSessionId, driftResult);
 

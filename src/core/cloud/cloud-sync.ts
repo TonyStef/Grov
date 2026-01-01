@@ -5,8 +5,8 @@ import type { CreateMemoryInput, MemorySyncResponse, Memory } from '@grov/shared
 import { getSyncStatus, getAccessToken } from './credentials.js';
 import { syncMemories, sleep, getApiUrl, fetchMatch } from './api-client.js';
 import type { Task } from '../store/store.js';
-import type { ExtractedReasoningAndDecisions, ShouldUpdateResult, SupersededMapping } from '../extraction/llm-extractor.js';
-import { shouldUpdateMemory, isShouldUpdateAvailable } from '../extraction/llm-extractor.js';
+import type { ExtractedReasoningAndDecisions, ShouldUpdateResult, SupersededMapping, RequestHeaders } from '../extraction/llm-extractor.js';
+import { shouldUpdateMemory } from '../extraction/llm-extractor.js';
 
 // ============= Types for Memory Editing =============
 
@@ -221,8 +221,9 @@ export function getSyncTeamId(): string | null {
  */
 export async function syncTask(
   task: Task,
-  extractedData?: ExtractedReasoningAndDecisions,
-  taskType?: 'information' | 'planning' | 'implementation'
+  extractedData: ExtractedReasoningAndDecisions | undefined,
+  taskType: 'information' | 'planning' | 'implementation' | undefined,
+  headers: RequestHeaders
 ): Promise<boolean> {
   if (!isSyncEnabled()) {
     return false;
@@ -274,8 +275,8 @@ export async function syncTask(
     const matchedId = matchResult.match.id.substring(0, 8);
     const score = matchResult.combined_score?.toFixed(3) || '-';
 
-    // If shouldUpdateMemory is not available or no extracted data, INSERT anyway
-    if (!isShouldUpdateAvailable() || !effectiveExtractedData) {
+    // If no extracted data, INSERT anyway
+    if (!effectiveExtractedData) {
       const memory = taskToMemory(task);
       const result = await syncMemories(teamId, { memories: [memory] });
       console.log(`[SYNC TO CLOUD] ${taskId} -> INSERT (${taskType || 'unknown'})`);
@@ -300,7 +301,8 @@ export async function syncTask(
         files_touched: matchResult.match.files_touched || [],
       },
       effectiveExtractedData,
-      sessionContext
+      sessionContext,
+      headers
     );
 
     // If should NOT update, skip sync entirely

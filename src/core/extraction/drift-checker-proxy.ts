@@ -1,8 +1,11 @@
 // Drift checker for proxy - scores Claude's actions vs original goal
 // Reference: plan_proxy_local.md Section 4.2, 4.3
 
-import Anthropic from '@anthropic-ai/sdk';
 import type { SessionState, StepRecord, DriftType, CorrectionLevel } from '../store/store.js';
+import { forwardToAnthropic } from '../../integrations/proxy/agents/claude/forwarder.js';
+import { buildSafeHeaders } from '../../integrations/proxy/config.js';
+import type { RequestHeaders } from './llm-extractor.js';
+import { isDebugMode } from '../../integrations/proxy/utils/logging.js';
 
 export interface DriftCheckInput {
   sessionState: SessionState;
@@ -18,57 +21,60 @@ export interface DriftCheckResult {
   recoverySteps?: string[];
 }
 
-let anthropicClient: Anthropic | null = null;
-let driftClientInitialized = false;
+// Haiku model constant
+// Model list: https://docs.anthropic.com/en/docs/about-claude/models
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
-function getAnthropicClient(): Anthropic {
-  if (!anthropicClient) {
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY;
-    if (!apiKey) {
-      console.error('[HAIKU-DRIFT] No API key found');
-      throw new Error('ANTHROPIC_API_KEY or GROV_API_KEY required for drift checking');
-    }
-    driftClientInitialized = true;
-    anthropicClient = new Anthropic({ apiKey });
-  }
-  return anthropicClient;
-}
+async function callHaikuDrift(
+  maxTokens: number,
+  prompt: string,
+  headers: RequestHeaders,
+  context: string = 'unknown'
+): Promise<{ text: string; success: boolean }> {
+  if (isDebugMode()) console.log(`[HAIKU] ${context} started`);
 
-async function callHaikuDrift(maxTokens: number, prompt: string): Promise<{ text: string; success: boolean }> {
-  const client = getAnthropicClient();
+  // Use same header filtering as proxy forward - includes all Claude Code headers
+  const safeHeaders = buildSafeHeaders(headers);
+
   try {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const result = await forwardToAnthropic(
+      {
+        model: HAIKU_MODEL,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      safeHeaders
+    );
+
+    // Check for error response
+    if (result.statusCode >= 400) {
+      const errorBody = result.body as { error?: { message?: string } };
+      throw new Error(errorBody.error?.message || `HTTP ${result.statusCode}`);
+    }
+
+    // Parse response
+    const body = result.body as { content?: Array<{ type: string; text?: string }> };
+    const text = body.content?.[0]?.type === 'text' ? body.content[0].text || '' : '';
+
+    if (isDebugMode()) console.log(`[HAIKU] ${context} success`);
     return { text, success: true };
-  } catch {
+  } catch (err) {
+    // Always log errors
+    console.error(`[HAIKU] ${context} error:`, (err as Error).message);
     return { text: '', success: false };
   }
 }
 
 /**
- * Check if drift checking is available
+ * Main drift check - uses LLM with auth
  */
-export function isDriftCheckAvailable(): boolean {
-  return !!(process.env.ANTHROPIC_API_KEY || process.env.GROV_API_KEY);
-}
-
-/**
- * Main drift check - uses LLM if available, fallback to basic
- */
-export async function checkDrift(input: DriftCheckInput): Promise<DriftCheckResult> {
-  if (isDriftCheckAvailable()) {
-    try {
-      return await checkDriftWithLLM(input);
-    } catch {
-      // Fallback to basic if LLM fails
-      return checkDriftBasic(input);
-    }
+export async function checkDrift(input: DriftCheckInput, headers: RequestHeaders): Promise<DriftCheckResult> {
+  try {
+    return await checkDriftWithLLM(input, headers);
+  } catch {
+    // Fallback to basic if LLM fails
+    return checkDriftBasic(input);
   }
-  return checkDriftBasic(input);
 }
 
 /**
@@ -95,7 +101,7 @@ function buildRepetitionContext(steps: StepRecord[]): string {
  * LLM-based drift check using Haiku
  * Reference: plan_proxy_local.md Section 3.1
  */
-async function checkDriftWithLLM(input: DriftCheckInput): Promise<DriftCheckResult> {
+async function checkDriftWithLLM(input: DriftCheckInput, headers: RequestHeaders): Promise<DriftCheckResult> {
   // WHITELIST only modification actions for drift evaluation
   // Reading/exploring is ALWAYS OK - we only care about actual changes
   //
@@ -316,7 +322,7 @@ Return ONLY valid JSON:
 }
 </response_format>`;
 
-  const haikuResult = await callHaikuDrift(300, prompt);
+  const haikuResult = await callHaikuDrift(300, prompt, headers, 'checkDrift');
   if (!haikuResult.success) {
     return createDefaultResult(8, 'Haiku call failed');
   }
@@ -477,7 +483,8 @@ export interface ForcedRecoveryResult {
 export async function generateForcedRecovery(
   sessionState: SessionState,
   recentActions: Array<{ actionType: string; files: string[] }>,
-  lastDriftResult: DriftCheckResult
+  lastDriftResult: DriftCheckResult,
+  headers: RequestHeaders
 ): Promise<ForcedRecoveryResult> {
   const actionsText = recentActions
     .slice(-5)
@@ -513,7 +520,7 @@ RESPONSE RULES:
   "mandatoryAction": "ONE specific action (e.g., 'Read src/auth/login.ts to refocus on authentication')"
 }`;
 
-  const haikuResult = await callHaikuDrift(600, prompt);
+  const haikuResult = await callHaikuDrift(600, prompt, headers, 'generateForcedRecovery');
   if (!haikuResult.success) {
     return createFallbackForcedRecovery(sessionState);
   }

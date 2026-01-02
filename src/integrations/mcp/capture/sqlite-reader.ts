@@ -111,9 +111,67 @@ export function getComposerData(composerId: string): ComposerData | null {
     if (!data) return null;
 
     let projectPath = '';
-    const ctx = data.richWorkspaceContext;
-    if (ctx && typeof ctx === 'object' && 'folderName' in ctx && typeof (ctx as Record<string, unknown>).folderName === 'string') {
-      projectPath = (ctx as Record<string, unknown>).folderName as string;
+
+    // Primary: Extract from messageRequestContext.ideEditorsState
+    // Find a user bubble (type=1) to get its bubbleId
+    const userBubble = db.prepare(`
+      SELECT json_extract(value, '$.bubbleId') as bubbleId
+      FROM ${TABLE}
+      WHERE key LIKE ? AND json_extract(value, '$.type') = 1
+      LIMIT 1
+    `).get(`bubbleId:${composerId}:%`) as { bubbleId: string } | undefined;
+
+    if (userBubble?.bubbleId) {
+      const msgCtx = getValue(db, `messageRequestContext:${composerId}:${userBubble.bubbleId}`) as Record<string, unknown> | null;
+      if (msgCtx?.ideEditorsState && typeof msgCtx.ideEditorsState === 'string') {
+        try {
+          const ide = JSON.parse(msgCtx.ideEditorsState) as {
+            visibleFiles?: Array<{ relativePath?: string; absolutePath?: string }>;
+          };
+          const file = ide.visibleFiles?.[0];
+          if (file?.relativePath && file?.absolutePath && file.absolutePath.endsWith(file.relativePath)) {
+            projectPath = file.absolutePath.slice(0, -(file.relativePath.length + 1));
+            mcpLog(`[getComposerData] Project from ideEditorsState: ${projectPath}`);
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
+
+    // Fallback: Extract from toolFormerData file paths
+    if (!projectPath) {
+      const toolBubbles = db.prepare(`
+        SELECT json_extract(value, '$.toolFormerData') as toolData
+        FROM ${TABLE}
+        WHERE key LIKE ? AND json_extract(value, '$.toolFormerData') IS NOT NULL
+        LIMIT 5
+      `).all(`bubbleId:${composerId}:%`) as Array<{ toolData: string }>;
+
+      for (const row of toolBubbles) {
+        if (projectPath) break;
+        try {
+          const tools = JSON.parse(row.toolData) as Array<{ params?: string }>;
+          for (const tool of tools) {
+            if (tool.params) {
+              const params = JSON.parse(tool.params) as Record<string, unknown>;
+              // Look for file paths in common param names
+              const filePath = params.targetFile || params.relativeWorkspacePath || params.file_path || params.path;
+              if (typeof filePath === 'string' && filePath.startsWith('/')) {
+                // Extract project root from absolute path (assume src/, lib/, etc. are inside project)
+                const match = filePath.match(/^(\/[^/]+(?:\/[^/]+)*?)\/(?:src|lib|test|tests|app|packages|node_modules)\//);
+                if (match) {
+                  projectPath = match[1];
+                  mcpLog(`[getComposerData] Project from toolFormerData: ${projectPath}`);
+                  break;
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
     }
 
     return {

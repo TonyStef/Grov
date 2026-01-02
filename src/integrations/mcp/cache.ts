@@ -14,12 +14,6 @@ interface CacheEntry {
   previewIndices: number[];  // Which memories were shown in preview
 }
 
-interface PendingDecision {
-  taskId: string;
-  matchedMemory: Memory;
-  timestamp: number;
-}
-
 // ─────────────────────────────────────────────────────────────
 // Configuration
 // ─────────────────────────────────────────────────────────────
@@ -33,19 +27,33 @@ const TTL_MS = 10 * 60 * 1000;  // 10 minutes
 // Keyed by project path
 const previewCache = new Map<string, CacheEntry>();
 
-// Pending decision state (for grov_decide_update flow)
-let pendingDecision: PendingDecision | null = null;
-
 // ─────────────────────────────────────────────────────────────
 // Preview Cache Functions
 // ─────────────────────────────────────────────────────────────
 
 /**
  * Get current project path
- * Used as cache key
+ * Used as cache key and for API filtering
+ *
+ * Cursor sets WORKSPACE_FOLDER_PATHS env var with the open workspace path.
+ * We extract just the folder name to match how proxy stores project_path.
  */
 export function getProjectPath(): string {
-  return process.cwd();
+  const workspacePaths = process.env.WORKSPACE_FOLDER_PATHS;
+
+  if (workspacePaths) {
+    // Can be multiple paths separated by some delimiter, take first one
+    const firstPath = workspacePaths.split(':')[0] || workspacePaths;
+    // Extract just the folder name (e.g., "/home/marian/Grov" -> "Grov")
+    const folderName = firstPath.split('/').filter(Boolean).pop();
+    if (folderName) {
+      return folderName;
+    }
+  }
+
+  // Fallback to cwd folder name
+  const cwdParts = process.cwd().split('/').filter(Boolean);
+  return cwdParts.pop() || process.cwd();
 }
 
 /**
@@ -107,62 +115,9 @@ export function getMemoriesByIndices(indices: number[]): Memory[] {
 }
 
 /**
- * Check if a memory was shown in preview
- */
-export function wasShownInPreview(memoryId: string): boolean {
-  const cache = getPreviewCache();
-  if (!cache) return false;
-
-  return cache.previewIndices.some((idx) => {
-    const memory = cache.memories[idx - 1];
-    return memory?.id === memoryId;
-  });
-}
-
-/**
  * Clear preview cache (e.g., when project changes)
  */
 export function clearPreviewCache(): void {
   const projectPath = getProjectPath();
   previewCache.delete(projectPath);
-}
-
-// ─────────────────────────────────────────────────────────────
-// Pending Decision Functions
-// ─────────────────────────────────────────────────────────────
-
-/**
- * Store pending decision state
- * Called when grov_save finds a match and needs LLM decision
- */
-export function setPendingDecision(taskId: string, matchedMemory: Memory): void {
-  pendingDecision = {
-    taskId,
-    matchedMemory,
-    timestamp: Date.now(),
-  };
-}
-
-/**
- * Get pending decision state
- * Returns null if expired or not set
- */
-export function getPendingDecision(): PendingDecision | null {
-  if (!pendingDecision) return null;
-
-  // Check TTL (5 minutes for decisions)
-  if (Date.now() - pendingDecision.timestamp > 5 * 60 * 1000) {
-    pendingDecision = null;
-    return null;
-  }
-
-  return pendingDecision;
-}
-
-/**
- * Clear pending decision
- * Called after grov_decide_update completes
- */
-export function clearPendingDecision(): void {
-  pendingDecision = null;
 }

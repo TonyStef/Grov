@@ -12,7 +12,11 @@ import { mcpLog, mcpError } from './logger.js';
  * Called by Cursor via: grov mcp serve
  */
 export async function startMcpServer(): Promise<void> {
-  mcpLog('Starting MCP server', { cwd: process.cwd(), pid: process.pid });
+  mcpLog('Starting MCP server', {
+    cwd: process.cwd(),
+    pid: process.pid,
+    workspace: process.env.WORKSPACE_FOLDER_PATHS
+  });
 
   // Install .cursor/rules/grov.mdc if not present
   await installRulesIfNeeded();

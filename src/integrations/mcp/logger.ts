@@ -4,8 +4,8 @@
 import { appendFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
-// Log file in project root (cwd when MCP starts)
-const LOG_FILE = join(process.cwd(), 'mcp-cursor.log');
+// Log file - use __dirname to get consistent location regardless of cwd
+const LOG_FILE = join(new URL('.', import.meta.url).pathname, '..', '..', '..', 'mcp-cursor.log');
 
 // Clear log on startup
 let initialized = false;

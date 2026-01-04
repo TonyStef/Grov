@@ -6,7 +6,7 @@ import { setPreviewCache, getProjectPath } from '../cache.js';
 import { mcpLog, mcpError } from '../logger.js';
 import type { Memory } from '@grov/shared';
 
-const MAX_PREVIEW_MEMORIES = 5;
+const MAX_PREVIEW_MEMORIES = 3;
 
 export async function handlePreview(context: string, mode: string): Promise<string> {
   mcpLog('handlePreview starting', { contextLength: context.length, mode });
@@ -44,28 +44,27 @@ export async function handlePreview(context: string, mode: string): Promise<stri
     mcpLog('fetchTeamMemories returned', { memoriesCount: memories.length });
 
     if (memories.length === 0) {
-      setPreviewCache([], []);
+      setPreviewCache([]);
       mcpLog('No memories found, returning empty');
       return JSON.stringify({
         memories: [],
-        message: 'No relevant memories found.',
+        message: 'No memories for THIS context. IMPORTANT: Call grov_preview again at your NEXT prompt - different question may match different memories. Each prompt needs its own preview call.',
       });
     }
 
-    // Cache all fetched memories, track shown indices
-    const shownIndices = memories.map((_, i) => i + 1);
-    setPreviewCache(memories, shownIndices);
+    // Cache memories (indexed by 8-char ID internally)
+    setPreviewCache(memories);
 
-    // Format preview list
-    const previewList = memories.map((m, i) => ({
-      index: i + 1,
+    // Format preview list with 8-char IDs
+    const previewList = memories.map((m) => ({
+      id: m.id.substring(0, 8),
       goal: m.goal,
       summary: m.summary,
     }));
 
     return JSON.stringify({
       memories: previewList,
-      message: `Found ${memories.length} relevant memories. Call grov_expand with indices to see details.`,
+      message: `Found ${memories.length} relevant memories. Call grov_expand with memory ID to see details.`,
     });
 
   } catch (err) {

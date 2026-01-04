@@ -1,5 +1,6 @@
 // MCP In-Memory Cache
 // Caches preview results for expand calls
+// Uses 8-char memory IDs for lookup (consistent with local proxy)
 // Keyed by project path with TTL
 
 import type { Memory } from '@grov/shared';
@@ -9,9 +10,9 @@ import type { Memory } from '@grov/shared';
 // ─────────────────────────────────────────────────────────────
 
 interface CacheEntry {
-  memories: Memory[];
+  memoriesById: Map<string, Memory>;  // 8-char ID -> Memory
   timestamp: number;
-  previewIndices: number[];  // Which memories were shown in preview
+  cachedIds: string[];  // IDs shown in preview (for debugging)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ const TTL_MS = 10 * 60 * 1000;  // 10 minutes
 const previewCache = new Map<string, CacheEntry>();
 
 // ─────────────────────────────────────────────────────────────
-// Preview Cache Functions
+// Project Path
 // ─────────────────────────────────────────────────────────────
 
 /**
@@ -56,24 +57,38 @@ export function getProjectPath(): string {
   return cwdParts.pop() || process.cwd();
 }
 
+// ─────────────────────────────────────────────────────────────
+// Cache Operations
+// ─────────────────────────────────────────────────────────────
+
 /**
  * Store memories from preview call
+ * Indexes by 8-char ID prefix for fast lookup
  */
-export function setPreviewCache(memories: Memory[], shownIndices: number[]): void {
+export function setPreviewCache(memories: Memory[]): void {
   const projectPath = getProjectPath();
 
+  const memoriesById = new Map<string, Memory>();
+  const cachedIds: string[] = [];
+
+  for (const m of memories) {
+    const shortId = m.id.substring(0, 8);
+    memoriesById.set(shortId, m);
+    cachedIds.push(shortId);
+  }
+
   previewCache.set(projectPath, {
-    memories,
+    memoriesById,
     timestamp: Date.now(),
-    previewIndices: shownIndices,
+    cachedIds,
   });
 }
 
 /**
- * Get cached memories for expand
+ * Get cached entry (internal use)
  * Returns null if cache expired or missing
  */
-export function getPreviewCache(): CacheEntry | null {
+function getPreviewCache(): CacheEntry | null {
   const projectPath = getProjectPath();
   const entry = previewCache.get(projectPath);
 
@@ -89,29 +104,24 @@ export function getPreviewCache(): CacheEntry | null {
 }
 
 /**
- * Get specific memory by 1-based index
+ * Get memory by 8-char ID
+ * Handles both 8-char and full UUID (extracts first 8 chars)
  */
-export function getMemoryByIndex(index: number): Memory | null {
+export function getMemoryById(id: string): Memory | null {
   const cache = getPreviewCache();
   if (!cache) return null;
 
-  // Convert 1-based to 0-based
-  const idx = index - 1;
-  if (idx < 0 || idx >= cache.memories.length) return null;
-
-  return cache.memories[idx];
+  // Normalize to 8-char
+  const shortId = id.substring(0, 8);
+  return cache.memoriesById.get(shortId) || null;
 }
 
 /**
- * Get multiple memories by indices
+ * Get list of cached IDs (for error messages)
  */
-export function getMemoriesByIndices(indices: number[]): Memory[] {
+export function getCachedIds(): string[] {
   const cache = getPreviewCache();
-  if (!cache) return [];
-
-  return indices
-    .map((i) => cache.memories[i - 1])  // Convert 1-based to 0-based
-    .filter((m): m is Memory => m !== undefined);
+  return cache?.cachedIds || [];
 }
 
 /**

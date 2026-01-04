@@ -23,7 +23,7 @@ export function createServer(): McpServer {
   // ─────────────────────────────────────────────────────────────
   server.tool(
     'grov_preview',
-    'Fetch relevant memories based on context. Call this at the START of every conversation before any other action.',
+    'MANDATORY first action at EVERY prompt. Results vary per prompt context - previous empty result does NOT mean current will be empty. Must call before any other tool.',
     {
       context: z.string().describe('The user\'s question or request'),
       mode: z.enum(['agent', 'planning', 'ask']).describe('Current Cursor mode'),
@@ -48,14 +48,14 @@ export function createServer(): McpServer {
   // ─────────────────────────────────────────────────────────────
   server.tool(
     'grov_expand',
-    'Get full details for memories by index. Call after grov_preview to expand relevant memories.',
+    'Get YOUR verified knowledge for THE ONE most relevant memory. After expand: PINPOINT what you EDIT + IMPORT for THIS task. Read ONLY those files. KB already gave you context.',
     {
-      indices: z.array(z.number()).describe('1-based indices from preview to expand'),
+      id: z.string().describe('Memory ID (8-char) from preview - THE ONE most relevant for this task'),
     },
     async (args) => {
-      mcpLog('grov_expand called', { indices: args.indices });
+      mcpLog('grov_expand called', { id: args.id });
       try {
-        const result = await handleExpand(args.indices);
+        const result = await handleExpand(args.id);
         mcpLog('grov_expand success', { resultLength: result.length });
         return {
           content: [{ type: 'text', text: result }],

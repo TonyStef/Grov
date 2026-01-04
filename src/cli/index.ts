@@ -45,24 +45,32 @@ program
   .description('Collective AI memory for engineering teams')
   .version(pkg.version);
 
-// grov init - Configure AI agent to use grov proxy
+// grov init - Configure AI agent to use grov proxy/MCP
 program
   .command('init [agent]')
-  .description('Configure AI agent to use grov proxy (claude or codex, defaults to claude)')
+  .description('Configure AI agent (claude, codex, or cursor)')
   .action(safeAction(async (agent?: string) => {
     const { init } = await import('./commands/init.js');
-    const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
-    await init(agentName);
+    if (agent === 'cursor') {
+      await init('cursor');
+    } else {
+      const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
+      await init(agentName);
+    }
   }));
 
-// grov disable - Remove proxy configuration
+// grov disable - Remove proxy/MCP configuration
 program
   .command('disable [agent]')
-  .description('Disable grov for AI agent (claude or codex, defaults to claude)')
+  .description('Disable grov for AI agent (claude, codex, or cursor)')
   .action(safeAction(async (agent?: string) => {
     const { disable } = await import('./commands/disable.js');
-    const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
-    await disable(agentName);
+    if (agent === 'cursor') {
+      await disable('cursor');
+    } else {
+      const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
+      await disable(agentName);
+    }
   }));
 
 // grov status - Show stored reasoning for current project
@@ -183,18 +191,5 @@ program
     const { startMcpServer } = await import('../integrations/mcp/index.js');
     await startMcpServer();
   });
-
-// grov setup - Configure integrations
-const setup = program
-  .command('setup')
-  .description('Configure grov integrations');
-
-setup
-  .command('mcp cursor')
-  .description('Configure MCP for Cursor IDE')
-  .action(safeAction(async () => {
-    const { setupMcpCursor } = await import('./commands/setup.js');
-    await setupMcpCursor();
-  }));
 
 program.parse();

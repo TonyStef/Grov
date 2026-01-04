@@ -7,6 +7,7 @@ import { parse } from 'smol-toml';
 
 const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
+const CURSOR_MCP_PATH = join(homedir(), '.cursor', 'mcp.json');
 
 interface Agent {
   name: string;
@@ -47,6 +48,22 @@ const AGENTS: Agent[] = [
     },
     setupCommand: 'grov init codex',
     requirements: ['OPENAI_API_KEY environment variable', 'Codex CLI installed (npm i -g @openai/codex)'],
+  },
+  {
+    name: 'Cursor',
+    description: 'Cursor IDE (MCP)',
+    isConfigured: () => {
+      if (!existsSync(CURSOR_MCP_PATH)) return false;
+      try {
+        const content = readFileSync(CURSOR_MCP_PATH, 'utf-8');
+        const config = JSON.parse(content) as { mcpServers?: { grov?: unknown } };
+        return !!config.mcpServers?.grov;
+      } catch {
+        return false;
+      }
+    },
+    setupCommand: 'grov init cursor',
+    requirements: ['Cursor IDE installed', 'Run command in project directory'],
   },
 ];
 

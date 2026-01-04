@@ -1,7 +1,9 @@
-// grov init - Configure AI agent to use grov proxy
+// grov init - Configure AI agent to use grov proxy/MCP
 
 import type { AgentName } from '../../integrations/proxy/agents/types.js';
 import { getAgentByName } from '../../integrations/proxy/agents/index.js';
+import { setupMcpCursor } from './setup.js';
+import { installProjectRules } from '../../integrations/mcp/clients/cursor/rules-installer.js';
 
 interface AgentInstructions {
   envVar: string;
@@ -22,11 +24,42 @@ const AGENT_INSTRUCTIONS: Record<'claude' | 'codex', AgentInstructions> = {
   },
 };
 
-export async function init(agentName: 'claude' | 'codex' = 'claude'): Promise<void> {
+export async function init(agentName: 'claude' | 'codex' | 'cursor' = 'claude'): Promise<void> {
+  // Cursor: MCP-based setup (different from proxy)
+  if (agentName === 'cursor') {
+    console.log('Configuring grov for Cursor...\n');
+
+    // 1. MCP registration (global)
+    await setupMcpCursor();
+
+    // 2. Project rules (per-project)
+    const projectDir = process.cwd();
+    const result = installProjectRules(projectDir);
+
+    if (result.grovRules) {
+      console.log('  + Created .grov/rules.mdc');
+    } else {
+      console.log('  = .grov/rules.mdc already exists');
+    }
+
+    if (result.cursorPointer) {
+      console.log('  + Created .cursor/rules/90_grov.mdc');
+    } else {
+      console.log('  = .cursor/rules/90_grov.mdc already exists');
+    }
+
+    console.log('\n--- Next Steps ---');
+    console.log('1. Restart Cursor');
+    console.log('2. Open this project in Cursor');
+    console.log('\nRun "grov doctor cursor" to verify setup.');
+    return;
+  }
+
+  // Claude/Codex: proxy-based setup
   const agent = getAgentByName(agentName);
   if (!agent) {
     console.error(`Unknown agent: ${agentName}`);
-    console.error('Supported agents: claude, codex');
+    console.error('Supported agents: claude, codex, cursor');
     process.exit(1);
   }
 

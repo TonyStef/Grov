@@ -4,7 +4,6 @@
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createServer } from './server.js';
-import { installRulesIfNeeded } from './clients/cursor/rules-installer.js';
 import { mcpLog, mcpError } from './logger.js';
 
 /**
@@ -17,10 +16,6 @@ export async function startMcpServer(): Promise<void> {
     pid: process.pid,
     workspace: process.env.WORKSPACE_FOLDER_PATHS
   });
-
-  // Install .cursor/rules/grov.mdc if not present
-  await installRulesIfNeeded();
-  mcpLog('Rules installer check complete');
 
   // Create and connect server
   const server = createServer();

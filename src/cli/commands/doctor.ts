@@ -10,9 +10,10 @@ import { initDatabase } from '../../core/store/database.js';
 
 const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
+const CURSOR_MCP_PATH = join(homedir(), '.cursor', 'mcp.json');
 const DB_PATH = join(homedir(), '.grov', 'memory.db');
 
-type AgentName = 'claude' | 'codex';
+type AgentName = 'claude' | 'codex' | 'cursor';
 
 export async function doctor(agent?: AgentName): Promise<void> {
   console.log('\nGrov Doctor');
@@ -23,11 +24,14 @@ export async function doctor(agent?: AgentName): Promise<void> {
     console.log('\n--- Agent Status ---\n');
     checkAgentStatus('claude');
     checkAgentStatus('codex');
+    checkAgentStatus('cursor');
     console.log('\n\x1b[90mRun grov doctor <agent> for detailed checks\x1b[0m');
   } else if (agent === 'claude') {
     await runClaudeChecks();
   } else if (agent === 'codex') {
     await runCodexChecks();
+  } else if (agent === 'cursor') {
+    await runCursorChecks();
   }
 
   console.log('');
@@ -69,6 +73,14 @@ function checkAgentStatus(agent: AgentName): void {
     console.log(`${icon} Codex CLI: ${status}`);
     if (!configured) {
       console.log('  \x1b[90m→ grov init codex\x1b[0m');
+    }
+  } else if (agent === 'cursor') {
+    const configured = isCursorConfigured();
+    const icon = configured ? '\x1b[32m●\x1b[0m' : '\x1b[90m○\x1b[0m';
+    const status = configured ? 'Configured' : 'Not configured';
+    console.log(`${icon} Cursor: ${status}`);
+    if (!configured) {
+      console.log('  \x1b[90m→ grov init cursor\x1b[0m');
     }
   }
 }
@@ -142,6 +154,34 @@ function isCodexConfigured(): boolean {
   } catch {
     return false;
   }
+}
+
+function isCursorConfigured(): boolean {
+  if (!existsSync(CURSOR_MCP_PATH)) return false;
+  try {
+    const content = readFileSync(CURSOR_MCP_PATH, 'utf-8');
+    const config = JSON.parse(content) as { mcpServers?: { grov?: unknown } };
+    return !!config.mcpServers?.grov;
+  } catch {
+    return false;
+  }
+}
+
+async function runCursorChecks(): Promise<void> {
+  console.log('Cursor Checks\n');
+
+  const mcpConfigured = isCursorConfigured();
+  printCheck('MCP Server', mcpConfigured, 'Registered in ~/.cursor/mcp.json', 'Not registered', 'grov init cursor');
+
+  const projectDir = process.cwd();
+  const hasGrovRules = existsSync(join(projectDir, '.grov', 'rules.mdc'));
+  printCheck('Project Rules', hasGrovRules, '.grov/rules.mdc exists', 'Not found', 'grov init cursor');
+
+  const hasPointer = existsSync(join(projectDir, '.cursor', 'rules', '90_grov.mdc'));
+  printCheck('Cursor Pointer', hasPointer, '.cursor/rules/90_grov.mdc exists', 'Not found', 'grov init cursor');
+
+  const cursorDir = join(homedir(), '.cursor');
+  printCheck('Cursor Installed', existsSync(cursorDir), '~/.cursor exists', 'Not found', 'Install Cursor IDE');
 }
 
 function checkDatabase(): { tasks: number; unsynced: number; sessions: number } {

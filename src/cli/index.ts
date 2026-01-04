@@ -83,9 +83,9 @@ program
     await status(options);
   }));
 
-// grov drift-test - Test drift detection on a prompt
+// grov drift-test - Test drift detection on a prompt (internal/debug)
 program
-  .command('drift-test')
+  .command('drift-test', { hidden: true })
   .description('Test drift detection on a prompt (debug command)')
   .argument('<prompt>', 'The prompt to test for drift')
   .option('--session <id>', 'Session ID to use for context')
@@ -183,13 +183,91 @@ program
     agents();
   }));
 
+// grov setup - Interactive setup wizard
+program
+  .command('setup')
+  .description('Interactive setup wizard for new users')
+  .action(safeAction(async () => {
+    const { setup } = await import('./commands/setup.js');
+    await setup();
+  }));
+
 // grov mcp - Start MCP server (called by Cursor, not user)
 program
-  .command('mcp')
+  .command('mcp', { hidden: true })
   .description('Start MCP server for Cursor integration')
   .action(async () => {
     const { startMcpServer } = await import('../integrations/mcp/index.js');
     await startMcpServer();
   });
 
-program.parse();
+// Smart no-args behavior: show "get started" or status
+async function showSmartDefault(): Promise<void> {
+  const { isAuthenticated, getSyncStatus } = await import('../core/cloud/credentials.js');
+  const { isAnyAgentConfigured, getFirstConfiguredAgent } = await import('./agents/registry.js');
+
+  const loggedIn = isAuthenticated();
+  const agentConfigured = isAnyAgentConfigured();
+
+  if (!loggedIn && !agentConfigured) {
+    // First run - show get started
+    console.log('\ngrov - Collective AI memory for engineering teams\n');
+    console.log('┌─────────────────────────────────────────────────────────────┐');
+    console.log('│  GET STARTED                                                │');
+    console.log('│                                                             │');
+    console.log('│  Run: grov setup                                            │');
+    console.log('│                                                             │');
+    console.log('│  This will:                                                 │');
+    console.log('│  • Connect to your team dashboard                           │');
+    console.log('│  • Configure your AI agent (Claude, Codex, Cursor, etc.)    │');
+    console.log('│  • Show you exactly how to use grov                         │');
+    console.log('└─────────────────────────────────────────────────────────────┘');
+    console.log('\nOr see all commands: grov --help\n');
+    return;
+  }
+
+  // Setup done - show status dashboard
+  console.log('\ngrov - Collective AI memory for engineering teams\n');
+  console.log('STATUS');
+
+  const agent = getFirstConfiguredAgent();
+  if (agent) {
+    console.log(`\x1b[32m●\x1b[0m ${agent.name}    Configured`);
+  } else {
+    console.log('\x1b[90m○\x1b[0m Agent       Not configured');
+  }
+
+  const syncStatus = getSyncStatus();
+  if (syncStatus?.enabled && syncStatus.teamId) {
+    console.log(`\x1b[32m●\x1b[0m Team Sync   Enabled`);
+  } else if (loggedIn) {
+    console.log('\x1b[33m○\x1b[0m Team Sync   Disabled');
+  } else {
+    console.log('\x1b[90m○\x1b[0m Team Sync   Not logged in');
+  }
+
+  if (agent?.type === 'cli') {
+    console.log('\nTO USE:');
+    console.log('  Terminal 1: grov proxy');
+    console.log(`  Terminal 2: ${agent.command}`);
+  } else if (agent?.type === 'ide') {
+    console.log('\nTO USE:');
+    console.log(`  Restart ${agent.name} and use normally`);
+  }
+
+  console.log('\nCOMMANDS');
+  console.log('  grov proxy     Start the proxy (for CLI agents)');
+  console.log('  grov status    View captured memories');
+  console.log('  grov doctor    Check setup health');
+  console.log('\nAll commands: grov --help\n');
+}
+
+// Check if no args - show smart default
+if (process.argv.length === 2) {
+  showSmartDefault().catch(err => {
+    console.error('Error:', err instanceof Error ? err.message : 'Unknown error');
+    process.exit(1);
+  });
+} else {
+  program.parse();
+}

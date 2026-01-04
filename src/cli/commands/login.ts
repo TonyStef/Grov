@@ -5,6 +5,7 @@ import open from 'open';
 import * as readline from 'readline';
 import { writeCredentials, isAuthenticated, readCredentials, setTeamId, setSyncEnabled } from '../../core/cloud/credentials.js';
 import { startDeviceFlow, pollDeviceFlow, sleep, getApiUrl, fetchTeams } from '../../core/cloud/api-client.js';
+import { isAnyAgentConfigured } from '../agents/registry.js';
 
 /**
  * Prompt user for input
@@ -175,22 +176,19 @@ export async function login(): Promise<void> {
           console.log('║                                         ║');
           console.log('╚═════════════════════════════════════════╝');
           console.log(`\nSyncing to: ${selectedTeam.name}`);
-          
-          // Check API key and warn if not set
-          if (!process.env.ANTHROPIC_API_KEY) {
-            const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
-            console.log('\n⚠️  WARNING: ANTHROPIC_API_KEY not set - memories will NOT sync!');
-            console.log('\n   Add PERMANENTLY to your shell (not just "export"):');
-            console.log(`   echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ${shell}`);
-            console.log(`   source ${shell}`);
-            console.log('\n   Get your key at: https://console.anthropic.com/settings/keys');
-          }
-          
-          console.log('\nRun "grov doctor" to verify your setup is complete.');
-          console.log('View memories at: https://app.grov.dev/memories\n');
         } else {
           console.log('\n✓ Logged in. Sync not enabled.');
-          console.log('Run "grov sync --enable" later to start syncing.\n');
+        }
+
+        // Continue to agent setup if no agent configured
+        if (!isAnyAgentConfigured()) {
+          console.log('\n───────────────────────────────────────────────────────────\n');
+          console.log('Now let\'s configure your AI agent...\n');
+          const { runAgentSetup } = await import('./setup.js');
+          await runAgentSetup();
+        } else {
+          console.log('\nRun "grov doctor" to verify your setup is complete.');
+          console.log('View memories at: https://app.grov.dev/memories\n');
         }
 
       } catch (err) {

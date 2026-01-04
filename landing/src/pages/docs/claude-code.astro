@@ -1,0 +1,101 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Footer from '../../components/Footer.astro';
+---
+
+<Layout
+  title="Claude Code Setup | Grov"
+  description="Set up Grov with Claude Code in under 2 minutes."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-3xl mx-auto">
+
+      <div class="mb-8">
+        <a href="/integrations" class="text-sm text-grov-text-secondary hover:text-grov-accent transition-colors">
+          ← Back to Integrations
+        </a>
+      </div>
+
+      <div class="mb-12">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">CLI Agent</span>
+        </div>
+        <h1 class="text-section text-grov-text mb-4" style="font-family: var(--font-display);">
+          Claude Code
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary">
+          Anthropic's CLI coding agent. Requires proxy running.
+        </p>
+      </div>
+
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Quick Setup</h2>
+        <div class="space-y-6">
+          <div>
+            <div class="flex items-center gap-3 mb-3">
+              <span class="w-6 h-6 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">1</span>
+              <span class="font-medium text-grov-text">Install and setup</span>
+            </div>
+            <div class="code-block space-y-2">
+              <code class="block text-grov-accent">npm install -g grov</code>
+              <code class="block text-grov-accent">grov setup</code>
+            </div>
+            <p class="mt-3 text-sm text-grov-text-secondary">Select "Claude Code" when prompted.</p>
+          </div>
+
+          <div>
+            <div class="flex items-center gap-3 mb-3">
+              <span class="w-6 h-6 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">2</span>
+              <span class="font-medium text-grov-text">Start proxy</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-accent">grov proxy</code>
+            </div>
+            <p class="mt-3 text-sm text-grov-text-secondary">Keep this running in a terminal.</p>
+          </div>
+
+          <div>
+            <div class="flex items-center gap-3 mb-3">
+              <span class="w-6 h-6 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">3</span>
+              <span class="font-medium text-grov-text">Use Claude normally</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-accent">claude</code>
+            </div>
+            <p class="mt-3 text-sm text-grov-text-secondary">In another terminal. Grov captures memories automatically.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-4">Prerequisites</h2>
+        <ul class="space-y-2 text-grov-text-secondary">
+          <li class="flex items-start gap-2">
+            <span class="text-grov-accent">•</span>
+            <span>Node.js 18+</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-grov-accent">•</span>
+            <span>Claude Code CLI (<code class="text-grov-accent">npm i -g @anthropic-ai/claude-code</code>)</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-4">Troubleshooting</h2>
+        <p class="text-grov-text-secondary mb-4">
+          Run diagnostics:
+        </p>
+        <div class="code-block">
+          <code class="text-grov-accent">grov doctor claude</code>
+        </div>
+      </section>
+
+      <div class="flex gap-4">
+        <a href="/docs" class="btn-secondary">Full Documentation</a>
+        <a href="/integrations" class="btn-secondary">All Integrations</a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

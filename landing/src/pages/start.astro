@@ -1,0 +1,71 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Get Started | Grov"
+  description="Install Grov in under 2 minutes. One command setup."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-2xl mx-auto">
+
+      <div class="text-center mb-12">
+        <h1 class="text-section text-grov-text mb-4" style="font-family: var(--font-display);">
+          Get Started
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary">
+          Two commands. Under 2 minutes.
+        </p>
+      </div>
+
+      <div class="card p-8 mb-8">
+        <div class="space-y-8">
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black font-bold flex items-center justify-center">1</span>
+              <span class="text-lg font-medium text-grov-text">Install</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-accent">npm install -g grov</code>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black font-bold flex items-center justify-center">2</span>
+              <span class="text-lg font-medium text-grov-text">Setup</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-accent">grov setup</code>
+            </div>
+            <p class="mt-4 text-sm text-grov-text-secondary">
+              The wizard will connect your team and configure your AI agent.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-6 bg-grov-accent-bg border-grov-accent/30">
+        <p class="text-sm text-grov-text">
+          <strong>That's it.</strong> The setup wizard handles everything — login, team sync, agent configuration, and shows you exactly how to use Grov.
+        </p>
+      </div>
+
+      <div class="mt-12 text-center">
+        <p class="text-sm text-grov-text-secondary mb-4">
+          Want to configure manually?
+        </p>
+        <div class="flex flex-wrap gap-4 justify-center">
+          <a href="/docs" class="btn-secondary text-sm">
+            Full Documentation
+          </a>
+          <a href="/integrations" class="btn-secondary text-sm">
+            View Integrations
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

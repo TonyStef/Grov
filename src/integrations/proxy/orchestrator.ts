@@ -168,6 +168,7 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
   const processedBody = await preProcessRequest(adapter, requestBody, sessionInfo, logger, detectRequestType);
   const systemInjection = (processedBody as Record<string, unknown>).__grovInjection as string | undefined;
   const userMsgInjection = (processedBody as Record<string, unknown>).__grovUserMsgInjection as string | undefined;
+  const rawUserPrompt = (processedBody as Record<string, unknown>).__grovRawUserPrompt as string;
 
   // Build final body with injections using adapter methods
   let rawBodyStr = rawBody?.toString('utf-8') || '';
@@ -232,7 +233,7 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
       },
     });
   } else if (reconstructedCount > 0) {
-    const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, ...cleanBody } = processedBody as Record<string, unknown>;
+    const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, __grovRawUserPrompt: _rawPrompt1, ...cleanBody } = processedBody as Record<string, unknown>;
     finalBodyToSend = Buffer.from(JSON.stringify(cleanBody), 'utf-8');
   } else if (rawBody) {
     finalBodyToSend = rawBody;
@@ -292,7 +293,7 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
       }
 
       // Strip internal __grov* fields before building continue body
-      const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, ...cleanProcessedBody } = processedBody as Record<string, unknown>;
+      const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, __grovRawUserPrompt: _rawPrompt2, ...cleanProcessedBody } = processedBody as Record<string, unknown>;
       const continueBody = adapter.buildContinueBody(
         cleanProcessedBody,
         getAssistantContent(result.body, adapter),
@@ -508,6 +509,7 @@ async function postProcessResponse(
   const textContent = adapter.extractTextContent(response);
   const messages = getMessages(requestBody);
   const latestUserMessage = adapter.extractGoal(messages) || '';
+  const rawUserPrompt = (requestBody as Record<string, unknown>).__grovRawUserPrompt as string;
   const recentSteps = sessionInfo.currentSession
     ? getRecentSteps(sessionInfo.currentSession.session_id, 5)
     : [];
@@ -549,7 +551,7 @@ async function postProcessResponse(
         session_id: newSessionId,
         project_path: sessionInfo.projectPath,
         original_goal: '',
-        raw_user_prompt: latestUserMessage.substring(0, 500),
+        raw_user_prompt: rawUserPrompt,
         task_type: 'main',
       });
       activeSessionId = newSessionId;
@@ -657,7 +659,7 @@ async function postProcessResponse(
             session_id: newSessionId,
             project_path: sessionInfo.projectPath,
             original_goal: taskAnalysis.current_goal,
-            raw_user_prompt: latestUserMessage.substring(0, 500),
+            raw_user_prompt: rawUserPrompt,
             constraints: taskAnalysis.constraints || [],
             task_type: 'main',
           });
@@ -709,7 +711,7 @@ async function postProcessResponse(
             session_id: subtaskId,
             project_path: sessionInfo.projectPath,
             original_goal: taskAnalysis.current_goal,
-            raw_user_prompt: latestUserMessage.substring(0, 500),
+            raw_user_prompt: rawUserPrompt,
             constraints: taskAnalysis.constraints || [],
             task_type: 'subtask',
             parent_session_id: parentId,
@@ -737,7 +739,7 @@ async function postProcessResponse(
             session_id: parallelId,
             project_path: sessionInfo.projectPath,
             original_goal: taskAnalysis.current_goal,
-            raw_user_prompt: latestUserMessage.substring(0, 500),
+            raw_user_prompt: rawUserPrompt,
             constraints: taskAnalysis.constraints || [],
             task_type: 'parallel',
             parent_session_id: parentId,
@@ -814,7 +816,7 @@ async function postProcessResponse(
                 session_id: newSessionId,
                 project_path: sessionInfo.projectPath,
                 original_goal: taskAnalysis.current_goal || '',
-                raw_user_prompt: latestUserMessage.substring(0, 500),
+                raw_user_prompt: rawUserPrompt,
                 task_type: 'main',
               });
 
@@ -877,7 +879,7 @@ async function postProcessResponse(
           session_id: newSessionId,
           project_path: sessionInfo.projectPath,
           original_goal: latestUserMessage.substring(0, 200),
-          raw_user_prompt: latestUserMessage.substring(0, 500),
+          raw_user_prompt: rawUserPrompt,
           constraints: [],
           task_type: 'main',
         });

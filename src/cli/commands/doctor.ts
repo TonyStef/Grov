@@ -54,7 +54,7 @@ async function runGeneralChecks(): Promise<void> {
   const dbStats = checkDatabase();
   const dbOk = dbStats.tasks > 0 || dbStats.sessions > 0;
   const dbMsg = `${dbStats.tasks} tasks, ${dbStats.unsynced} unsynced, ${dbStats.sessions} active`;
-  printCheck('Local Database', dbOk, dbMsg, 'Empty', 'Use an AI agent with proxy running');
+  printCheck('Local Database', dbOk, dbMsg, 'Empty', 'Use Claude/Codex with proxy, or Cursor with MCP');
 }
 
 function checkAgentStatus(agent: AgentName): void {

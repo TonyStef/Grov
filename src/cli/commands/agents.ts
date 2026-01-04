@@ -91,8 +91,8 @@ export function agents(): void {
   }
 
   console.log('Quick Start:');
-  console.log('  1. Run \x1b[36mgrov init <agent>\x1b[0m to configure your agent');
-  console.log('  2. Run \x1b[36mgrov proxy\x1b[0m in a terminal (keep it running)');
+  console.log('  1. Run \x1b[36mgrov init <agent>\x1b[0m (claude, codex, cursor)');
+  console.log('  2. Run \x1b[36mgrov proxy\x1b[0m (Claude/Codex only - Cursor uses MCP)');
   console.log('  3. Use your AI agent normally in another terminal');
   console.log('  4. Grov captures reasoning and syncs to your team\n');
   console.log('Troubleshooting: \x1b[36mgrov doctor <agent>\x1b[0m for detailed checks\n');

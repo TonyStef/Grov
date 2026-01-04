@@ -105,7 +105,7 @@ export async function init(agentName: 'claude' | 'codex' | 'cursor' = 'claude'):
     }
   }
 
-  console.log('\n--- Next Steps ---');
+  console.log('\n--- Next Steps (Claude/Codex) ---');
   console.log('1. Terminal 1: grov proxy');
   console.log(`2. Terminal 2: ${instructions.command}`);
   console.log('\nRun "grov doctor" to verify your setup is complete.');

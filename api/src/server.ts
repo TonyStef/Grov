@@ -27,6 +27,7 @@ import { authPlugin } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import teamsRoutes from './routes/teams.js';
 import memoriesRoutes from './routes/memories.js';
+import cursorRoutes from './routes/cursor.js';
 
 // Create Fastify instance with security defaults
 // Log to file in development for debugging
@@ -110,6 +111,7 @@ fastify.get('/health', async () => {
 await fastify.register(authRoutes, { prefix: '/auth' });
 await fastify.register(teamsRoutes, { prefix: '/teams' });
 await fastify.register(memoriesRoutes, { prefix: '/teams' });
+await fastify.register(cursorRoutes, { prefix: '/teams' });
 
 // Start server
 const start = async () => {

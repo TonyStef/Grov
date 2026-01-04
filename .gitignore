@@ -63,3 +63,9 @@ scripts/*.sh
 
 #Strix penetration tests
 strix_runs/
+
+#grov
+.grov
+
+#
+.cursor

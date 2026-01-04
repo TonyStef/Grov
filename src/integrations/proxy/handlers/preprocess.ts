@@ -58,6 +58,9 @@ export async function preProcessRequest(
     return modified;
   }
 
+  // Save clean user prompt BEFORE any reconstruction/injection (agent-agnostic)
+  modified.__grovRawUserPrompt = earlyUserPrompt.substring(0, 500);
+
   // === TOOL INJECTION (only for real user requests) ===
   const toolDesc = buildToolDescription();
   modified.__grovInjection = toolDesc;

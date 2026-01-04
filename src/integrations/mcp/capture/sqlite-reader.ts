@@ -151,20 +151,18 @@ export function getComposerData(composerId: string): ComposerData | null {
       for (const row of toolBubbles) {
         if (projectPath) break;
         try {
-          const tools = JSON.parse(row.toolData) as Array<{ params?: string }>;
-          for (const tool of tools) {
-            if (tool.params) {
-              const params = JSON.parse(tool.params) as Record<string, unknown>;
-              // Look for file paths in common param names
-              const filePath = params.targetFile || params.relativeWorkspacePath || params.file_path || params.path;
-              if (typeof filePath === 'string' && filePath.startsWith('/')) {
-                // Extract project root from absolute path (assume src/, lib/, etc. are inside project)
-                const match = filePath.match(/^(\/[^/]+(?:\/[^/]+)*?)\/(?:src|lib|test|tests|app|packages|node_modules)\//);
-                if (match) {
-                  projectPath = match[1];
-                  mcpLog(`[getComposerData] Project from toolFormerData: ${projectPath}`);
-                  break;
-                }
+          const toolData = JSON.parse(row.toolData) as { params?: string };
+          if (toolData.params) {
+            const params = JSON.parse(toolData.params) as Record<string, unknown>;
+            // Look for file paths in common param names
+            const filePath = params.targetFile || params.relativeWorkspacePath || params.file_path || params.path;
+            if (typeof filePath === 'string' && filePath.startsWith('/')) {
+              // Extract project root from absolute path (assume src/, lib/, etc. are inside project)
+              const match = filePath.match(/^(\/[^/]+(?:\/[^/]+)*?)\/(?:src|lib|test|tests|app|packages|node_modules)\//);
+              if (match) {
+                projectPath = match[1];
+                mcpLog(`[getComposerData] Project from toolFormerData: ${projectPath}`);
+                break;
               }
             }
           }
@@ -296,6 +294,10 @@ export function getConversationPair(composerId: string, usageUuid: string): Conv
     }>;
 
     // Filter to only bubbles matching our usageUuid
+    mcpLog(`[getConversationPair] Total rows from query: ${rows.length}, filtering for usageUuid=${usageUuid.substring(0, 8)}...`);
+    for (const r of rows) {
+      mcpLog(`[getConversationPair] Row: type=${r.type}, usageUuid=${r.usageUuid?.substring(0, 8) || 'null'}, requestId=${r.requestId?.substring(0, 8) || 'null'}, hasTool=${r.toolFormerData ? 'yes' : 'no'}`);
+    }
     const matchingBubbles = rows.filter(r => r.usageUuid === usageUuid || r.requestId === usageUuid);
 
     mcpLog(`[getConversationPair] usageUuid=${usageUuid.substring(0, 8)}...: found ${matchingBubbles.length} bubbles`);
@@ -311,6 +313,12 @@ export function getConversationPair(composerId: string, usageUuid: string): Conv
 
     // Get assistant bubbles (type=2)
     const assistantBubbles = matchingBubbles.filter(r => r.type === 2);
+
+    // Debug: log each bubble's fields
+    for (let i = 0; i < assistantBubbles.length; i++) {
+      const b = assistantBubbles[i];
+      mcpLog(`[getConversationPair] Bubble ${i}: text=${b.text?.length || 0}, thinking=${b.thinking?.length || 0}, hasTool=${b.toolFormerData ? 'yes' : 'no'}`);
+    }
 
     // Aggregate thinking from all bubbles
     const thinkingParts: string[] = [];
@@ -334,21 +342,26 @@ export function getConversationPair(composerId: string, usageUuid: string): Conv
       }
     }
 
-    // Aggregate tool calls from all bubbles
+    // Aggregate tool calls from all bubbles (toolFormerData is a JSON object with name/params)
     const allToolCalls: ToolCall[] = [];
     for (const bubble of assistantBubbles) {
       if (bubble.toolFormerData) {
         try {
-          const tools = JSON.parse(bubble.toolFormerData);
-          if (Array.isArray(tools)) {
-            for (const t of tools) {
-              if (typeof t.name === 'string') {
-                allToolCalls.push({
-                  name: t.name,
-                  params: typeof t.params === 'object' && t.params !== null ? t.params : {},
-                });
+          const toolData = JSON.parse(bubble.toolFormerData) as { name?: string; params?: string };
+          if (toolData.name) {
+            let params: Record<string, unknown> = {};
+            if (toolData.params) {
+              try {
+                params = JSON.parse(toolData.params);
+              } catch {
+                // params might not be valid JSON
               }
             }
+            allToolCalls.push({
+              name: toolData.name,
+              params,
+            });
+            mcpLog(`[getConversationPair] Tool: ${toolData.name}, params keys: ${Object.keys(params).join(',')}`);
           }
         } catch {
           // ignore parse errors
@@ -388,4 +401,33 @@ export function getConversationPair(composerId: string, usageUuid: string): Conv
 
 export function dbExists(): boolean {
   return existsSync(CURSOR_DB_PATH);
+}
+
+/**
+ * Get current workspace from Cursor's recently opened list.
+ * Index 0 = most recently accessed = current workspace.
+ */
+export function getCurrentWorkspace(): string | null {
+  const db = getDb();
+  if (!db) return null;
+
+  try {
+    const row = db.prepare(`SELECT value FROM ItemTable WHERE key = ?`).get('history.recentlyOpenedPathsList') as { value: string } | undefined;
+    if (!row) return null;
+
+    const data = JSON.parse(row.value) as { entries?: Array<{ folderUri?: string }> };
+    const folderUri = data.entries?.[0]?.folderUri;
+
+    if (!folderUri) return null;
+
+    // Remove file:// prefix
+    const projectPath = folderUri.replace('file://', '');
+    mcpLog(`[getCurrentWorkspace] Current workspace: ${projectPath}`);
+    return projectPath;
+  } catch (err) {
+    mcpLog(`[getCurrentWorkspace] Error: ${err}`);
+    return null;
+  } finally {
+    db.close();
+  }
 }

@@ -8,6 +8,7 @@ import {
   getComposerData,
   getLatestPromptId,
   getConversationPair,
+  getCurrentWorkspace,
   dbExists,
   type ConversationPair,
 } from './sqlite-reader.js';
@@ -229,7 +230,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  await handleCurrentPrompt(teamId, token, composerId, usageUuid, composer.projectPath);
+  // Get project path from current workspace (MRU list)
+  const projectPath = getCurrentWorkspace() || composer.projectPath;
+  mcpLog(`[main] Final project path: ${projectPath || '(none)'}`);
+
+  await handleCurrentPrompt(teamId, token, composerId, usageUuid, projectPath);
   mcpLog(`[main] Hook handler finished`);
 }
 

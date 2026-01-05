@@ -230,6 +230,16 @@ export function getLatestPromptId(composerId: string): string | null {
 
     if (rows.length === 0) return null;
 
+    // First: collect all usageUuids that have a user bubble (type=1)
+    // These are the only valid ones we can use
+    const uuidsWithUserBubble = new Set<string>();
+    for (const row of rows) {
+      if (row.type === 1 && row.requestId) {
+        uuidsWithUserBubble.add(row.requestId);
+      }
+    }
+    mcpLog(`[getLatestPromptId] usageUuids with user bubble: ${uuidsWithUserBubble.size}`);
+
     // Group by usageUuid, track latest timestamp and whether it has content
     const promptMap = new Map<string, { maxTimestamp: number; hasContent: boolean }>();
 
@@ -237,6 +247,9 @@ export function getLatestPromptId(composerId: string): string | null {
       // usageUuid is on assistant messages, requestId is on user messages (same value)
       const uuid = row.usageUuid || row.requestId;
       if (!uuid) continue;
+
+      // Skip usageUuids that don't have a user bubble (continuations)
+      if (!uuidsWithUserBubble.has(uuid)) continue;
 
       const hasContent = Boolean((row.text && row.text.length > 0) || (row.thinking && row.thinking.length > 0));
       const timestamp = row.createdAt ? parseInt(row.createdAt, 10) : 0;
@@ -254,7 +267,7 @@ export function getLatestPromptId(composerId: string): string | null {
       }
     }
 
-    mcpLog(`[getLatestPromptId] Distinct usageUuids: ${promptMap.size}`);
+    mcpLog(`[getLatestPromptId] Distinct usageUuids (with user bubble): ${promptMap.size}`);
 
     // Find the latest usageUuid that has content
     let latestUuid: string | null = null;

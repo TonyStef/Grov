@@ -214,8 +214,21 @@ STEP 3: ANALYZE the expanded content in detail.
         What does KB tell you? What do you now know about this task?
 
 STEP 4: DECIDE based on KB content:
-        → If KB answers the question: respond DIRECTLY. No other tools needed.
-        → If implementation required: use KB as foundation, then continue with needed tool calls.
+
+        → EXPLANATION/QUESTION tasks:
+          Respond DIRECTLY from KB. No Read/Grep needed.
+          KB = verified source, do NOT "verify in code".
+
+        → IMPLEMENTATION tasks:
+          Files in KB "FILES:" section = ALREADY KNOWN. Do NOT re-read them.
+          Decisions in KB = ALREADY MADE. Do NOT re-evaluate them.
+
+          ONLY read files that are:
+          - NOT mentioned in KB, AND
+          - REQUIRED for the new implementation
+
+          Start implementation using KB context as foundation.
+          Add NEW files only when KB doesn't cover them.
 
 RULES:
 - KB = Source of Truth = verified. Do NOT "verify" in code.

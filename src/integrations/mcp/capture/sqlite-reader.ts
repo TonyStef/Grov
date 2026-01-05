@@ -1,13 +1,29 @@
 // Read messages from Cursor SQLite
-// Location: ~/.config/Cursor/User/globalStorage/state.vscdb
+// Location varies by OS:
+//   Linux:   ~/.config/Cursor/User/globalStorage/state.vscdb
+//   macOS:   ~/Library/Application Support/Cursor/User/globalStorage/state.vscdb
+//   Windows: %APPDATA%/Cursor/User/globalStorage/state.vscdb
 
 import Database from 'better-sqlite3';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { mcpLog } from '../logger.js';
 
-const CURSOR_DB_PATH = join(homedir(), '.config/Cursor/User/globalStorage/state.vscdb');
+function getCursorDbPath(): string {
+  const home = homedir();
+
+  switch (platform()) {
+    case 'darwin':
+      return join(home, 'Library/Application Support/Cursor/User/globalStorage/state.vscdb');
+    case 'win32':
+      return join(process.env.APPDATA || join(home, 'AppData/Roaming'), 'Cursor/User/globalStorage/state.vscdb');
+    default:
+      return join(home, '.config/Cursor/User/globalStorage/state.vscdb');
+  }
+}
+
+const CURSOR_DB_PATH = getCursorDbPath();
 const TABLE = 'cursorDiskKV';
 
 export interface ToolCall {

@@ -2,7 +2,7 @@
 
 import type { AgentName } from '../../integrations/proxy/agents/types.js';
 import { getAgentByName } from '../../integrations/proxy/agents/index.js';
-import { setupMcpCursor, setupMcpAntigravity, setupMcpZed } from './setup.js';
+import { setupMcpCursor, setupMcpAntigravity, setupMcpZed, setupCursorHooks } from './setup.js';
 import { installProjectRules } from '../../integrations/mcp/clients/cursor/rules-installer.js';
 
 interface AgentInstructions {
@@ -32,7 +32,10 @@ export async function init(agentName: 'claude' | 'codex' | 'cursor' | 'antigravi
     // 1. MCP registration (global)
     await setupMcpCursor();
 
-    // 2. Project rules (per-project)
+    // 2. Stop hook registration (global)
+    await setupCursorHooks();
+
+    // 3. Project rules (per-project)
     const projectDir = process.cwd();
     const result = installProjectRules(projectDir);
 

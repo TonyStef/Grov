@@ -207,6 +207,14 @@ program
     await startMcpServer();
   });
 
+// grov capture-hook - Called by Cursor stop hook (internal)
+program
+  .command('capture-hook', { hidden: true })
+  .description('Internal: Called by Cursor stop hook to capture conversations')
+  .action(async () => {
+    await import('../integrations/mcp/capture/hook-handler.js');
+  });
+
 // Smart no-args behavior: show "get started" or status
 async function showSmartDefault(): Promise<void> {
   const { isAuthenticated, getSyncStatus } = await import('../core/cloud/credentials.js');

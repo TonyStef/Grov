@@ -13,6 +13,49 @@ const cyan = '\x1b[36m';
 const dim = '\x1b[2m';
 const reset = '\x1b[0m';
 
+export async function setupCursorHooks(): Promise<void> {
+  const hooksPath = join(homedir(), '.cursor', 'hooks.json');
+
+  const apiUrl = process.env.GROV_API_URL;
+  const command = apiUrl
+    ? `GROV_API_URL=${apiUrl} grov capture-hook`
+    : 'grov capture-hook';
+
+  const grovHook = { command };
+
+  let config: { version?: number; hooks?: { stop?: Array<{ command?: string }> } } = { version: 1, hooks: { stop: [] } };
+
+  if (existsSync(hooksPath)) {
+    try {
+      const content = readFileSync(hooksPath, 'utf-8');
+      config = JSON.parse(content);
+      if (!config.hooks) config.hooks = {};
+      if (!config.hooks.stop) config.hooks.stop = [];
+    } catch {
+      config = { version: 1, hooks: { stop: [] } };
+    }
+  }
+
+  const hasGrovHook = config.hooks!.stop!.some(
+    (h) => h.command?.includes('grov capture-hook')
+  );
+
+  if (hasGrovHook) {
+    console.log(`${green}✓${reset} Cursor stop hook already configured.`);
+    return;
+  }
+
+  config.hooks!.stop!.push(grovHook);
+
+  try {
+    writeFileSync(hooksPath, JSON.stringify(config, null, 2));
+    console.log(`${green}✓${reset} Cursor stop hook configured.`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`${yellow}⚠${reset} Could not write ${hooksPath}: ${msg}`);
+  }
+}
+
 export async function setupMcpCursor(): Promise<void> {
   const cursorDir = join(homedir(), '.cursor');
   const mcpPath = join(cursorDir, 'mcp.json');

@@ -14,7 +14,10 @@ export async function disable(agentName: 'claude' | 'codex' | 'cursor' | 'antigr
     // 1. Remove MCP registration (global)
     const mcpResult = removeCursorMcp();
 
-    // 2. Remove project rules pointer (keeps .grov/)
+    // 2. Remove stop hook (global)
+    const hooksResult = removeCursorHooks();
+
+    // 3. Remove project rules pointer (keeps .grov/)
     const projectDir = process.cwd();
     const pointerRemoved = removeProjectRulesPointer(projectDir);
 
@@ -22,6 +25,12 @@ export async function disable(agentName: 'claude' | 'codex' | 'cursor' | 'antigr
       console.log('  - MCP server unregistered');
     } else {
       console.log('  = MCP server was not registered');
+    }
+
+    if (hooksResult) {
+      console.log('  - Stop hook removed');
+    } else {
+      console.log('  = Stop hook was not configured');
     }
 
     if (pointerRemoved) {
@@ -111,6 +120,40 @@ function removeCursorMcp(): boolean {
 
     delete config.mcpServers.grov;
     writeFileSync(mcpPath, JSON.stringify(config, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove grov hook from ~/.cursor/hooks.json
+ */
+function removeCursorHooks(): boolean {
+  const hooksPath = join(homedir(), '.cursor', 'hooks.json');
+
+  if (!existsSync(hooksPath)) {
+    return false;
+  }
+
+  try {
+    const content = readFileSync(hooksPath, 'utf-8');
+    const config = JSON.parse(content) as { hooks?: { stop?: Array<{ command?: string }> } };
+
+    if (!config.hooks?.stop) {
+      return false;
+    }
+
+    const originalLength = config.hooks.stop.length;
+    config.hooks.stop = config.hooks.stop.filter(
+      (h) => !h.command?.includes('grov capture-hook')
+    );
+
+    if (config.hooks.stop.length === originalLength) {
+      return false;
+    }
+
+    writeFileSync(hooksPath, JSON.stringify(config, null, 2));
     return true;
   } catch {
     return false;

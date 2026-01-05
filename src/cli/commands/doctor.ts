@@ -33,9 +33,13 @@ export async function doctor(agent?: string): Promise<void> {
     await runCodexChecks();
   } else if (agent === 'cursor') {
     await runCursorChecks();
+  } else if (agent === 'antigravity') {
+    await runAntigravityChecks();
+  } else if (agent === 'zed') {
+    await runZedChecks();
   } else {
     console.log(`Unknown agent: ${agent}`);
-    console.log('Supported: claude, codex, cursor');
+    console.log('Supported: claude, codex, cursor, antigravity, zed');
   }
 
   console.log('');
@@ -149,4 +153,28 @@ function printCheck(name: string, ok: boolean, successMsg: string, failMsg: stri
   if (!ok) {
     console.log(`  \x1b[90m→ ${fix}\x1b[0m`);
   }
+}
+
+async function runAntigravityChecks(): Promise<void> {
+  console.log('Antigravity Checks\n');
+
+  const agent = getCliAgentById('antigravity');
+  if (agent) {
+    printCheck('MCP Server', agent.isConfigured(), 'Registered in ~/.gemini/antigravity/mcp_config.json', 'Not registered', 'grov init antigravity');
+  }
+
+  const antigravityDir = join(homedir(), '.gemini', 'antigravity');
+  printCheck('Antigravity Installed', existsSync(antigravityDir), '~/.gemini/antigravity exists', 'Not found', 'Install Antigravity IDE');
+}
+
+async function runZedChecks(): Promise<void> {
+  console.log('Zed Checks\n');
+
+  const agent = getCliAgentById('zed');
+  if (agent) {
+    printCheck('Context Server', agent.isConfigured(), 'Registered in ~/.config/zed/settings.json', 'Not registered', 'grov init zed');
+  }
+
+  const zedConfigDir = join(homedir(), '.config', 'zed');
+  printCheck('Zed Installed', existsSync(zedConfigDir), '~/.config/zed exists', 'Not found', 'Install Zed Editor');
 }

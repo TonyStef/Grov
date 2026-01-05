@@ -66,6 +66,121 @@ export async function setupMcpCursor(): Promise<void> {
   }
 }
 
+export async function setupMcpAntigravity(): Promise<void> {
+  const antigravityDir = join(homedir(), '.gemini', 'antigravity');
+  const mcpConfigPath = join(antigravityDir, 'mcp_config.json');
+
+  // Check if Antigravity directory exists
+  if (!existsSync(antigravityDir)) {
+    console.log(`${yellow}⚠${reset} Antigravity not installed (~/.gemini/antigravity not found)`);
+    console.log(`${dim}Install Antigravity first, then run this command again.${reset}\n`);
+    return;
+  }
+
+  const grovEntry = {
+    command: 'grov',
+    args: ['mcp'],
+  };
+
+  let config: { mcpServers?: Record<string, unknown> } = { mcpServers: {} };
+
+  // Read existing config
+  if (existsSync(mcpConfigPath)) {
+    try {
+      const content = readFileSync(mcpConfigPath, 'utf-8');
+      config = JSON.parse(content);
+      if (!config.mcpServers) {
+        config.mcpServers = {};
+      }
+    } catch {
+      console.log(`${yellow}⚠${reset} Could not parse ${mcpConfigPath}, creating new config.`);
+      config = { mcpServers: {} };
+    }
+  }
+
+  // Check if already configured
+  if (config.mcpServers?.grov) {
+    console.log(`${green}✓${reset} Antigravity MCP already configured for grov.`);
+    console.log(`${dim}Restart Antigravity to apply any changes.${reset}\n`);
+    return;
+  }
+
+  // Add grov entry
+  config.mcpServers!.grov = grovEntry;
+
+  // Write config
+  try {
+    writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2));
+    console.log(`${green}✓${reset} Antigravity MCP configured.`);
+    console.log(`${dim}Restart Antigravity to activate grov.${reset}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`${yellow}⚠${reset} Could not write ${mcpConfigPath}: ${msg}`);
+  }
+}
+
+export async function setupMcpZed(): Promise<void> {
+  const zedConfigDir = join(homedir(), '.config', 'zed');
+  const settingsPath = join(zedConfigDir, 'settings.json');
+
+  // Check if Zed config directory exists
+  if (!existsSync(zedConfigDir)) {
+    console.log(`${yellow}⚠${reset} Zed not installed (~/.config/zed not found)`);
+    console.log(`${dim}Install Zed first, then run this command again.${reset}\n`);
+    return;
+  }
+
+  const grovEntry = {
+    command: 'grov',
+    args: ['mcp'],
+  };
+
+  let config: Record<string, unknown> = {};
+
+  // Read existing config (preserve all settings)
+  if (existsSync(settingsPath)) {
+    try {
+      // Zed settings.json may have comments, try to parse anyway
+      const content = readFileSync(settingsPath, 'utf-8');
+      // Remove single-line comments for parsing
+      const cleanContent = content.replace(/^\s*\/\/.*$/gm, '');
+      config = JSON.parse(cleanContent);
+    } catch {
+      console.log(`${yellow}⚠${reset} Could not parse ${settingsPath}. Please add grov manually.`);
+      console.log(`\nAdd to your settings.json under "context_servers":`);
+      console.log(`  "grov": { "command": "grov", "args": ["mcp"] }\n`);
+      return;
+    }
+  }
+
+  // Ensure context_servers object exists
+  if (!config.context_servers) {
+    config.context_servers = {};
+  }
+
+  const contextServers = config.context_servers as Record<string, unknown>;
+
+  // Check if already configured
+  if (contextServers.grov) {
+    console.log(`${green}✓${reset} Zed context_servers already configured for grov.`);
+    console.log(`${dim}Restart Zed to apply any changes.${reset}\n`);
+    return;
+  }
+
+  // Add grov entry
+  contextServers.grov = grovEntry;
+
+  // Write config
+  try {
+    writeFileSync(settingsPath, JSON.stringify(config, null, 2));
+    console.log(`${green}✓${reset} Zed context_servers configured.`);
+    console.log(`${dim}Restart Zed to activate grov.${reset}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`${yellow}⚠${reset} Could not write ${settingsPath}: ${msg}`);
+  }
+}
+
 function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
     input: process.stdin,

@@ -23,6 +23,7 @@ const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const CURSOR_MCP_PATH = join(homedir(), '.cursor', 'mcp.json');
 const ZED_SETTINGS_PATH = join(homedir(), '.config', 'zed', 'settings.json');
+const ANTIGRAVITY_MCP_PATH = join(homedir(), '.gemini', 'antigravity', 'mcp_config.json');
 
 const AGENTS: CliAgent[] = [
   {
@@ -93,6 +94,24 @@ const AGENTS: CliAgent[] = [
       try {
         const config = JSON.parse(readFileSync(ZED_SETTINGS_PATH, 'utf-8')) as { context_servers?: { grov?: unknown } };
         return !!config.context_servers?.grov;
+      } catch {
+        return false;
+      }
+    },
+  },
+  {
+    id: 'antigravity',
+    name: 'Antigravity',
+    description: 'Google Antigravity IDE',
+    type: 'ide',
+    command: 'antigravity',
+    requirements: ['Antigravity IDE installed'],
+    configPath: ANTIGRAVITY_MCP_PATH,
+    isConfigured: () => {
+      if (!existsSync(ANTIGRAVITY_MCP_PATH)) return false;
+      try {
+        const config = JSON.parse(readFileSync(ANTIGRAVITY_MCP_PATH, 'utf-8')) as { mcpServers?: { grov?: unknown } };
+        return !!config.mcpServers?.grov;
       } catch {
         return false;
       }

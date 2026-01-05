@@ -45,28 +45,34 @@ program
   .description('Collective AI memory for engineering teams')
   .version(pkg.version);
 
-// grov init - Configure AI agent to use grov proxy/MCP
 program
   .command('init [agent]')
-  .description('Configure AI agent (claude, codex, or cursor)')
+  .description('Configure AI agent (claude, codex, cursor, antigravity, or zed)')
   .action(safeAction(async (agent?: string) => {
     const { init } = await import('./commands/init.js');
     if (agent === 'cursor') {
       await init('cursor');
+    } else if (agent === 'antigravity') {
+      await init('antigravity');
+    } else if (agent === 'zed') {
+      await init('zed');
     } else {
       const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
       await init(agentName);
     }
   }));
 
-// grov disable - Remove proxy/MCP configuration
 program
   .command('disable [agent]')
-  .description('Disable grov for AI agent (claude, codex, or cursor)')
+  .description('Disable grov for AI agent (claude, codex, cursor, antigravity, or zed)')
   .action(safeAction(async (agent?: string) => {
     const { disable } = await import('./commands/disable.js');
     if (agent === 'cursor') {
       await disable('cursor');
+    } else if (agent === 'antigravity') {
+      await disable('antigravity');
+    } else if (agent === 'zed') {
+      await disable('zed');
     } else {
       const agentName = (agent === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
       await disable(agentName);

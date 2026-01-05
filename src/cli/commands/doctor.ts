@@ -1,30 +1,31 @@
 // grov doctor - Check setup and diagnose issues
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { request } from 'undici';
-import { parse } from 'smol-toml';
 import { readCredentials, getSyncStatus } from '../../core/cloud/credentials.js';
 import { initDatabase } from '../../core/store/database.js';
+import { getAllCliAgents, getCliAgentById } from '../agents/registry.js';
 
-const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
-const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
-const CURSOR_MCP_PATH = join(homedir(), '.cursor', 'mcp.json');
 const DB_PATH = join(homedir(), '.grov', 'memory.db');
 
-type AgentName = 'claude' | 'codex' | 'cursor';
-
-export async function doctor(agent?: AgentName): Promise<void> {
+export async function doctor(agent?: string): Promise<void> {
   console.log('\nGrov Doctor');
   console.log('===========\n');
 
   if (!agent) {
     await runGeneralChecks();
     console.log('\n--- Agent Status ---\n');
-    checkAgentStatus('claude');
-    checkAgentStatus('codex');
-    checkAgentStatus('cursor');
+    for (const a of getAllCliAgents()) {
+      const configured = a.isConfigured();
+      const icon = configured ? '\x1b[32m●\x1b[0m' : '\x1b[90m○\x1b[0m';
+      const status = configured ? 'Configured' : 'Not configured';
+      console.log(`${icon} ${a.name}: ${status}`);
+      if (!configured) {
+        console.log(`  \x1b[90m→ grov init ${a.id}\x1b[0m`);
+      }
+    }
     console.log('\n\x1b[90mRun grov doctor <agent> for detailed checks\x1b[0m');
   } else if (agent === 'claude') {
     await runClaudeChecks();
@@ -32,6 +33,13 @@ export async function doctor(agent?: AgentName): Promise<void> {
     await runCodexChecks();
   } else if (agent === 'cursor') {
     await runCursorChecks();
+  } else if (agent === 'antigravity') {
+    await runAntigravityChecks();
+  } else if (agent === 'zed') {
+    await runZedChecks();
+  } else {
+    console.log(`Unknown agent: ${agent}`);
+    console.log('Supported: claude, codex, cursor, antigravity, zed');
   }
 
   console.log('');
@@ -57,33 +65,6 @@ async function runGeneralChecks(): Promise<void> {
   printCheck('Local Database', dbOk, dbMsg, 'Empty', 'Use Claude/Codex with proxy, or Cursor with MCP');
 }
 
-function checkAgentStatus(agent: AgentName): void {
-  if (agent === 'claude') {
-    const configured = isClaudeConfigured();
-    const icon = configured ? '\x1b[32m●\x1b[0m' : '\x1b[90m○\x1b[0m';
-    const status = configured ? 'Configured' : 'Not configured';
-    console.log(`${icon} Claude Code: ${status}`);
-    if (!configured) {
-      console.log('  \x1b[90m→ grov init claude\x1b[0m');
-    }
-  } else if (agent === 'codex') {
-    const configured = isCodexConfigured();
-    const icon = configured ? '\x1b[32m●\x1b[0m' : '\x1b[90m○\x1b[0m';
-    const status = configured ? 'Configured' : 'Not configured';
-    console.log(`${icon} Codex CLI: ${status}`);
-    if (!configured) {
-      console.log('  \x1b[90m→ grov init codex\x1b[0m');
-    }
-  } else if (agent === 'cursor') {
-    const configured = isCursorConfigured();
-    const icon = configured ? '\x1b[32m●\x1b[0m' : '\x1b[90m○\x1b[0m';
-    const status = configured ? 'Configured' : 'Not configured';
-    console.log(`${icon} Cursor: ${status}`);
-    if (!configured) {
-      console.log('  \x1b[90m→ grov init cursor\x1b[0m');
-    }
-  }
-}
 
 async function runClaudeChecks(): Promise<void> {
   console.log('Claude Code Checks\n');
@@ -91,14 +72,11 @@ async function runClaudeChecks(): Promise<void> {
   const proxyRunning = await checkProxy();
   printCheck('Proxy', proxyRunning, 'Running on port 8080', 'Not running', 'grov proxy');
 
-  const baseUrlConfigured = isClaudeConfigured();
-  printCheck('ANTHROPIC_BASE_URL', baseUrlConfigured, 'Configured for proxy', 'Not configured', 'grov init claude');
-
-  // Note: ANTHROPIC_API_KEY not needed - Claude Code auth comes from request headers
-
-  const settingsPath = CLAUDE_SETTINGS_PATH;
-  const hasSettings = existsSync(settingsPath);
-  printCheck('Settings file', hasSettings, settingsPath, 'Not found', 'Run claude once to create settings');
+  const agent = getCliAgentById('claude');
+  if (agent) {
+    printCheck('ANTHROPIC_BASE_URL', agent.isConfigured(), 'Configured for proxy', 'Not configured', 'grov init claude');
+    printCheck('Settings file', existsSync(agent.configPath), agent.configPath, 'Not found', 'Run claude once to create settings');
+  }
 }
 
 async function runCodexChecks(): Promise<void> {
@@ -107,8 +85,11 @@ async function runCodexChecks(): Promise<void> {
   const proxyRunning = await checkProxy();
   printCheck('Proxy', proxyRunning, 'Running on port 8080', 'Not running', 'grov proxy');
 
-  const configured = isCodexConfigured();
-  printCheck('model_provider', configured, 'Set to grov', 'Not configured', 'grov init codex');
+  const agent = getCliAgentById('codex');
+  if (agent) {
+    printCheck('model_provider', agent.isConfigured(), 'Set to grov', 'Not configured', 'grov init codex');
+    printCheck('Config file', existsSync(agent.configPath), agent.configPath, 'Not found', 'Run codex once to create config');
+  }
 
   const apiKey = process.env.OPENAI_API_KEY;
   const hasApiKey = !!(apiKey && apiKey.length > 10);
@@ -117,10 +98,6 @@ async function runCodexChecks(): Promise<void> {
     ? 'setx OPENAI_API_KEY "sk-..." (permanent)'
     : `Add to ${shell}: export OPENAI_API_KEY=sk-...`;
   printCheck('OPENAI_API_KEY', hasApiKey, 'Set', 'NOT SET - Codex will not work', apiKeyFix);
-
-  const configPath = CODEX_CONFIG_PATH;
-  const hasConfig = existsSync(configPath);
-  printCheck('Config file', hasConfig, configPath, 'Not found', 'Run codex once to create config');
 }
 
 async function checkProxy(): Promise<boolean> {
@@ -135,43 +112,13 @@ async function checkProxy(): Promise<boolean> {
   }
 }
 
-function isClaudeConfigured(): boolean {
-  if (!existsSync(CLAUDE_SETTINGS_PATH)) return false;
-  try {
-    const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, 'utf-8'));
-    return settings.env?.ANTHROPIC_BASE_URL === 'http://127.0.0.1:8080';
-  } catch {
-    return false;
-  }
-}
-
-function isCodexConfigured(): boolean {
-  if (!existsSync(CODEX_CONFIG_PATH)) return false;
-  try {
-    const content = readFileSync(CODEX_CONFIG_PATH, 'utf-8');
-    const config = parse(content) as { model_provider?: string; model_providers?: { grov?: unknown } };
-    return config.model_provider === 'grov' && !!config.model_providers?.grov;
-  } catch {
-    return false;
-  }
-}
-
-function isCursorConfigured(): boolean {
-  if (!existsSync(CURSOR_MCP_PATH)) return false;
-  try {
-    const content = readFileSync(CURSOR_MCP_PATH, 'utf-8');
-    const config = JSON.parse(content) as { mcpServers?: { grov?: unknown } };
-    return !!config.mcpServers?.grov;
-  } catch {
-    return false;
-  }
-}
-
 async function runCursorChecks(): Promise<void> {
   console.log('Cursor Checks\n');
 
-  const mcpConfigured = isCursorConfigured();
-  printCheck('MCP Server', mcpConfigured, 'Registered in ~/.cursor/mcp.json', 'Not registered', 'grov init cursor');
+  const agent = getCliAgentById('cursor');
+  if (agent) {
+    printCheck('MCP Server', agent.isConfigured(), 'Registered in ~/.cursor/mcp.json', 'Not registered', 'grov init cursor');
+  }
 
   const projectDir = process.cwd();
   const hasGrovRules = existsSync(join(projectDir, '.grov', 'rules.mdc'));
@@ -206,4 +153,28 @@ function printCheck(name: string, ok: boolean, successMsg: string, failMsg: stri
   if (!ok) {
     console.log(`  \x1b[90m→ ${fix}\x1b[0m`);
   }
+}
+
+async function runAntigravityChecks(): Promise<void> {
+  console.log('Antigravity Checks\n');
+
+  const agent = getCliAgentById('antigravity');
+  if (agent) {
+    printCheck('MCP Server', agent.isConfigured(), 'Registered in ~/.gemini/antigravity/mcp_config.json', 'Not registered', 'grov init antigravity');
+  }
+
+  const antigravityDir = join(homedir(), '.gemini', 'antigravity');
+  printCheck('Antigravity Installed', existsSync(antigravityDir), '~/.gemini/antigravity exists', 'Not found', 'Install Antigravity IDE');
+}
+
+async function runZedChecks(): Promise<void> {
+  console.log('Zed Checks\n');
+
+  const agent = getCliAgentById('zed');
+  if (agent) {
+    printCheck('Context Server', agent.isConfigured(), 'Registered in ~/.config/zed/settings.json', 'Not registered', 'grov init zed');
+  }
+
+  const zedConfigDir = join(homedir(), '.config', 'zed');
+  printCheck('Zed Installed', existsSync(zedConfigDir), '~/.config/zed exists', 'Not found', 'Install Zed Editor');
 }

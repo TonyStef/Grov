@@ -1,0 +1,151 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+
+const cliAgents = [
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    description: "Anthropic's CLI coding agent",
+    icon: '>_',
+    status: 'supported',
+  },
+  {
+    id: 'codex',
+    name: 'Codex',
+    description: "OpenAI's CLI agent",
+    icon: '◇',
+    status: 'supported',
+  },
+];
+
+const ideAgents = [
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    description: 'AI-powered IDE',
+    icon: '⌘',
+    status: 'supported',
+  },
+  {
+    id: 'zed',
+    name: 'Zed',
+    description: 'Modern code editor',
+    icon: 'Z',
+    status: 'supported',
+  },
+];
+
+const comingSoon = [
+  {
+    name: 'VS Code',
+    description: 'Copilot integration',
+    icon: '◆',
+  },
+  {
+    name: 'Gemini CLI',
+    description: "Google's CLI agent",
+    icon: '✦',
+  },
+];
+---
+
+<Layout
+  title="Integrations | Grov"
+  description="Grov works with Claude Code, Codex, Cursor, Zed, and more."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-4xl mx-auto">
+
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Integrations</span>
+        </div>
+        <h1 class="text-section text-grov-text mb-4" style="font-family: var(--font-display);">
+          Works with your tools
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary max-w-xl mx-auto">
+          Grov integrates with CLI agents and AI-powered IDEs.
+        </p>
+      </div>
+
+      <section class="mb-12">
+        <h2 class="text-lg font-medium text-grov-text mb-2">CLI Agents</h2>
+        <p class="text-sm text-grov-text-secondary mb-6">Require proxy running in background</p>
+        <div class="grid md:grid-cols-2 gap-4">
+          {cliAgents.map((agent) => (
+            <a href={`/docs/${agent.id}`} class="card p-6 group">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-xl bg-grov-surface-elevated border border-grov-border flex items-center justify-center font-mono text-lg text-grov-accent">
+                  {agent.icon}
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2 mb-1">
+                    <h3 class="font-medium text-grov-text group-hover:text-grov-accent transition-colors">{agent.name}</h3>
+                    <span class="px-2 py-0.5 bg-grov-accent/20 text-grov-accent text-xs rounded-full">Supported</span>
+                  </div>
+                  <p class="text-sm text-grov-text-secondary">{agent.description}</p>
+                </div>
+                <svg class="w-5 h-5 text-grov-text-muted group-hover:text-grov-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section class="mb-12">
+        <h2 class="text-lg font-medium text-grov-text mb-2">IDE Agents</h2>
+        <p class="text-sm text-grov-text-secondary mb-6">Native integration, no proxy needed</p>
+        <div class="grid md:grid-cols-2 gap-4">
+          {ideAgents.map((agent) => (
+            <a href={`/docs/${agent.id}`} class="card p-6 group">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-xl bg-grov-surface-elevated border border-grov-border flex items-center justify-center font-mono text-lg text-grov-accent">
+                  {agent.icon}
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2 mb-1">
+                    <h3 class="font-medium text-grov-text group-hover:text-grov-accent transition-colors">{agent.name}</h3>
+                    <span class="px-2 py-0.5 bg-grov-accent/20 text-grov-accent text-xs rounded-full">Supported</span>
+                  </div>
+                  <p class="text-sm text-grov-text-secondary">{agent.description}</p>
+                </div>
+                <svg class="w-5 h-5 text-grov-text-muted group-hover:text-grov-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section class="mb-12">
+        <h2 class="text-lg font-medium text-grov-text-muted mb-6">Coming Soon</h2>
+        <div class="grid md:grid-cols-2 gap-4">
+          {comingSoon.map((agent) => (
+            <div class="card p-6 opacity-60">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-xl bg-grov-surface-elevated border border-grov-border flex items-center justify-center font-mono text-lg text-grov-text-muted">
+                  {agent.icon}
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-medium text-grov-text-muted mb-1">{agent.name}</h3>
+                  <p class="text-sm text-grov-text-muted">{agent.description}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div class="text-center">
+        <a href="/start" class="btn-primary">
+          Get Started
+        </a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

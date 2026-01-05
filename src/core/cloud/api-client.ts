@@ -16,8 +16,7 @@ import type {
 } from '@grov/shared';
 
 // API configuration
-const API_URL = process.env.GROV_API_URL || 'http://localhost:3001';
-//const API_URL = process.env.GROV_API_URL || 'https://api.grov.dev';
+const API_URL = process.env.GROV_API_URL || 'https://api.grov.dev';
 
 
 // Response wrapper

@@ -6,6 +6,13 @@ import type { CodexResponse, CodexOutputItem } from './types.js';
 
 const OPENAI_BASE_URL = 'https://api.openai.com';
 
+const OPENAI_FORWARD_HEADERS = [
+  'authorization',
+  'openai-organization',
+  'openai-project',
+  'openai-beta',
+];
+
 const agent = new Agent({
   connect: { timeout: 30000 },
   autoSelectFamily: true,
@@ -88,9 +95,16 @@ function buildOpenAIHeaders(
 ): Record<string, string> {
   const result: Record<string, string> = {};
 
-  const auth = headers['authorization'] || headers['Authorization'];
-  if (auth) {
-    result['authorization'] = Array.isArray(auth) ? auth[0] : auth;
+  const lowerHeaders: Record<string, string | string[] | undefined> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    lowerHeaders[key.toLowerCase()] = value;
+  }
+
+  for (const header of OPENAI_FORWARD_HEADERS) {
+    const value = lowerHeaders[header.toLowerCase()];
+    if (value) {
+      result[header] = Array.isArray(value) ? value[0] : value;
+    }
   }
 
   return result;

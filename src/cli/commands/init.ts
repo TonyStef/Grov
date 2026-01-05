@@ -2,7 +2,7 @@
 
 import type { AgentName } from '../../integrations/proxy/agents/types.js';
 import { getAgentByName } from '../../integrations/proxy/agents/index.js';
-import { setupMcpCursor } from './setup.js';
+import { setupMcpCursor, setupMcpAntigravity, setupMcpZed } from './setup.js';
 import { installProjectRules } from '../../integrations/mcp/clients/cursor/rules-installer.js';
 
 interface AgentInstructions {
@@ -24,7 +24,7 @@ const AGENT_INSTRUCTIONS: Record<'claude' | 'codex', AgentInstructions> = {
   },
 };
 
-export async function init(agentName: 'claude' | 'codex' | 'cursor' = 'claude'): Promise<void> {
+export async function init(agentName: 'claude' | 'codex' | 'cursor' | 'antigravity' | 'zed' = 'claude'): Promise<void> {
   // Cursor: MCP-based setup (different from proxy)
   if (agentName === 'cursor') {
     console.log('Configuring grov for Cursor...\n');
@@ -55,6 +55,34 @@ export async function init(agentName: 'claude' | 'codex' | 'cursor' = 'claude'):
     return;
   }
 
+  // Antigravity: MCP-based setup
+  if (agentName === 'antigravity') {
+    console.log('Configuring grov for Antigravity...\n');
+
+    // MCP registration (global)
+    await setupMcpAntigravity();
+
+    console.log('\n--- Next Steps ---');
+    console.log('1. Restart Antigravity');
+    console.log('2. Open your project in Antigravity');
+    console.log('\nRun "grov doctor antigravity" to verify setup.');
+    return;
+  }
+
+  // Zed: MCP-based setup
+  if (agentName === 'zed') {
+    console.log('Configuring grov for Zed...\n');
+
+    // MCP registration (global)
+    await setupMcpZed();
+
+    console.log('\n--- Next Steps ---');
+    console.log('1. Restart Zed');
+    console.log('2. Open the Agent Panel in Zed');
+    console.log('\nRun "grov doctor zed" to verify setup.');
+    return;
+  }
+
   // Claude/Codex: proxy-based setup
   const agent = getAgentByName(agentName);
   if (!agent) {
@@ -76,34 +104,6 @@ export async function init(agentName: 'claude' | 'codex' | 'cursor' = 'claude'):
   }
 
   console.log(`\nConfig file: ${settings.getConfigPath()}`);
-
-  // Claude Code: no API key needed (auth comes from request headers)
-  // Codex: needs OPENAI_API_KEY for main requests
-  if (agentName === 'codex') {
-    const isWindows = process.platform === 'win32';
-    const shell = process.env.SHELL?.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
-
-    if (!process.env[instructions.envVar]) {
-      console.log('\n╔═══════════════════════════════════════════════════════════╗');
-      console.log(`║  ⚠️  ${instructions.envVar} NOT SET                              ║`);
-      console.log('╚═══════════════════════════════════════════════════════════╝');
-      console.log('\n  1. Get your API key at:');
-      console.log(`     ${instructions.keyUrl}\n`);
-
-      if (isWindows) {
-        console.log('  2. Set PERMANENTLY (run in Command Prompt as Admin):');
-        console.log(`     setx ${instructions.envVar} "your-key-here"\n`);
-        console.log('  3. Restart your terminal\n');
-      } else {
-        console.log('  2. Add PERMANENTLY to your shell:');
-        console.log(`     echo 'export ${instructions.envVar}=your-key-here' >> ${shell}\n`);
-        console.log('  3. Apply changes:');
-        console.log(`     source ${shell}\n`);
-      }
-    } else {
-      console.log(`\n  ✓ ${instructions.envVar} found`);
-    }
-  }
 
   console.log('\n--- Next Steps (Claude/Codex) ---');
   console.log('1. Terminal 1: grov proxy');

@@ -6,7 +6,7 @@ import { homedir } from 'os';
 import { getAgentByName } from '../../integrations/proxy/agents/index.js';
 import { removeProjectRulesPointer } from '../../integrations/mcp/clients/cursor/rules-installer.js';
 
-export async function disable(agentName: 'claude' | 'codex' | 'cursor' = 'claude'): Promise<void> {
+export async function disable(agentName: 'claude' | 'codex' | 'cursor' | 'antigravity' | 'zed' = 'claude'): Promise<void> {
   // Cursor: MCP-based disable
   if (agentName === 'cursor') {
     console.log('Disabling grov for Cursor...\n');
@@ -32,6 +32,38 @@ export async function disable(agentName: 'claude' | 'codex' | 'cursor' = 'claude
 
     console.log('\n.grov/ folder preserved (contains your rules).');
     console.log('Restart Cursor to apply changes.');
+    return;
+  }
+
+  // Antigravity: MCP-based disable
+  if (agentName === 'antigravity') {
+    console.log('Disabling grov for Antigravity...\n');
+
+    const mcpResult = removeAntigravityMcp();
+
+    if (mcpResult) {
+      console.log('  - MCP server unregistered');
+    } else {
+      console.log('  = MCP server was not registered');
+    }
+
+    console.log('\nRestart Antigravity to apply changes.');
+    return;
+  }
+
+  // Zed: MCP-based disable
+  if (agentName === 'zed') {
+    console.log('Disabling grov for Zed...\n');
+
+    const mcpResult = removeZedMcp();
+
+    if (mcpResult) {
+      console.log('  - Context server unregistered');
+    } else {
+      console.log('  = Context server was not registered');
+    }
+
+    console.log('\nRestart Zed to apply changes.');
     return;
   }
 
@@ -79,6 +111,60 @@ function removeCursorMcp(): boolean {
 
     delete config.mcpServers.grov;
     writeFileSync(mcpPath, JSON.stringify(config, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove grov MCP from ~/.gemini/antigravity/mcp_config.json
+ */
+function removeAntigravityMcp(): boolean {
+  const mcpConfigPath = join(homedir(), '.gemini', 'antigravity', 'mcp_config.json');
+
+  if (!existsSync(mcpConfigPath)) {
+    return false;
+  }
+
+  try {
+    const content = readFileSync(mcpConfigPath, 'utf-8');
+    const config = JSON.parse(content) as { mcpServers?: Record<string, unknown> };
+
+    if (!config.mcpServers?.grov) {
+      return false;
+    }
+
+    delete config.mcpServers.grov;
+    writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove grov from ~/.config/zed/settings.json context_servers
+ */
+function removeZedMcp(): boolean {
+  const settingsPath = join(homedir(), '.config', 'zed', 'settings.json');
+
+  if (!existsSync(settingsPath)) {
+    return false;
+  }
+
+  try {
+    const content = readFileSync(settingsPath, 'utf-8');
+    // Remove comments for parsing
+    const cleanContent = content.replace(/^\s*\/\/.*$/gm, '');
+    const config = JSON.parse(cleanContent) as { context_servers?: Record<string, unknown> };
+
+    if (!config.context_servers?.grov) {
+      return false;
+    }
+
+    delete config.context_servers.grov;
+    writeFileSync(settingsPath, JSON.stringify(config, null, 2));
     return true;
   } catch {
     return false;

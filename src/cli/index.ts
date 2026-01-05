@@ -165,7 +165,8 @@ program
   .option('--team <id>', 'Set team ID for sync')
   .option('--status', 'Show sync status')
   .option('--push', 'Upload any unsynced local tasks to the team')
-  .action(safeAction(async (options: { enable?: boolean; disable?: boolean; team?: string; status?: boolean; push?: boolean }) => {
+  .option('--antigravity', 'Sync Antigravity sessions to cloud')
+  .action(safeAction(async (options: { enable?: boolean; disable?: boolean; team?: string; status?: boolean; push?: boolean; antigravity?: boolean }) => {
     const { sync } = await import('./commands/sync.js');
     await sync(options);
   }));

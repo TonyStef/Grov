@@ -4,6 +4,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { CursorExtractRequest } from '../validators/cursor-format.js';
+import type { AntigravityExtractRequest } from '../routes/antigravity.js';
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
@@ -456,6 +457,158 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
       reasoning_trace: [],
       decisions: [],
       files_touched: files,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Antigravity Extraction
+// ─────────────────────────────────────────────────────────────
+
+export async function extractFromAntigravityData(req: AntigravityExtractRequest): Promise<ExtractedData> {
+  const prompt = `<role>
+You are a Knowledge Engineer specialized in extracting reusable team knowledge from coding session plans.
+
+Your output will be stored permanently in team memory and used to help developers in future sessions.
+</role>
+
+<context>
+This extraction is from Antigravity IDE's planning output. Unlike conversation data, this contains:
+1. A task title describing what the user wanted
+2. An implementation plan with [MODIFY] markers showing planned file changes
+3. Files that were actually touched during implementation
+
+NOTE: We do NOT have access to the AI's reasoning or conversation. We only have the structured plan output.
+Extract what you can from this limited data.
+</context>
+
+<antigravity_session>
+TASK TITLE:
+${req.title}
+
+METADATA SUMMARY:
+${req.metadataSummary || 'Not available'}
+
+IMPLEMENTATION PLAN:
+${req.planContent.substring(0, 6000)}
+
+TASK CHECKLIST:
+${req.taskContent.substring(0, 1000)}
+
+FILES TOUCHED:
+${req.filesTouched.join(', ') || 'None recorded'}
+
+COMPLETION STATUS: ${req.completionStatus}
+</antigravity_session>
+
+<instructions>
+Extract structured knowledge from this planning data.
+
+TASK TYPE DETECTION:
+- If plan contains [MODIFY] or [CREATE] markers with file changes = "implementation"
+- If plan discusses options/tradeoffs without concrete changes = "planning"
+- If minimal content = "information"
+
+GOAL: Synthesize from task title and plan content. Max 150 chars. Start with component/tech name.
+
+SYSTEM_NAME: 2-5 words identifying what system/feature this is about.
+
+SUMMARY: 150-200 chars describing the work done. Front-load with tech/component name.
+
+KNOWLEDGE EXTRACTION:
+Since we don't have conversation, extract from the plan:
+- What files are being modified and why (from [MODIFY] markers)
+- What components/systems are involved
+- Any architectural decisions evident in the plan structure
+
+DECISIONS:
+Look for choices made in the plan - technology choices, architectural approaches, file organization.
+</instructions>
+
+<output_format>
+Return a JSON object:
+{
+  "system_name": "[2-5 words - specific proper noun for the system/feature]",
+  "goal": "[max 150 chars - starts with Tech/Component name]",
+  "summary": "[150-200 chars - front-loaded with tech name]",
+  "task_type": "[information | planning | implementation]",
+  "knowledge_pairs": [
+    {
+      "aspect": "[2-4 words - specific component]",
+      "conclusion": "CONCLUSION: [specific finding from plan - max 150 chars]",
+      "insight": "INSIGHT: [architectural pattern or implication - max 150 chars]"
+    }
+  ],
+  "decisions": [
+    {
+      "aspect": "[2-4 words]",
+      "choice": "[what was chosen - max 100 chars]",
+      "reason": "[inferred from plan context - max 150 chars]"
+    }
+  ]
+}
+
+Rules:
+1. system_name is MANDATORY
+2. goal is MANDATORY
+3. Max 5 knowledge_pairs, max 5 decisions
+4. Use "CONCLUSION: " and "INSIGHT: " prefixes
+5. English only, no emojis
+6. Return ONLY valid JSON
+</output_format>`;
+
+  const result = await callHaiku(2000, prompt);
+  if (!result) {
+    return {
+      system_name: null,
+      goal: req.title.slice(0, 150),
+      summary: req.metadataSummary || req.title,
+      task_type: req.filesTouched.length > 0 ? 'implementation' : 'planning',
+      reasoning_trace: [],
+      decisions: [],
+      files_touched: req.filesTouched,
+    };
+  }
+
+  try {
+    const match = result.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON found');
+
+    const parsed = JSON.parse(match[0]) as Record<string, unknown>;
+    const knowledgePairs = Array.isArray(parsed.knowledge_pairs) ? parsed.knowledge_pairs : parsed.reasoning_trace;
+
+    return {
+      system_name: typeof parsed.system_name === 'string' ? parsed.system_name : null,
+      goal: typeof parsed.goal === 'string' ? parsed.goal : req.title.slice(0, 150),
+      summary: typeof parsed.summary === 'string' ? parsed.summary : req.metadataSummary || req.title,
+      task_type: ['information', 'planning', 'implementation'].includes(parsed.task_type as string)
+        ? (parsed.task_type as 'information' | 'planning' | 'implementation')
+        : (req.filesTouched.length > 0 ? 'implementation' : 'planning'),
+      reasoning_trace: Array.isArray(knowledgePairs)
+        ? knowledgePairs.map((r: Record<string, unknown>) => ({
+            aspect: typeof r.aspect === 'string' ? r.aspect : undefined,
+            conclusion: typeof r.conclusion === 'string' ? r.conclusion : '',
+            insight: typeof r.insight === 'string' ? r.insight : null,
+          }))
+        : [],
+      decisions: Array.isArray(parsed.decisions)
+        ? parsed.decisions.map((d: Record<string, unknown>) => ({
+            aspect: typeof d.aspect === 'string' ? d.aspect : undefined,
+            choice: typeof d.choice === 'string' ? d.choice : '',
+            reason: typeof d.reason === 'string' ? d.reason : '',
+          }))
+        : [],
+      files_touched: req.filesTouched,
+    };
+  } catch {
+    return {
+      system_name: null,
+      goal: req.title.slice(0, 150),
+      summary: req.metadataSummary || req.title,
+      task_type: req.filesTouched.length > 0 ? 'implementation' : 'planning',
+      reasoning_trace: [],
+      decisions: [],
+      files_touched: req.filesTouched,
     };
   }
 }

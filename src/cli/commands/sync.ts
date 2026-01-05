@@ -9,6 +9,8 @@ import {
 import { fetchTeams, getApiUrl } from '../../core/cloud/api-client.js';
 import { syncTasks } from '../../core/cloud/cloud-sync.js';
 import { getUnsyncedTasks, markTaskSynced, setTaskSyncError } from '../../core/store/store.js';
+import { scanOnce as scanAntigravity, type ScanResult } from '../../integrations/mcp/capture/antigravity-scanner.js';
+import { antigravityExists } from '../../integrations/mcp/capture/antigravity-parser.js';
 
 export interface SyncOptions {
   enable?: boolean;
@@ -16,6 +18,7 @@ export interface SyncOptions {
   team?: string;
   status?: boolean;
   push?: boolean;
+  antigravity?: boolean;
 }
 
 export async function sync(options: SyncOptions): Promise<void> {
@@ -24,6 +27,12 @@ export async function sync(options: SyncOptions): Promise<void> {
   if (!creds) {
     console.log('Not logged in. Run "grov login" first.\n');
     process.exit(1);
+  }
+
+  // Sync Antigravity sessions
+  if (options.antigravity) {
+    await syncAntigravitySessions();
+    return;
   }
 
   // Manual catch-up: push unsynced tasks for current project
@@ -162,5 +171,59 @@ export async function sync(options: SyncOptions): Promise<void> {
     if (!syncStatus?.enabled) {
       console.log('Note: Sync is not enabled. Run "grov sync --enable" to start syncing.\n');
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Antigravity Sync
+// ─────────────────────────────────────────────────────────────
+
+async function syncAntigravitySessions(): Promise<void> {
+  // Check prerequisites
+  if (!antigravityExists()) {
+    console.log('Antigravity not installed.\n');
+    console.log('Antigravity IDE stores its data in ~/.gemini/antigravity/');
+    console.log('Install Antigravity or check if the directory exists.\n');
+    process.exit(1);
+  }
+
+  const syncStatus = getSyncStatus();
+  if (!syncStatus?.enabled || !syncStatus.teamId) {
+    console.log('Cloud sync not configured.\n');
+    console.log('Enable sync first:');
+    console.log('  grov sync --enable --team <team-id>\n');
+    process.exit(1);
+  }
+
+  console.log('Scanning Antigravity sessions...\n');
+
+  try {
+    const result: ScanResult = await scanAntigravity();
+
+    console.log('Antigravity Sync Results\n');
+    console.log(`  Sessions scanned: ${result.scanned}`);
+    console.log(`  New memories:     ${result.synced}`);
+    console.log(`  Updated:          ${result.updated}`);
+    console.log(`  Skipped:          ${result.skipped}`);
+    console.log(`  Failed:           ${result.failed}`);
+    console.log('');
+
+    if (result.errors.length > 0) {
+      console.log('Errors:');
+      for (const err of result.errors) {
+        console.log(`  - ${err}`);
+      }
+      console.log('');
+    }
+
+    if (result.scanned === 0) {
+      console.log('No sessions found in ~/.gemini/antigravity/brain/');
+      console.log('Sessions are created when you use Antigravity IDE.\n');
+    } else if (result.synced === 0 && result.updated === 0 && result.failed === 0) {
+      console.log('All sessions are already synced.\n');
+    }
+  } catch (err) {
+    console.error(`Sync failed: ${err instanceof Error ? err.message : 'Unknown error'}\n`);
+    process.exit(1);
   }
 }

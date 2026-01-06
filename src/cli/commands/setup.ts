@@ -36,20 +36,27 @@ export async function setupCursorHooks(): Promise<void> {
     }
   }
 
-  const hasGrovHook = config.hooks!.stop!.some(
+  // Remove existing grov hook (if any) to replace with new one
+  const hadGrovHook = config.hooks!.stop!.some(
     (h) => h.command?.includes('grov capture-hook')
   );
+  config.hooks!.stop! = config.hooks!.stop!.filter(
+    (h) => !h.command?.includes('grov capture-hook')
+  );
 
-  if (hasGrovHook) {
-    console.log(`${green}✓${reset} Cursor stop hook already configured.`);
-    return;
-  }
-
+  // Add new grov hook
   config.hooks!.stop!.push(grovHook);
 
   try {
     writeFileSync(hooksPath, JSON.stringify(config, null, 2));
-    console.log(`${green}✓${reset} Cursor stop hook configured.`);
+    if (hadGrovHook) {
+      console.log(`${green}✓${reset} Cursor stop hook updated.`);
+    } else {
+      console.log(`${green}✓${reset} Cursor stop hook configured.`);
+    }
+    if (apiUrl) {
+      console.log(`${dim}  API URL: ${apiUrl}${reset}`);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     console.error(`${yellow}⚠${reset} Could not write ${hooksPath}: ${msg}`);
@@ -67,10 +74,16 @@ export async function setupMcpCursor(): Promise<void> {
     return;
   }
 
-  const grovEntry = {
+  // Build grov entry - add env if GROV_API_URL is set
+  const apiUrl = process.env.GROV_API_URL;
+  const grovEntry: { command: string; args: string[]; env?: Record<string, string> } = {
     command: 'grov',
     args: ['mcp'],
   };
+
+  if (apiUrl) {
+    grovEntry.env = { GROV_API_URL: apiUrl };
+  }
 
   let mcpConfig: { mcpServers?: Record<string, unknown> } = { mcpServers: {} };
 
@@ -88,21 +101,23 @@ export async function setupMcpCursor(): Promise<void> {
     }
   }
 
-  // Check if already configured
-  if (mcpConfig.mcpServers?.grov) {
-    console.log(`${green}✓${reset} Cursor MCP already configured for grov.`);
-    console.log(`${dim}Restart Cursor to apply any changes.${reset}\n`);
-    return;
-  }
+  const wasConfigured = !!mcpConfig.mcpServers?.grov;
 
-  // Add grov entry
+  // Always set/update grov entry
   mcpConfig.mcpServers!.grov = grovEntry;
 
   // Write config
   try {
     writeFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2));
-    console.log(`${green}✓${reset} Cursor MCP configured.`);
-    console.log(`${dim}Restart Cursor to activate grov.${reset}\n`);
+    if (wasConfigured) {
+      console.log(`${green}✓${reset} Cursor MCP updated.`);
+    } else {
+      console.log(`${green}✓${reset} Cursor MCP configured.`);
+    }
+    if (apiUrl) {
+      console.log(`${dim}  API URL: ${apiUrl}${reset}`);
+    }
+    console.log(`${dim}Restart Cursor to apply changes.${reset}\n`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     console.error(`${yellow}⚠${reset} Could not write ${mcpPath}: ${msg}`);

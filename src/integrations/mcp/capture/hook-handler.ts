@@ -48,7 +48,6 @@ function modeNumToString(num: 1 | 2 | 5): 'ask' | 'plan' | 'agent' {
 
 async function postToApi(teamId: string, token: string, payload: ExtractPayload): Promise<boolean> {
   try {
-    mcpLog(`[postToApi] Sending to ${API_URL}/teams/${teamId}/cursor/extract`);
     const res = await request(`${API_URL}/teams/${teamId}/cursor/extract`, {
       method: 'POST',
       headers: {
@@ -57,11 +56,8 @@ async function postToApi(teamId: string, token: string, payload: ExtractPayload)
       },
       body: JSON.stringify(payload),
     });
-
-    mcpLog(`[postToApi] Response status: ${res.statusCode}`);
     return res.statusCode === 200;
-  } catch (err) {
-    mcpLog(`[postToApi] Error: ${err instanceof Error ? err.message : 'unknown'}`);
+  } catch {
     return false;
   }
 }
@@ -86,8 +82,6 @@ function buildPayload(
 async function handlePlanTimeout(teamId: string, token: string): Promise<void> {
   const planState = getPlanState();
   if (!planState || !isPlanTimedOut(PLAN_TIMEOUT_MS)) return;
-
-  mcpLog(`[handlePlanTimeout] Plan timed out, flushing ${planState.usageUuids.length} prompts`);
 
   const composer = getComposerData(planState.composerId);
   if (!composer) {
@@ -119,32 +113,26 @@ async function handleCurrentPrompt(
   usageUuid: string,
   projectPath: string
 ): Promise<void> {
-  // Already synced?
-  if (isSynced(composerId, usageUuid)) {
-    mcpLog(`[handleCurrentPrompt] Already synced: ${usageUuid.substring(0, 8)}...`);
-    return;
-  }
+  if (isSynced(composerId, usageUuid)) return;
 
-  // Get aggregated conversation pair
   const pair = getConversationPair(composerId, usageUuid);
-  if (!pair) {
-    mcpLog(`[handleCurrentPrompt] No pair found for ${usageUuid.substring(0, 8)}...`);
-    return;
-  }
+  if (!pair) return;
 
   const mode = pair.assistant.unifiedMode;
-  mcpLog(`[handleCurrentPrompt] Mode: ${modeNumToString(mode)}, bubbles: ${pair.assistant.bubbleCount}`);
+
+  // Warn if text is empty (helps debug text=0 issue)
+  if (pair.assistant.text.length === 0) {
+    mcpLog(`[hook] WARNING: Assistant text is EMPTY for ${usageUuid.substring(0, 8)}...`);
+  }
 
   // Ask mode (1): skip
   if (mode === 1) {
-    mcpLog(`[handleCurrentPrompt] Ask mode - marking synced without sending`);
     markSynced(composerId, usageUuid);
     return;
   }
 
   // Plan mode (5): accumulate
   if (mode === 5) {
-    mcpLog(`[handleCurrentPrompt] Plan mode - accumulating`);
     addToPlanState(composerId, usageUuid);
     return;
   }
@@ -152,90 +140,69 @@ async function handleCurrentPrompt(
   // Agent mode (2): check if we have accumulated plan to send first
   const planState = getPlanState();
   if (planState && planState.composerId === composerId) {
-    mcpLog(`[handleCurrentPrompt] Plan->Agent transition, flushing ${planState.usageUuids.length} plan prompts`);
-
     for (const planUuid of planState.usageUuids) {
       if (isSynced(composerId, planUuid)) continue;
-
       const planPair = getConversationPair(composerId, planUuid);
       if (!planPair) continue;
-
       const planPayload = buildPayload(planPair, projectPath);
       const success = await postToApi(teamId, token, planPayload);
-      if (success) {
-        markSynced(composerId, planUuid);
-      }
+      if (success) markSynced(composerId, planUuid);
     }
     clearPlanState();
   }
 
-  // Now send current agent message
+  // Send current agent message
   const payload = buildPayload(pair, projectPath);
   const success = await postToApi(teamId, token, payload);
 
   if (success) {
-    mcpLog(`[handleCurrentPrompt] Successfully synced ${usageUuid.substring(0, 8)}...`);
     markSynced(composerId, usageUuid);
   } else {
-    mcpLog(`[handleCurrentPrompt] Failed to sync ${usageUuid.substring(0, 8)}...`);
+    mcpLog(`[hook] Failed to sync ${usageUuid.substring(0, 8)}...`);
   }
 }
 
+// Helper to sleep
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function main(): Promise<void> {
-  mcpLog(`[main] Hook handler started`);
+  mcpLog(`[hook] started`);
+
+  // Wait 3 seconds to let Cursor finish writing to SQLite
+  await sleep(3000);
 
   // Check prerequisites
-  if (!dbExists()) {
-    mcpLog(`[main] Cursor SQLite not found, exiting`);
-    process.exit(0);
-  }
+  if (!dbExists()) process.exit(0);
 
   const syncStatus = getSyncStatus();
-  if (!syncStatus?.enabled || !syncStatus.teamId) {
-    mcpLog(`[main] Sync not enabled or no team ID, exiting`);
-    process.exit(0);
-  }
+  if (!syncStatus?.enabled || !syncStatus.teamId) process.exit(0);
 
   const token = await getAccessToken();
-  if (!token) {
-    mcpLog(`[main] No access token, exiting`);
-    process.exit(0);
-  }
+  if (!token) process.exit(0);
 
   const teamId = syncStatus.teamId;
-  mcpLog(`[main] Team: ${teamId}`);
 
-  // First: handle any timed-out plan from a DIFFERENT conversation
+  // Handle any timed-out plan from a DIFFERENT conversation
   await handlePlanTimeout(teamId, token);
 
   // Get latest composer (skips empty ones)
   const composerId = getLatestComposerId();
-  if (!composerId) {
-    mcpLog(`[main] No composer with bubbles found, exiting`);
-    process.exit(0);
-  }
+  if (!composerId) process.exit(0);
 
   const composer = getComposerData(composerId);
-  if (!composer) {
-    mcpLog(`[main] Composer data not found, exiting`);
-    process.exit(0);
-  }
-
-  mcpLog(`[main] Composer: ${composerId.substring(0, 8)}..., project: ${composer.projectPath || '(none)'}`);
+  if (!composer) process.exit(0);
 
   // Get latest prompt (usageUuid) with content
   const usageUuid = getLatestPromptId(composerId);
-  if (!usageUuid) {
-    mcpLog(`[main] No valid prompt found, exiting`);
-    process.exit(0);
-  }
+  if (!usageUuid) process.exit(0);
 
   // Get project path from current workspace (MRU list)
   const projectPath = getCurrentWorkspace() || composer.projectPath;
-  mcpLog(`[main] Final project path: ${projectPath || '(none)'}`);
 
   await handleCurrentPrompt(teamId, token, composerId, usageUuid, projectPath);
-  mcpLog(`[main] Hook handler finished`);
+  mcpLog(`[hook] finished`);
 }
 
 main().catch((err) => {

@@ -322,26 +322,32 @@ export function getConversationPair(composerId: string, usageUuid: string): Conv
       toolFormerData: string | null;
     }>;
 
-    // Filter to only bubbles matching our usageUuid
-    mcpLog(`[getConversationPair] Total rows from query: ${rows.length}, filtering for usageUuid=${usageUuid.substring(0, 8)}...`);
-    for (const r of rows) {
-      mcpLog(`[getConversationPair] Row: type=${r.type}, usageUuid=${r.usageUuid?.substring(0, 8) || 'null'}, requestId=${r.requestId?.substring(0, 8) || 'null'}, hasTool=${r.toolFormerData ? 'yes' : 'no'}`);
-    }
-    const matchingBubbles = rows.filter(r => r.usageUuid === usageUuid || r.requestId === usageUuid);
+    // Find START: user bubble (type=1) with requestId = usageUuid
+    mcpLog(`[getConversationPair] Total rows: ${rows.length}, looking for usageUuid=${usageUuid.substring(0, 8)}...`);
 
-    mcpLog(`[getConversationPair] usageUuid=${usageUuid.substring(0, 8)}...: found ${matchingBubbles.length} bubbles`);
-
-    if (matchingBubbles.length === 0) return null;
-
-    // Find user bubble (type=1)
-    const userBubble = matchingBubbles.find(r => r.type === 1);
-    if (!userBubble) {
-      mcpLog(`[getConversationPair] No user bubble found`);
+    const startIdx = rows.findIndex(r => r.type === 1 && r.requestId === usageUuid);
+    if (startIdx === -1) {
+      mcpLog(`[getConversationPair] No user bubble found for usageUuid`);
       return null;
     }
 
-    // Get assistant bubbles (type=2)
-    const assistantBubbles = matchingBubbles.filter(r => r.type === 2);
+    const userBubble = rows[startIdx];
+    mcpLog(`[getConversationPair] Found user bubble at index ${startIdx}`);
+
+    // Collect ALL type=2 bubbles until next type=1 or end of array
+    // This includes continuation bubbles with NULL usageUuid
+    const assistantBubbles: typeof rows = [];
+    for (let i = startIdx + 1; i < rows.length; i++) {
+      if (rows[i].type === 1) {
+        mcpLog(`[getConversationPair] Stopping at next user bubble (index ${i})`);
+        break;
+      }
+      if (rows[i].type === 2) {
+        assistantBubbles.push(rows[i]);
+      }
+    }
+
+    mcpLog(`[getConversationPair] Found ${assistantBubbles.length} assistant bubbles (including continuations)`);
 
     // Debug: log each bubble's fields
     for (let i = 0; i < assistantBubbles.length; i++) {

@@ -5,6 +5,8 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createServer } from './server.js';
 import { mcpLog, mcpError } from './logger.js';
+import { startScanner, stopScanner } from './capture/antigravity-scanner.js';
+import { antigravityExists } from './capture/antigravity-parser.js';
 
 /**
  * Start the MCP server
@@ -24,15 +26,23 @@ export async function startMcpServer(): Promise<void> {
   await server.connect(transport);
   mcpLog('Server connected via stdio transport');
 
+  // Start Antigravity scanner only if Antigravity is installed
+  const hasAntigravity = antigravityExists();
+  if (hasAntigravity) {
+    startScanner();
+  }
+
   // Handle clean shutdown
   process.on('SIGINT', async () => {
     mcpLog('Received SIGINT, shutting down');
+    if (hasAntigravity) stopScanner();
     await server.close();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
     mcpLog('Received SIGTERM, shutting down');
+    if (hasAntigravity) stopScanner();
     await server.close();
     process.exit(0);
   });

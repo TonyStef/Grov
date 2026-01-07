@@ -22,7 +22,7 @@ import { mcpLog } from '../logger.js';
 // Constants
 // ─────────────────────────────────────────────────────────────
 
-const SCAN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const SCAN_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
 let scannerInterval: ReturnType<typeof setInterval> | null = null;
 
 // ─────────────────────────────────────────────────────────────
@@ -182,7 +182,7 @@ export function startScanner(): void {
     return;
   }
 
-  mcpLog('[ANTIGRAVITY-SCANNER] Starting periodic scanner (5 min interval)');
+  mcpLog('[ANTIGRAVITY-SCANNER] Starting periodic scanner (3 min interval)');
 
   // Run immediately
   scanOnce().catch(err => {

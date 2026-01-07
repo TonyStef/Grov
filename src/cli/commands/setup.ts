@@ -120,9 +120,15 @@ export async function setupMcpAntigravity(): Promise<void> {
     return;
   }
 
+  // Extract project name from cwd (Antigravity runs MCP with cwd="/")
+  const projectPath = process.cwd().split('/').filter(Boolean).pop() || 'unknown';
+
   const grovEntry = {
     command: 'grov',
     args: ['mcp'],
+    env: {
+      GROV_PROJECT_PATH: projectPath,
+    },
   };
 
   let config: { mcpServers?: Record<string, unknown> } = { mcpServers: {} };

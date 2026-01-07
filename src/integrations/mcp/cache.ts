@@ -40,6 +40,11 @@ const previewCache = new Map<string, CacheEntry>();
  * We extract just the folder name to match how proxy stores project_path.
  */
 export function getProjectPath(): string {
+  // Check explicit project path (set by grov init antigravity)
+  if (process.env.GROV_PROJECT_PATH) {
+    return process.env.GROV_PROJECT_PATH;
+  }
+
   const workspacePaths = process.env.WORKSPACE_FOLDER_PATHS;
 
   if (workspacePaths) {

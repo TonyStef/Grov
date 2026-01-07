@@ -4,8 +4,6 @@ import { getMemoryById, getCachedIds } from '../cache.js';
 import type { Memory } from '@grov/shared';
 
 export async function handleExpand(id: string): Promise<string> {
-  console.log('handleExpand called with id:', id);
-
   const memory = getMemoryById(id);
 
   if (!memory) {

@@ -14,7 +14,14 @@ const cliAgents = [
     id: 'codex',
     name: 'Codex',
     description: "OpenAI's CLI agent",
-    icon: '◇',
+    icon: '>_',
+    status: 'supported',
+  },
+  {
+    id: 'cursor-cli',
+    name: 'Cursor CLI',
+    description: "Cursor's CLI agent",
+    icon: '>_',
     status: 'supported',
   },
 ];
@@ -28,10 +35,17 @@ const ideAgents = [
     status: 'supported',
   },
   {
+    id: 'antigravity',
+    name: 'Antigravity',
+    description: "Google's AI IDE",
+    icon: '⌘',
+    status: 'supported',
+  },
+  {
     id: 'zed',
     name: 'Zed',
     description: 'Modern code editor',
-    icon: 'Z',
+    icon: '⌘',
     status: 'supported',
   },
 ];
@@ -52,7 +66,7 @@ const comingSoon = [
 
 <Layout
   title="Integrations | Grov"
-  description="Grov works with Claude Code, Codex, Cursor, Zed, and more."
+  description="Grov works with Claude Code, Codex, Cursor, Cursor CLI, Antigravity, Zed, and more."
 >
   <main class="pt-24 pb-16 px-6">
     <div class="max-w-4xl mx-auto">

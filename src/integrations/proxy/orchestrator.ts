@@ -250,6 +250,8 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
     // Handle grov_expand internal tool loop
     let loopCount = 0;
     const maxLoops = 5;
+    const { __grovInjection: _i, __grovUserMsgInjection: _u, __grovInjectionCached: _c, __grovReconstructedCount: _r, __grovOriginalLastUserPos, __grovRawUserPrompt: _p, ...cleanProcessedBody } = processedBody as Record<string, unknown>;
+    let accumulatedBody = cleanProcessedBody as { messages: Array<{ role: string; content: unknown }> };
 
     while (
       result.statusCode === 200 &&
@@ -261,47 +263,61 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
       if (!grovExpandBlock) break;
 
       loopCount++;
-      const ids = (grovExpandBlock.input as { ids?: string[] })?.ids || [];
+      const allToolUseBlocks = adapter.getToolUseBlocks(result.body);
+      const toolResultBlocks: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
+      let grovExpandResult = '';
 
-      const expandedParts: string[] = [];
-      for (const id of ids) {
-        const memory = getCachedMemoryById(sessionInfo.projectPath, id);
-        if (memory) {
-          expandedParts.push(buildExpandedMemory(memory));
+      for (const block of allToolUseBlocks) {
+        if (block.name === 'grov_expand') {
+          const ids = (block.input as { ids?: string[] })?.ids || [];
+          const expandedParts: string[] = [];
+
+          for (const id of ids) {
+            const memory = getCachedMemoryById(sessionInfo.projectPath, id);
+            if (memory) {
+              expandedParts.push(buildExpandedMemory(memory));
+            } else {
+              expandedParts.push(`Memory #${id} not found - it may be from an older conversation. Only expand IDs from the CURRENT knowledge base.`);
+            }
+          }
+
+          if (ids.length > 0) {
+            const expandedCount = expandedParts.filter(p => !p.includes('not found')).length;
+            console.log(`[MEMORY] Expanded ${expandedCount}/${ids.length} memories`);
+          }
+
+          grovExpandResult = expandedParts.join('\n\n');
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: grovExpandResult,
+          });
         } else {
-          console.log(`[MEMORY] NOT FOUND: #${id}`);
-          expandedParts.push(`Memory #${id} not found - it may be from an older conversation. Only expand IDs from the CURRENT knowledge base.`);
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: 'This tool call was deferred. Use the expanded project knowledge base context above, then call this tool separately if still needed.',
+          });
         }
       }
 
-      if (ids.length > 0) {
-        const expandedCount = expandedParts.filter(p => !p.includes('not found')).length;
-        console.log(`[MEMORY] Expanded ${expandedCount}/${ids.length} memories`);
-      }
-
-      const toolResult = expandedParts.join('\n\n');
-
-      const originalPos = (processedBody as Record<string, unknown>).__grovOriginalLastUserPos as number;
-      const pos = originalPos ?? 0;
+      const pos = __grovOriginalLastUserPos as number ?? 0;
       if (!hasToolCycleAtPosition(sessionInfo.projectPath, pos)) {
         addInjectionRecord(sessionInfo.projectPath, {
           position: pos,
           type: 'tool_cycle',
           toolUse: { id: grovExpandBlock.id, name: 'grov_expand', input: grovExpandBlock.input },
-          toolResult,
+          toolResult: grovExpandResult,
         });
       }
 
-      // Strip internal __grov* fields before building continue body
-      const { __grovInjection, __grovUserMsgInjection, __grovInjectionCached, __grovReconstructedCount, __grovOriginalLastUserPos, __grovRawUserPrompt: _rawPrompt2, ...cleanProcessedBody } = processedBody as Record<string, unknown>;
-      const continueBody = adapter.buildContinueBody(
-        cleanProcessedBody,
-        getAssistantContent(result.body, adapter),
-        toolResult,
-        grovExpandBlock.id
-      );
+      const assistantContent = getAssistantContent(result.body, adapter);
+      const messages = [...accumulatedBody.messages];
+      messages.push({ role: 'assistant', content: assistantContent });
+      messages.push({ role: 'user', content: toolResultBlocks });
+      accumulatedBody = { ...accumulatedBody, messages };
 
-      result = await adapter.forward(continueBody, headers);
+      result = await adapter.forward(accumulatedBody, headers);
     }
 
     const forwardLatency = Date.now() - forwardStart;

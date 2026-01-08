@@ -2,7 +2,7 @@
 // Cursor CLI stores conversations in protobuf-like blobs with embedded JSON
 
 import Database from 'better-sqlite3';
-import { findAllCLIDatabases } from './cli-watcher.js';
+import { findAllCLIDatabases, getConnectTime } from './cli-watcher.js';
 import { isAlreadyCaptured, markAsCaptured, cleanupOldChats } from './cli-synced.js';
 import { transformToApiFormat, postToApi } from './cli-transform.js';
 
@@ -46,7 +46,12 @@ export async function pollAndCaptureAll(): Promise<void> {
   const databases = findAllCLIDatabases();
   if (databases.length === 0) return;
 
-  for (const { dbPath, agentId } of databases) {
+  const startTime = getConnectTime();
+
+  for (const { dbPath, agentId, mtime } of databases) {
+    // Skip DBs not modified since MCP connect
+    if (mtime < startTime) continue;
+
     try {
       await captureFromDatabase(dbPath, agentId);
     } catch {

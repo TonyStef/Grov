@@ -10,6 +10,7 @@ const POLL_INTERVAL = 3 * 60 * 1000; // 3 minutes
 
 let pollingInterval: ReturnType<typeof setInterval> | null = null;
 let pollFunction: (() => Promise<void>) | null = null;
+let connectTime: number = 0;
 
 /**
  * Start CLI capture polling
@@ -17,6 +18,7 @@ let pollFunction: (() => Promise<void>) | null = null;
  */
 export function startCLICapture(pollAndCapture: () => Promise<void>): () => void {
   pollFunction = pollAndCapture;
+  connectTime = Date.now();
 
   // Initial poll (delayed slightly to let MCP fully connect)
   setTimeout(() => {
@@ -39,6 +41,10 @@ export function startCLICapture(pollAndCapture: () => Promise<void>): () => void
     }
     pollFunction = null;
   };
+}
+
+export function getConnectTime(): number {
+  return connectTime;
 }
 
 /**

@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { Brain, ChevronRight, Clock, FileCode } from 'lucide-react';
 import { getDashboardData } from '@/lib/queries/dashboard-rpc';
 import { formatRelativeDate, truncate, getInitials } from '@/lib/utils';
+import { SoloHints } from '@/components/ui/solo-hints';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -59,6 +60,9 @@ export default async function DashboardPage() {
             description="New memories"
           />
         </div>
+
+        {/* Subtle hints for solo users */}
+        {stats.team_members === 1 && <SoloHints />}
 
         <div className="grid gap-4 lg:grid-cols-5">
           <div className="lg:col-span-3 rounded-xl border border-border bg-root p-4">

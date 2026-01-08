@@ -59,17 +59,13 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
       // Validate format
       const validation = validateCursorFormat(request.body);
       if (!validation.valid) {
-        console.log(`[CURSOR] Validation failed: ${validation.error}`);
         return sendError(reply, 400, validation.error || 'Invalid format');
       }
 
       const req = parseCursorRequest(request.body);
-      console.log(`[CURSOR] Request: composerId=${req.composerId.slice(0, 8)}..., usageUuid=${req.usageUuid.slice(0, 8)}..., mode=${req.mode}, project=${req.projectPath}`);
-      console.log(`[CURSOR] Content: query=${req.original_query.length} chars, text=${req.text.length} chars, thinking=${req.thinking.length} chars, tools=${req.toolCalls.length}`);
 
       // Skip ask mode - just acknowledge
       if (req.mode === 'ask') {
-        console.log(`[CURSOR] Skipping ask mode`);
         return { success: true, action: 'skip', reason: 'ask mode' };
       }
 
@@ -80,12 +76,9 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
       }
 
       // Extract with Haiku
-      console.log(`[CURSOR] Calling Haiku extraction...`);
       const extracted = await extractFromCursorData(req);
-      console.log(`[CURSOR] Haiku result: goal=${extracted.goal?.slice(0, 50) || 'null'}..., summary=${extracted.summary?.slice(0, 50) || 'null'}..., reasoning=${extracted.reasoning_trace.length}, decisions=${extracted.decisions.length}`);
 
       if (!extracted.goal && !extracted.summary && extracted.reasoning_trace.length === 0) {
-        console.log(`[CURSOR] No extractable content, skipping`);
         return { success: true, action: 'skip', reason: 'no extractable content' };
       }
 
@@ -93,7 +86,6 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
       let matchedMemory: ExistingMemory | null = null;
 
       if (isEmbeddingEnabled() && extracted.summary) {
-        console.log(`[CURSOR] Generating chunks for memory search...`);
         const chunks = await generateChunks({
           system_name: extracted.system_name,
           summary: extracted.summary,
@@ -104,7 +96,6 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
         });
 
         if (chunks && chunks.length > 0) {
-          console.log(`[CURSOR] Generated ${chunks.length} chunks, searching for match...`);
           const embeddingsArray = chunks.map(c => `"[${c.embedding.join(',')}]"`);
           const embeddingsStr = `{${embeddingsArray.join(',')}}`;
 
@@ -118,7 +109,7 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
           });
 
           if (rpcError) {
-            console.log(`[CURSOR] RPC error: ${rpcError.message}`);
+            fastify.log.error(`[CURSOR] RPC error: ${rpcError.message}`);
           }
 
           if (data && data.length > 0) {
@@ -133,13 +124,8 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
               files_touched: (raw.files_touched || []) as string[],
               reasoning_evolution: (raw.reasoning_evolution || []) as Array<{ content: string; date: string }>,
             };
-            console.log(`[CURSOR] Found matching memory: ${matchedMemory.id.slice(0, 8)}...`);
-          } else {
-            console.log(`[CURSOR] No matching memory found (data=${JSON.stringify(data)})`);
           }
         }
-      } else {
-        console.log(`[CURSOR] Embeddings disabled or no summary, skipping match search`);
       }
 
       // Decide action
@@ -148,8 +134,6 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
       let updateResult: ShouldUpdateResult | null = null;
 
       if (matchedMemory) {
-        console.log(`[CURSOR] Calling shouldUpdateMemory...`);
-
         // Build SessionContext for the new signature
         const sessionContext: SessionContext = {
           task_type: extracted.task_type,
@@ -158,7 +142,6 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
         };
 
         updateResult = await shouldUpdateMemory(matchedMemory, extracted, sessionContext);
-        console.log(`[CURSOR] shouldUpdateMemory: ${updateResult.should_update ? 'UPDATE' : 'SKIP'} - ${updateResult.reason}`);
 
         if (!updateResult.should_update) {
           return { success: true, action: 'skip', reason: updateResult.reason };
@@ -250,8 +233,6 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
           evolution_steps: finalEvolutionSteps,
           reasoning_evolution: finalReasoningEvolution,
         };
-
-        console.log(`[CURSOR] Merge: ${updatedDecisions.length} existing + ${newDecisions.length} new decisions, ${supersededMap.size} superseded`);
       } else {
         // INSERT: simple structure
         memoryData = {
@@ -272,7 +253,6 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
       }
 
       // Save
-      console.log(`[CURSOR] Action: ${action}`);
       if (action === 'update' && memoryId) {
         const { error } = await supabase
           .from('memories')
@@ -281,11 +261,9 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
           .eq('team_id', teamId);
 
         if (error) {
-          console.log(`[CURSOR] Update FAILED: ${error.message}`);
           fastify.log.error(`[CURSOR] Update failed: ${error.message}`);
           return sendError(reply, 500, 'Update failed');
         }
-        console.log(`[CURSOR] Updated memory: ${memoryId.slice(0, 8)}...`);
       } else {
         const { data, error } = await supabase
           .from('memories')
@@ -294,13 +272,11 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
           .single();
 
         if (error || !data) {
-          console.log(`[CURSOR] Insert FAILED: ${error?.message}`);
           fastify.log.error(`[CURSOR] Insert failed: ${error?.message}`);
           return sendError(reply, 500, 'Insert failed');
         }
 
         memoryId = data.id;
-        console.log(`[CURSOR] Inserted new memory: ${memoryId?.slice(0, 8)}...`);
       }
 
       // Generate and save chunks
@@ -316,11 +292,9 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
 
         if (chunks) {
           await saveChunks(memoryId, teamId, req.projectPath, chunks);
-          console.log(`[CURSOR] Saved ${chunks.length} chunks for memory`);
         }
       }
 
-      console.log(`[CURSOR] Done: action=${action}, memoryId=${memoryId?.slice(0, 8)}...`);
       return { success: true, action, memoryId };
     }
   );

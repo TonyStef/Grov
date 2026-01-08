@@ -1113,8 +1113,6 @@ export async function shouldUpdateMemory(
     evolutionCount
   );
 
-  console.log(`[HAIKU] shouldUpdateMemory started (needsConsolidation=${needsConsolidation})`);
-
   const result = await callHaiku(needsConsolidation ? 1500 : 800, prompt);
   if (!result) {
     return createFallbackResult(sessionContext);
@@ -1140,8 +1138,6 @@ export async function shouldUpdateMemory(
     parsed.superseded_mapping = parsed.superseded_mapping ?? [];
     parsed.condensed_old_reasoning = parsed.condensed_old_reasoning ?? null;
     parsed.evolution_summary = parsed.evolution_summary ?? null;
-
-    console.log(`[HAIKU] shouldUpdateMemory result: should_update=${parsed.should_update}, reason="${parsed.reason.substring(0, 50)}"`);
 
     return parsed;
   } catch {

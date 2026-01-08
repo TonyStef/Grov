@@ -119,17 +119,13 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
       // Validate format
       const validation = validateRequest(request.body);
       if (!validation.valid) {
-        console.log(`[ANTIGRAVITY] Validation failed: ${validation.error}`);
         return sendError(reply, 400, validation.error);
       }
 
       const req = validation.data;
-      console.log(`[ANTIGRAVITY] Request: sessionId=${req.sessionId.slice(0, 8)}..., project=${req.projectPath}, title=${req.title.slice(0, 50)}`);
-      console.log(`[ANTIGRAVITY] Content: plan=${req.planContent.length} chars, task=${req.taskContent.length} chars, files=${req.filesTouched.length}`);
 
       // Skip if no plan content
       if (!req.planContent.trim()) {
-        console.log(`[ANTIGRAVITY] Skipping - no plan content`);
         return { success: true, action: 'skip', reason: 'no plan content' };
       }
 
@@ -140,12 +136,9 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
       }
 
       // Extract with Haiku
-      console.log(`[ANTIGRAVITY] Calling Haiku extraction...`);
       const extracted = await extractFromAntigravityData(req);
-      console.log(`[ANTIGRAVITY] Haiku result: goal=${extracted.goal?.slice(0, 50) || 'null'}..., summary=${extracted.summary?.slice(0, 50) || 'null'}..., reasoning=${extracted.reasoning_trace.length}, decisions=${extracted.decisions.length}`);
 
       if (!extracted.goal && !extracted.summary && extracted.reasoning_trace.length === 0) {
-        console.log(`[ANTIGRAVITY] No extractable content, skipping`);
         return { success: true, action: 'skip', reason: 'no extractable content' };
       }
 
@@ -153,7 +146,6 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
       let matchedMemory: ExistingMemory | null = null;
 
       if (isEmbeddingEnabled() && extracted.summary) {
-        console.log(`[ANTIGRAVITY] Generating chunks for memory search...`);
         const chunks = await generateChunks({
           system_name: extracted.system_name,
           summary: extracted.summary,
@@ -164,7 +156,6 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
         });
 
         if (chunks && chunks.length > 0) {
-          console.log(`[ANTIGRAVITY] Generated ${chunks.length} chunks, searching for match...`);
           const embeddingsArray = chunks.map(c => `"[${c.embedding.join(',')}]"`);
           const embeddingsStr = `{${embeddingsArray.join(',')}}`;
 
@@ -178,7 +169,7 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
           });
 
           if (rpcError) {
-            console.log(`[ANTIGRAVITY] RPC error: ${rpcError.message}`);
+            fastify.log.error(`[ANTIGRAVITY] RPC error: ${rpcError.message}`);
           }
 
           if (data && data.length > 0) {
@@ -192,13 +183,8 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
               files_touched: (raw.files_touched || []) as string[],
               reasoning_evolution: (raw.reasoning_evolution || []) as Array<{ content: string; date: string }>,
             };
-            console.log(`[ANTIGRAVITY] Found matching memory: ${matchedMemory.id.slice(0, 8)}...`);
-          } else {
-            console.log(`[ANTIGRAVITY] No matching memory found (data=${JSON.stringify(data)})`);
           }
         }
-      } else {
-        console.log(`[ANTIGRAVITY] Embeddings disabled or no summary, skipping match search`);
       }
 
       // Decide action
@@ -207,8 +193,6 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
       let updateResult: ShouldUpdateResult | null = null;
 
       if (matchedMemory) {
-        console.log(`[ANTIGRAVITY] Calling shouldUpdateMemory...`);
-
         const sessionContext: SessionContext = {
           task_type: extracted.task_type,
           original_query: req.title,
@@ -216,7 +200,6 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
         };
 
         updateResult = await shouldUpdateMemory(matchedMemory, extracted, sessionContext);
-        console.log(`[ANTIGRAVITY] shouldUpdateMemory: ${updateResult.should_update ? 'UPDATE' : 'SKIP'} - ${updateResult.reason}`);
 
         if (!updateResult.should_update) {
           return { success: true, action: 'skip', reason: updateResult.reason };
@@ -299,8 +282,6 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
           evolution_steps: evolutionSteps.slice(-MAX_EVOLUTION_STEPS),
           reasoning_evolution: reasoningEvolution.slice(-MAX_REASONING_EVOLUTION),
         };
-
-        console.log(`[ANTIGRAVITY] Merge: ${updatedDecisions.length} existing + ${newDecisions.length} new decisions`);
       } else {
         // INSERT: simple structure
         memoryData = {
@@ -322,7 +303,6 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
       }
 
       // Save
-      console.log(`[ANTIGRAVITY] Action: ${action}`);
       if (action === 'update' && memoryId) {
         const { error } = await supabase
           .from('memories')
@@ -331,11 +311,9 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
           .eq('team_id', teamId);
 
         if (error) {
-          console.log(`[ANTIGRAVITY] Update FAILED: ${error.message}`);
           fastify.log.error(`[ANTIGRAVITY] Update failed: ${error.message}`);
           return sendError(reply, 500, 'Update failed');
         }
-        console.log(`[ANTIGRAVITY] Updated memory: ${memoryId.slice(0, 8)}...`);
       } else {
         const { data, error } = await supabase
           .from('memories')
@@ -344,13 +322,11 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
           .single();
 
         if (error || !data) {
-          console.log(`[ANTIGRAVITY] Insert FAILED: ${error?.message}`);
           fastify.log.error(`[ANTIGRAVITY] Insert failed: ${error?.message}`);
           return sendError(reply, 500, 'Insert failed');
         }
 
         memoryId = data.id;
-        console.log(`[ANTIGRAVITY] Inserted new memory: ${memoryId?.slice(0, 8)}...`);
       }
 
       // Generate and save chunks
@@ -366,11 +342,9 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
 
         if (chunks) {
           await saveChunks(memoryId, teamId, req.projectPath, chunks);
-          console.log(`[ANTIGRAVITY] Saved ${chunks.length} chunks for memory`);
         }
       }
 
-      console.log(`[ANTIGRAVITY] Done: action=${action}, memoryId=${memoryId?.slice(0, 8)}...`);
       return { success: true, action, memoryId, sessionId: req.sessionId };
     }
   );

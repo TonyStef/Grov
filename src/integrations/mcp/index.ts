@@ -9,7 +9,7 @@ import { startCLICapture, cliChatsExist } from './capture/cli-watcher.js';
 import { pollAndCaptureAll } from './capture/cli-extractor.js';
 import { isCLICaptureEnabled } from './capture/cli-transform.js';
 import { startScanner, stopScanner } from './capture/antigravity-scanner.js';
-import { antigravityExists } from './capture/antigravity-parser.js';
+import { isAntigravityConfigured } from './capture/antigravity-parser.js';
 
 // Cleanup function for CLI capture polling
 let stopCLICapture: (() => void) | null = null;
@@ -66,9 +66,9 @@ export async function startMcpServer(): Promise<void> {
     stopCLICapture = startCLICapture(pollAndCaptureAll);
   }
 
-  // Start Antigravity scanner only if Antigravity is installed
-  const hasAntigravity = antigravityExists();
-  if (hasAntigravity) {
+  // Start Antigravity scanner only if grov is configured for Antigravity
+  const antigravityEnabled = isAntigravityConfigured();
+  if (antigravityEnabled) {
     startScanner();
   }
 
@@ -78,7 +78,7 @@ export async function startMcpServer(): Promise<void> {
     if (isShuttingDown) return;
     isShuttingDown = true;
     if (stopCLICapture) stopCLICapture();
-    if (hasAntigravity) stopScanner();
+    if (antigravityEnabled) stopScanner();
     await server.close();
     process.exit(0);
   };

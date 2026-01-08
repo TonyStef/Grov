@@ -9,6 +9,7 @@ import { join, basename } from 'path';
 const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
 const BRAIN_DIR = join(ANTIGRAVITY_DIR, 'brain');
 const CODE_TRACKER_DIR = join(ANTIGRAVITY_DIR, 'code_tracker', 'active');
+const MCP_CONFIG_PATH = join(ANTIGRAVITY_DIR, 'mcp_config.json');
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -40,6 +41,16 @@ interface MetadataJson {
 
 export function antigravityExists(): boolean {
   return existsSync(BRAIN_DIR);
+}
+
+export function isAntigravityConfigured(): boolean {
+  if (!existsSync(MCP_CONFIG_PATH)) return false;
+  try {
+    const config = JSON.parse(readFileSync(MCP_CONFIG_PATH, 'utf-8')) as { mcpServers?: { grov?: unknown } };
+    return !!config.mcpServers?.grov;
+  } catch {
+    return false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

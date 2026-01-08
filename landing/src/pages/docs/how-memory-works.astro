@@ -1,0 +1,303 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Footer from '../../components/Footer.astro';
+---
+
+<Layout
+  title="How Memory Injection Works | Grov"
+  description="Deep dive into Grov's semantic search and expand-on-demand system for AI memory."
+>
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-3xl mx-auto">
+
+      <div class="mb-8">
+        <a href="/docs" class="text-sm text-grov-text-secondary hover:text-grov-accent transition-colors">
+          ← Back to Documentation
+        </a>
+      </div>
+
+      <!-- Header -->
+      <div class="mb-12">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Architecture</span>
+        </div>
+        <h1 class="text-section text-grov-text mb-4" style="font-family: var(--font-display);">
+          How Memory Injection Works
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary">
+          Semantic search + expand on demand. Get relevant context without burning tokens.
+        </p>
+      </div>
+
+      <!-- TL;DR -->
+      <section class="card p-6 mb-8 border-l-4 border-l-grov-accent">
+        <h2 class="text-sm font-bold text-grov-accent uppercase tracking-wider mb-3">TL;DR</h2>
+        <p class="text-grov-text-secondary">
+          When you send a prompt, Grov finds the 3-5 most relevant memories using semantic search. 
+          It injects lightweight previews (~100 tokens each). The LLM reads the previews and decides 
+          which ones to expand. Only expanded memories use full tokens (500-1000 each).
+        </p>
+      </section>
+
+      <!-- Flow Overview -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">The Flow</h2>
+        <div class="code-block mb-6 overflow-x-auto">
+          <pre class="text-sm text-grov-text-muted whitespace-pre font-mono">User Prompt
+     |
+     v
++---------------------+
+|   Semantic Search   |  ← Find 3-5 relevant memories
++---------------------+
+     |
+     v
++---------------------+
+|  Preview Injection  |  ← ~100 tokens each
++---------------------+
+     |
+     v
++---------------------+
+|    LLM Decides      |  ← Picks what to expand
++---------------------+
+     |
+     v
++---------------------+
+|   grov_expand()     |  ← 500-1000 tokens each
++---------------------+
+     |
+     v
+Response with Context</pre>
+        </div>
+      </section>
+
+      <!-- Step by Step -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Step by Step</h2>
+        
+        <div class="space-y-8">
+          <!-- Step 1 -->
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">1</span>
+              <span class="font-medium text-grov-text text-lg">User sends a prompt</span>
+            </div>
+            <div class="code-block">
+              <code class="text-grov-text">"How does authentication work in this project?"</code>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">2</span>
+              <span class="font-medium text-grov-text text-lg">Proxy intercepts → Semantic search</span>
+            </div>
+            <p class="text-grov-text-secondary text-sm mb-4">
+              Grov converts the prompt to a vector embedding and finds the most similar memories.
+            </p>
+            <div class="code-block">
+              <pre class="text-sm font-mono"><code><span class="text-grov-text-muted">// Semantic search finds relevant memories</span>
+<span class="text-grov-accent">memories</span> = semanticSearch(prompt, limit: 5)
+
+<span class="text-grov-text-muted">// Returns sorted by relevance:</span>
+<span class="text-grov-text-muted">// [0.92] "JWT token validation flow"</span>
+<span class="text-grov-text-muted">// [0.88] "OAuth2 integration with Google"</span>
+<span class="text-grov-text-muted">// [0.85] "Session management decisions"</span>
+<span class="text-grov-text-muted">// [0.78] "Password hashing approach"</span></code></pre>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">3</span>
+              <span class="font-medium text-grov-text text-lg">Preview injection</span>
+            </div>
+            <p class="text-grov-text-secondary text-sm mb-4">
+              Grov injects lightweight previews into the system prompt. Each preview is ~100 tokens.
+            </p>
+            <div class="code-block">
+              <pre class="text-sm font-mono"><code><span class="text-grov-text-muted">// Preview structure (~100 tokens each)</span>
+<span class="text-grov-accent">preview:</span>
+  id: <span class="text-orange-400">"mem_abc123"</span>
+  title: <span class="text-orange-400">"JWT token validation flow"</span>
+  summary: <span class="text-orange-400">"Implemented JWT validation...</span>
+    <span class="text-orange-400">Tokens expire after 24h...</span>
+    <span class="text-orange-400">Key files: src/middleware/auth.ts"</span>
+  relevance: <span class="text-orange-400">0.92</span></code></pre>
+            </div>
+          </div>
+
+          <!-- Step 4 -->
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">4</span>
+              <span class="font-medium text-grov-text text-lg">LLM decides what to expand</span>
+            </div>
+            <p class="text-grov-text-secondary text-sm mb-4">
+              The LLM reads the previews and decides which memories it actually needs. 
+              It might expand 1, 2, or all 5 - depending on the task.
+            </p>
+            <div class="code-block">
+              <pre class="text-sm font-mono"><code><span class="text-grov-text-muted">// LLM calls expand for what it needs:</span>
+<span class="text-grov-accent">grov_expand</span>("mem_abc123")  <span class="text-grov-text-muted">// JWT - relevant</span>
+<span class="text-grov-accent">grov_expand</span>("mem_def456")  <span class="text-grov-text-muted">// OAuth2 - relevant</span>
+<span class="text-grov-text-muted">// Skips password hashing - not needed</span></code></pre>
+            </div>
+          </div>
+
+          <!-- Step 5 -->
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">5</span>
+              <span class="font-medium text-grov-text text-lg">Expand returns full memory</span>
+            </div>
+            <p class="text-grov-text-secondary text-sm mb-4">
+              Expanded memories include full reasoning, code references, and decisions. 
+              Each expanded memory is 500-1000 tokens.
+            </p>
+            <div class="code-block">
+              <pre class="text-sm font-mono"><code><span class="text-grov-text-muted">// Full memory (~800 tokens)</span>
+<span class="text-grov-accent">expandedMemory:</span>
+  title: <span class="text-orange-400">"JWT token validation flow"</span>
+  
+  reasoning: <span class="text-orange-400">"Chose JWT over sessions for</span>
+    <span class="text-orange-400">stateless auth. Access tokens: 15min</span>
+    <span class="text-orange-400">expiry. Refresh tokens: 7d, httpOnly."</span>
+  
+  decisions:
+    - <span class="text-orange-400">"Use RS256 for token signing"</span>
+    - <span class="text-orange-400">"Store refresh tokens in Redis"</span>
+    - <span class="text-orange-400">"Validate on every protected route"</span>
+  
+  codeRefs:
+    - <span class="text-orange-400">"src/middleware/auth.ts:45-89"</span>
+    - <span class="text-orange-400">"src/lib/jwt.ts:12-67"</span></code></pre>
+            </div>
+          </div>
+
+          <!-- Step 6 -->
+          <div>
+            <div class="flex items-center gap-3 mb-4">
+              <span class="w-8 h-8 rounded-full bg-grov-accent text-grov-black text-sm font-bold flex items-center justify-center">6</span>
+              <span class="font-medium text-grov-text text-lg">Response with full context</span>
+            </div>
+            <p class="text-grov-text-secondary text-sm">
+              The LLM now has exactly the context it needs. It can answer accurately 
+              without reading files or spawning explore agents.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Token Math -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Token Breakdown</h2>
+        
+        <div class="space-y-6">
+          <div>
+            <h3 class="font-medium text-grov-accent mb-4">With Grov (typical case)</h3>
+            <div class="code-block">
+              <pre class="text-sm font-mono"><code>Previews:      5 x 100   =      <span class="text-grov-accent">500 tokens</span>
+Expanded:      2 x 800   =    <span class="text-grov-accent">1,600 tokens</span>
+---------------------------------------
+Total:                        <span class="text-grov-accent font-bold">2,100 tokens</span></code></pre>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-medium text-grov-text-muted mb-4">With Grov (worst case - all 5 expanded)</h3>
+            <div class="code-block">
+              <pre class="text-sm font-mono"><code>Previews:      5 x 100   =      <span class="text-grov-text">500 tokens</span>
+Expanded:      5 x 1000  =    <span class="text-grov-text">5,000 tokens</span>
+---------------------------------------
+Total:                        <span class="text-grov-text font-bold">5,500 tokens</span></code></pre>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-medium text-red-400 mb-4">Without Grov (manual exploration)</h3>
+            <div class="code-block">
+              <pre class="text-sm font-mono"><code>Glob/Grep:     3 agents   =    <span class="text-red-400">3,000 tokens</span>
+Read files:    10+ files  =   <span class="text-red-400">40,000 tokens</span>
+Processing:               =    <span class="text-red-400">7,000 tokens</span>
+---------------------------------------
+Total:                       <span class="text-red-400 font-bold">50,000+ tokens</span></code></pre>
+            </div>
+          </div>
+
+          <div class="bg-grov-accent/10 border border-grov-accent/20 rounded-lg p-4">
+            <p class="text-grov-accent font-medium">
+              Savings: ~90-95% fewer tokens for context retrieval
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Benchmark -->
+      <section class="card p-8 mb-8">
+        <h2 class="text-xl font-bold text-grov-text mb-6">Real Benchmark</h2>
+        
+        <div class="mb-6">
+          <p class="text-grov-text-secondary text-sm mb-4">
+            Single prompt asking "how does [feature] work in this codebase?"
+          </p>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6">
+          <div class="bg-grov-surface-elevated border border-grov-border rounded-lg p-6">
+            <div class="text-sm text-grov-text-muted uppercase tracking-wider mb-4">Without Grov</div>
+            <div class="space-y-3">
+              <div class="flex justify-between">
+                <span class="text-grov-text-secondary">Response time</span>
+                <span class="text-grov-text font-mono font-bold">1:36</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-grov-text-secondary">Usage increase</span>
+                <span class="text-grov-text font-medium">+1%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-grov-accent/10 border border-grov-accent/30 rounded-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-sm text-grov-accent uppercase tracking-wider">With Grov</div>
+              <div class="px-2 py-1 bg-grov-accent/20 rounded text-xs font-bold text-grov-accent">4x faster</div>
+            </div>
+            <div class="space-y-3">
+              <div class="flex justify-between">
+                <span class="text-grov-text-secondary">Response time</span>
+                <span class="text-grov-accent font-mono font-bold">24s</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-grov-text-secondary">Usage increase</span>
+                <span class="text-grov-accent font-medium">~0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-center mt-6 text-grov-text-muted text-sm">
+          Measured on real Claude Code sessions. Results may vary based on codebase complexity.
+        </p>
+      </section>
+
+      <!-- Key Insight -->
+      <section class="card p-6 mb-8 border-l-4 border-l-grov-accent">
+        <h2 class="text-sm font-bold text-grov-accent uppercase tracking-wider mb-3">Key Insight</h2>
+        <p class="text-grov-text-secondary">
+          Even in the worst case (all 5 memories expanded), Grov uses ~5-7K tokens for context. 
+          But that context represents <strong class="text-grov-text">curated, relevant insights</strong> about your codebase - 
+          not raw file contents. The LLM skips exploration entirely and goes straight to implementation.
+        </p>
+      </section>
+
+      <!-- Navigation -->
+      <div class="flex gap-4">
+        <a href="/docs" class="btn-secondary">Back to Docs</a>
+        <a href="https://github.com/TonyStef/Grov" target="_blank" rel="noopener noreferrer" class="btn-secondary">GitHub</a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

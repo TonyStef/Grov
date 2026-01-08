@@ -26,15 +26,15 @@
 
         <div class="space-y-4">
           <div class="flex justify-between items-center py-3 border-b border-grov-border">
-            <span class="text-grov-text-secondary">Time per task</span>
-            <span class="text-grov-text font-medium">
-              <span data-counter data-counter-start="0" data-counter-end="10" data-counter-duration="1200">0</span>+ minutes
+            <span class="text-grov-text-secondary">Response time</span>
+            <span class="text-grov-text font-medium font-mono">
+              1:<span data-counter data-counter-start="0" data-counter-end="36" data-counter-duration="1200">00</span>
             </span>
           </div>
           <div class="flex justify-between items-center py-3 border-b border-grov-border">
             <span class="text-grov-text-secondary">Token usage</span>
             <span class="text-grov-text font-medium">
-              <span data-counter data-counter-start="0" data-counter-end="7" data-counter-duration="1200">0</span>%+
+              +<span data-counter data-counter-start="0" data-counter-end="1" data-counter-duration="1200">0</span>% per prompt
             </span>
           </div>
           <div class="flex justify-between items-center py-3 border-b border-grov-border">
@@ -54,21 +54,26 @@
 
       <!-- With grov -->
       <div class="card card-highlight">
-        <div class="text-sm font-medium text-grov-accent uppercase tracking-wider mb-6">
-          With grov
+        <div class="flex items-center justify-between mb-6">
+          <div class="text-sm font-medium text-grov-accent uppercase tracking-wider">
+            With grov
+          </div>
+          <div class="px-2 py-1 bg-grov-accent/20 border border-grov-accent/30 rounded text-xs font-bold text-grov-accent">
+            4x faster
+          </div>
         </div>
 
         <div class="space-y-4">
           <div class="flex justify-between items-center py-3 border-b border-grov-border">
-            <span class="text-grov-text-secondary">Time per task</span>
-            <span class="text-grov-accent font-medium">
-              <span data-counter data-counter-start="10" data-counter-end="1.5" data-counter-duration="1500" data-counter-decimals="1">10</span> minutes
+            <span class="text-grov-text-secondary">Response time</span>
+            <span class="text-grov-accent font-medium font-mono">
+              <span data-counter data-counter-start="96" data-counter-end="24" data-counter-duration="1500">96</span>s
             </span>
           </div>
           <div class="flex justify-between items-center py-3 border-b border-grov-border">
             <span class="text-grov-text-secondary">Token usage</span>
             <span class="text-grov-accent font-medium">
-              &lt;<span data-counter data-counter-start="7" data-counter-end="2" data-counter-duration="1500">7</span>%
+              ~0%
             </span>
           </div>
           <div class="flex justify-between items-center py-3 border-b border-grov-border">
@@ -80,9 +85,51 @@
           <div class="flex justify-between items-center py-3">
             <span class="text-grov-text-secondary">Files read</span>
             <span class="text-grov-accent font-medium">
-              <span data-counter data-counter-start="10" data-counter-end="3" data-counter-duration="1500">10</span>-4
+              <span data-counter data-counter-start="10" data-counter-end="0" data-counter-duration="1500">10</span>
             </span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- How it saves tokens -->
+    <div class="card p-8 mt-12">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <div>
+          <h3 class="text-lg font-bold text-grov-text mb-3">How Grov saves tokens</h3>
+          <p class="text-grov-text-secondary text-sm mb-4">
+            Semantic search finds relevant memories, shows lightweight previews, expands only what's needed.
+          </p>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="text-grov-accent">1.</span>
+                <span class="text-grov-text-secondary">Preview: 3-5 memories x ~100 tokens</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-grov-accent">2.</span>
+                <span class="text-grov-text-secondary">Expand on demand: ~500-1K tokens each</span>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="text-grov-accent">3.</span>
+                <span class="text-grov-text-secondary">Worst case (all 5): ~5-7K tokens</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-grov-text-muted">vs.</span>
+                <span class="text-grov-text-secondary">Manual exploration: 50K+ tokens</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="shrink-0">
+          <a href="/docs/how-memory-works" class="btn-secondary text-sm">
+            Learn how it works
+            <svg class="w-4 h-4 ml-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </a>
         </div>
       </div>
     </div>

@@ -83,6 +83,7 @@
   body {
     @apply bg-grov-black text-grov-text font-sans;
     position: relative;
+    overflow-x: hidden;
   }
 
   /* Subtle grain overlay - reduced for cleaner look */

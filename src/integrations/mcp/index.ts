@@ -8,6 +8,8 @@ import { mcpLog, mcpError } from './logger.js';
 import { startCLICapture, cliChatsExist } from './capture/cli-watcher.js';
 import { pollAndCaptureAll } from './capture/cli-extractor.js';
 import { isCLICaptureEnabled } from './capture/cli-transform.js';
+import { startScanner, stopScanner } from './capture/antigravity-scanner.js';
+import { antigravityExists } from './capture/antigravity-parser.js';
 
 // Cleanup function for CLI capture polling
 let stopCLICapture: (() => void) | null = null;
@@ -44,18 +46,30 @@ export async function startMcpServer(): Promise<void> {
   const context = detectContext();
   const isIDE = context === 'IDE';
 
-  mcpLog('Starting MCP server', { detectedContext: context });
+  mcpLog('Starting MCP server', {
+    detectedContext: context,
+    cwd: process.cwd(),
+    pid: process.pid,
+    workspace: process.env.WORKSPACE_FOLDER_PATHS
+  });
 
   // Create and connect server
   const server = createServer();
   const transport = new StdioServerTransport();
 
   await server.connect(transport);
+  mcpLog('Server connected via stdio transport');
 
   // Start CLI capture polling ONLY if in CLI context (not IDE)
   // IDE uses hooks for capture, CLI uses polling
   if (!isIDE && isCLICaptureEnabled() && cliChatsExist()) {
     stopCLICapture = startCLICapture(pollAndCaptureAll);
+  }
+
+  // Start Antigravity scanner only if Antigravity is installed
+  const hasAntigravity = antigravityExists();
+  if (hasAntigravity) {
+    startScanner();
   }
 
   // Handle clean shutdown
@@ -64,12 +78,19 @@ export async function startMcpServer(): Promise<void> {
     if (isShuttingDown) return;
     isShuttingDown = true;
     if (stopCLICapture) stopCLICapture();
+    if (hasAntigravity) stopScanner();
     await server.close();
     process.exit(0);
   };
 
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
+  process.on('SIGINT', () => {
+    mcpLog('Received SIGINT, shutting down');
+    cleanup();
+  });
+  process.on('SIGTERM', () => {
+    mcpLog('Received SIGTERM, shutting down');
+    cleanup();
+  });
   process.stdin.on('end', cleanup);
   process.stdin.on('close', cleanup);
   process.on('disconnect', cleanup);

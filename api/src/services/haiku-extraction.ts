@@ -434,17 +434,17 @@ Return ONLY valid JSON, no markdown code blocks, no explanation.`;
         : 'information',
       reasoning_trace: Array.isArray(knowledgePairs)
         ? knowledgePairs.map((r: Record<string, unknown>) => ({
-            aspect: typeof r.aspect === 'string' ? r.aspect : undefined,
-            conclusion: typeof r.conclusion === 'string' ? r.conclusion : '',
-            insight: typeof r.insight === 'string' ? r.insight : null,
-          }))
+          aspect: typeof r.aspect === 'string' ? r.aspect : undefined,
+          conclusion: typeof r.conclusion === 'string' ? r.conclusion : '',
+          insight: typeof r.insight === 'string' ? r.insight : null,
+        }))
         : [],
       decisions: Array.isArray(parsed.decisions)
         ? parsed.decisions.map((d: Record<string, unknown>) => ({
-            aspect: typeof d.aspect === 'string' ? d.aspect : undefined,
-            choice: typeof d.choice === 'string' ? d.choice : '',
-            reason: typeof d.reason === 'string' ? d.reason : '',
-          }))
+          aspect: typeof d.aspect === 'string' ? d.aspect : undefined,
+          choice: typeof d.choice === 'string' ? d.choice : '',
+          reason: typeof d.reason === 'string' ? d.reason : '',
+        }))
         : [],
       files_touched: files,
     };
@@ -490,7 +490,7 @@ METADATA SUMMARY:
 ${req.metadataSummary || 'Not available'}
 
 IMPLEMENTATION PLAN:
-${req.planContent.substring(0, 6000)}
+${req.planContent.substring(0, 6000) || '(No plan created - extract from task checklist below)'}
 
 TASK CHECKLIST:
 ${req.taskContent.substring(0, 1000)}
@@ -586,17 +586,17 @@ Rules:
         : (req.filesTouched.length > 0 ? 'implementation' : 'planning'),
       reasoning_trace: Array.isArray(knowledgePairs)
         ? knowledgePairs.map((r: Record<string, unknown>) => ({
-            aspect: typeof r.aspect === 'string' ? r.aspect : undefined,
-            conclusion: typeof r.conclusion === 'string' ? r.conclusion : '',
-            insight: typeof r.insight === 'string' ? r.insight : null,
-          }))
+          aspect: typeof r.aspect === 'string' ? r.aspect : undefined,
+          conclusion: typeof r.conclusion === 'string' ? r.conclusion : '',
+          insight: typeof r.insight === 'string' ? r.insight : null,
+        }))
         : [],
       decisions: Array.isArray(parsed.decisions)
         ? parsed.decisions.map((d: Record<string, unknown>) => ({
-            aspect: typeof d.aspect === 'string' ? d.aspect : undefined,
-            choice: typeof d.choice === 'string' ? d.choice : '',
-            reason: typeof d.reason === 'string' ? d.reason : '',
-          }))
+          aspect: typeof d.aspect === 'string' ? d.aspect : undefined,
+          choice: typeof d.choice === 'string' ? d.choice : '',
+          reason: typeof d.reason === 'string' ? d.reason : '',
+        }))
         : [],
       files_touched: req.filesTouched,
     };

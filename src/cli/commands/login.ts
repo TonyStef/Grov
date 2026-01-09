@@ -45,6 +45,7 @@ function decodeTokenPayload(token: string): { sub: string; email: string } | nul
 }
 
 export async function login(): Promise<void> {
+  const autoMode = process.argv.includes('--auto');
   console.log('Logging in to Grov cloud...\n');
 
   // Check if already authenticated
@@ -150,8 +151,8 @@ export async function login(): Promise<void> {
 
         let selectedTeam = teams[0];
 
-        // If multiple teams, let user choose
-        if (teams.length > 1) {
+        // If multiple teams, let user choose (skip in auto mode)
+        if (teams.length > 1 && !autoMode) {
           console.log('\nYour teams:');
           teams.forEach((team, i) => {
             console.log(`  ${i + 1}. ${team.name} (${team.slug})`);
@@ -163,8 +164,8 @@ export async function login(): Promise<void> {
           }
         }
 
-        // Ask to enable sync (default yes)
-        const enableSync = await prompt(`Enable cloud sync to "${selectedTeam.name}"? [Y/n]: `);
+        // Ask to enable sync (default yes, skip in auto mode)
+        const enableSync = autoMode ? '' : await prompt(`Enable cloud sync to "${selectedTeam.name}"? [Y/n]: `);
 
         if (enableSync !== 'n' && enableSync !== 'no') {
           setTeamId(selectedTeam.id);

@@ -34,7 +34,7 @@ async function runLogin() {
 
     console.log(`${dim}Starting authentication...${reset}\n`);
 
-    const child = spawn('node', [cliPath, 'login'], {
+    const child = spawn('node', [cliPath, 'login', '--auto'], {
       stdio: 'inherit',
       cwd: __dirname,
     });

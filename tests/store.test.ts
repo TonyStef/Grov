@@ -36,7 +36,7 @@ describe('Store', () => {
   describe('Database initialization', () => {
     it('should create database directory if it does not exist', async () => {
       // Import dynamically to ensure fresh module state
-      const { initDatabase, closeDatabase, getDatabasePath } = await import('../src/lib/store.js');
+      const { initDatabase, closeDatabase, getDatabasePath } = await import('../src/core/store/index.js');
 
       const db = initDatabase();
       expect(db).toBeDefined();
@@ -50,7 +50,7 @@ describe('Store', () => {
 
   describe('Task operations', () => {
     it('should create a task', async () => {
-      const { initDatabase, createTask, closeDatabase } = await import('../src/lib/store.js');
+      const { initDatabase, createTask, closeDatabase } = await import('../src/core/store/index.js');
 
       initDatabase();
 
@@ -76,7 +76,7 @@ describe('Store', () => {
     });
 
     it('should filter tasks by project path', async () => {
-      const { initDatabase, createTask, getTasksForProject, closeDatabase } = await import('../src/lib/store.js');
+      const { initDatabase, createTask, getTasksForProject, closeDatabase } = await import('../src/core/store/index.js');
 
       initDatabase();
 
@@ -108,7 +108,7 @@ describe('Store', () => {
     });
 
     it('should return empty array for non-existent project', async () => {
-      const { initDatabase, getTasksForProject, closeDatabase } = await import('../src/lib/store.js');
+      const { initDatabase, getTasksForProject, closeDatabase } = await import('../src/core/store/index.js');
 
       initDatabase();
 
@@ -119,7 +119,7 @@ describe('Store', () => {
     });
 
     it('should handle special characters in project paths', async () => {
-      const { initDatabase, createTask, getTasksForProject, closeDatabase } = await import('../src/lib/store.js');
+      const { initDatabase, createTask, getTasksForProject, closeDatabase } = await import('../src/core/store/index.js');
 
       initDatabase();
 
@@ -141,7 +141,7 @@ describe('Store', () => {
 
   describe('Task count', () => {
     it('should return correct task count delta after adding tasks', async () => {
-      const { initDatabase, createTask, getTaskCount, closeDatabase } = await import('../src/lib/store.js');
+      const { initDatabase, createTask, getTaskCount, closeDatabase } = await import('../src/core/store/index.js');
 
       initDatabase();
 

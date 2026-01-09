@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { truncate, capitalize, dedupeBy, formatRelativeTime, isNonEmptyString } from '../src/lib/utils.js';
+import { truncate, capitalize, dedupeBy, formatRelativeTime, isNonEmptyString } from '../src/utils/utils.js';
 
 describe('truncate', () => {
   it('should return the original string if shorter than maxLength', () => {

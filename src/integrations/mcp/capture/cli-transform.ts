@@ -28,13 +28,17 @@ interface MetaData {
  * Transform CLI Turn to API ExtractPayload format
  * CLI always uses 'agent' mode (no ask/plan distinction in CLI)
  */
+function stripUserQueryTags(text: string): string {
+  return text.replace(/<\/?user_query>/g, '').trim();
+}
+
 export function transformToApiFormat(turn: Turn, meta: MetaData): ExtractPayload {
   return {
     composerId: meta.agentId,
     usageUuid: turn.usageUuid,
     mode: 'agent', // CLI always agent mode
     projectPath: turn.projectPath || 'unknown',
-    original_query: turn.userPrompt,
+    original_query: stripUserQueryTags(turn.userPrompt),
     text: turn.assistantTexts.join('\n'),
     thinking: turn.reasoningBlocks.join('\n\n'),
     toolCalls: turn.toolCalls.map(tc => ({

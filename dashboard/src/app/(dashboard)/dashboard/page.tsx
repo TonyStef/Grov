@@ -64,101 +64,96 @@ export default async function DashboardPage() {
         {/* Subtle hints for solo users */}
         {stats.team_members === 1 && <SoloHints />}
 
-        <div className="grid gap-4 lg:grid-cols-5">
-          <div className="lg:col-span-3 rounded-xl border border-border bg-root p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold">Recent Activity</h2>
-              {recentMemories.length > 0 && (
-                <Link
-                  href="/memories"
-                  className="flex items-center gap-1 text-xs text-leaf hover:text-bloom transition-colors"
-                >
-                  View all
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              )}
-            </div>
-
-            {recentMemories.length === 0 ? (
+        {stats.total_memories === 0 ? (
+          /* New teams: Show setup guide alongside empty activity */
+          <div className="grid gap-4 lg:grid-cols-5">
+            <div className="lg:col-span-3 rounded-xl border border-border bg-root p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold">Recent Activity</h2>
+              </div>
               <div className="flex h-28 items-center justify-center text-text-quiet">
                 <div className="text-center">
                   <Brain className="h-5 w-5 text-leaf mx-auto mb-2" />
                   <p className="text-xs text-text-calm">No memories yet</p>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {recentMemories.map((memory) => (
-                  <Link
-                    key={memory.id}
-                    href={`/memories/${memory.id}`}
-                    className="block rounded-lg bg-bark border border-transparent p-3 transition-all hover:border-leaf/20 hover:bg-moss"
-                  >
-                    <p className="text-xs font-medium text-text-bright line-clamp-1">
-                      {truncate(memory.original_query, 60)}
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-quiet">
-                      {memory.profile?.avatar_url ? (
-                        <Image
-                          src={memory.profile.avatar_url}
-                          alt=""
-                          width={16}
-                          height={16}
-                          className="rounded"
-                        />
-                      ) : (
-                        <div className="h-4 w-4 rounded bg-leaf/10 text-[8px] flex items-center justify-center text-leaf font-medium">
-                          {getInitials(memory.profile?.full_name || memory.profile?.email)}
-                        </div>
-                      )}
-                      <span className="text-text-calm">{memory.profile?.full_name || 'Unknown'}</span>
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        <span>Created {formatRelativeDate(memory.created_at)}</span>
-                      </div>
-                      {memory.files_touched && memory.files_touched.length > 0 && (
-                        <div className="flex items-center gap-1">
-                          <FileCode className="h-3 w-3" />
-                          <span>{memory.files_touched.length} files</span>
-                        </div>
-                      )}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+            </div>
 
-          <div className="lg:col-span-2 rounded-xl border border-border bg-root p-4">
-            <h2 className="mb-3 text-sm font-semibold">Getting Started</h2>
-            <div className="space-y-3">
-              <Step
-                number={1}
-                title="Install the CLI"
-                description="Run this command in your terminal"
-                code="npm install -g grov"
-              />
-              <Step
-                number={2}
-                title="Login and enable sync"
-                description="Connect your CLI and start capturing"
-                code="grov login"
-              />
-              <Step
-                number={3}
-                title="Start the proxy"
-                description="Initialize and run the proxy in your project"
-                code="grov init && grov proxy"
-              />
-              <Step
-                number={4}
-                title="Start coding"
-                description="Open a new terminal tab and run Claude"
-                code="claude"
-              />
+            <div className="lg:col-span-2 rounded-xl border border-border bg-root p-4">
+              <h2 className="mb-3 text-sm font-semibold">Getting Started</h2>
+              <div className="space-y-3">
+                <Step
+                  number={1}
+                  title="Install the CLI"
+                  description="Run this command in your terminal"
+                  code="npm install -g grov"
+                />
+                <Step
+                  number={2}
+                  title="Login & setup"
+                  description="Authenticate and choose your AI agent"
+                  code="grov login"
+                />
+              </div>
+              <p className="mt-4 text-[11px] text-text-quiet">
+                The CLI will guide you through agent setup for Claude, Codex, Cursor, Zed, and more.
+              </p>
             </div>
           </div>
-        </div>
+        ) : (
+          /* Established teams: Full-width recent activity */
+          <div className="rounded-xl border border-border bg-root p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">Recent Activity</h2>
+              <Link
+                href="/memories"
+                className="flex items-center gap-1 text-xs text-leaf hover:text-bloom transition-colors"
+              >
+                View all
+                <ChevronRight className="h-3 w-3" />
+              </Link>
+            </div>
+            <div className="space-y-2">
+              {recentMemories.map((memory) => (
+                <Link
+                  key={memory.id}
+                  href={`/memories/${memory.id}`}
+                  className="block rounded-lg bg-bark border border-transparent p-3 transition-all hover:border-leaf/20 hover:bg-moss"
+                >
+                  <p className="text-xs font-medium text-text-bright line-clamp-1">
+                    {truncate(memory.original_query, 60)}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-quiet">
+                    {memory.profile?.avatar_url ? (
+                      <Image
+                        src={memory.profile.avatar_url}
+                        alt=""
+                        width={16}
+                        height={16}
+                        className="rounded"
+                      />
+                    ) : (
+                      <div className="h-4 w-4 rounded bg-leaf/10 text-[8px] flex items-center justify-center text-leaf font-medium">
+                        {getInitials(memory.profile?.full_name || memory.profile?.email)}
+                      </div>
+                    )}
+                    <span className="text-text-calm">{memory.profile?.full_name || 'Unknown'}</span>
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      <span>Created {formatRelativeDate(memory.created_at)}</span>
+                    </div>
+                    {memory.files_touched && memory.files_touched.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <FileCode className="h-3 w-3" />
+                        <span>{memory.files_touched.length} files</span>
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -234,7 +229,7 @@ function NoTeamDashboard({ userName }: { userName?: string | null }) {
           </h2>
           <p className="mt-2 text-center text-sm text-text-calm max-w-md">
             Teams let you share AI reasoning with your collaborators. Create a team
-            to start capturing memories from your Claude Code sessions.
+            to start capturing memories from your AI coding sessions.
           </p>
           <Link
             href="/team"
@@ -255,23 +250,14 @@ function NoTeamDashboard({ userName }: { userName?: string | null }) {
             />
             <Step
               number={2}
-              title="Login and enable sync"
-              description="Connect your CLI and start capturing"
+              title="Login & setup"
+              description="Authenticate and choose your AI agent"
               code="grov login"
             />
-            <Step
-              number={3}
-              title="Start the proxy"
-              description="Initialize and run the proxy in your project"
-              code="grov init && grov proxy"
-            />
-            <Step
-              number={4}
-              title="Start coding"
-              description="Open a new terminal tab and run Claude"
-              code="claude"
-            />
           </div>
+          <p className="mt-4 text-[11px] text-text-quiet">
+            The CLI will guide you through agent setup for Claude, Codex, Cursor, Zed, and more.
+          </p>
         </div>
       </div>
     </div>

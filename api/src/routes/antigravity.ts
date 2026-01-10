@@ -125,8 +125,8 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
       const req = validation.data;
 
       // Skip if no plan content
-      if (!req.planContent.trim()) {
-        return { success: true, action: 'skip', reason: 'no plan content' };
+      if (!req.planContent.trim() && !req.taskContent.trim()) {
+        return { success: true, action: 'skip', reason: 'no content' };
       }
 
       // Check Haiku availability

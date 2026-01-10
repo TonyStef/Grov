@@ -1,6 +1,6 @@
 {
   "name": "grov",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "description": "Collective AI memory for Coding Agents - captures reasoning from sessions and injects context into future sessions",
   "type": "module",
   "main": "dist/cli/index.js",

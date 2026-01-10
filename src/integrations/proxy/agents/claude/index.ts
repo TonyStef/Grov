@@ -239,17 +239,22 @@ export class ClaudeAdapter extends BaseAdapter {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
         const content = messages[i].content;
+        let text = '';
         if (typeof content === 'string') {
-          return content;
-        }
-        if (Array.isArray(content)) {
+          text = content;
+        } else if (Array.isArray(content)) {
           const textBlocks = content
             .filter((b): b is { type: string; text: string } =>
               typeof b === 'object' && b !== null && b.type === 'text' && typeof b.text === 'string'
             )
             .map(b => b.text);
-          return textBlocks.join('\n');
+          text = textBlocks.join('\n');
         }
+        // Skip internal Claude Code suggestion requests
+        if (text.startsWith('[SUGGESTION MODE')) {
+          continue;
+        }
+        return text;
       }
     }
     return '';

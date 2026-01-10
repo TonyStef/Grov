@@ -83,7 +83,7 @@
   "homepage": "https://grov.dev",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
-    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "better-sqlite3": "^11.6.0",
     "commander": "^12.1.0",
     "debug": "^4.4.3",

@@ -29,6 +29,7 @@ import teamsRoutes from './routes/teams.js';
 import memoriesRoutes from './routes/memories.js';
 import cursorRoutes from './routes/cursor.js';
 import antigravityRoutes from './routes/antigravity.js';
+import { billingPublicRoutes, billingTeamRoutes } from './routes/billing.js';
 
 // Create Fastify instance with security defaults
 // Log to file in development for debugging
@@ -114,6 +115,8 @@ await fastify.register(teamsRoutes, { prefix: '/teams' });
 await fastify.register(memoriesRoutes, { prefix: '/teams' });
 await fastify.register(cursorRoutes, { prefix: '/teams' });
 await fastify.register(antigravityRoutes, { prefix: '/teams' });
+await fastify.register(billingPublicRoutes, { prefix: '/billing' });
+await fastify.register(billingTeamRoutes, { prefix: '/teams' });
 
 // Start server
 const start = async () => {

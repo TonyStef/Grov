@@ -65,3 +65,22 @@ export type {
   SuccessResponse,
   ApiResponse,
 } from './types/api.js';
+
+// Billing types
+export type {
+  SubscriptionStatus,
+  BillingInterval,
+  Plan,
+  PlanPrice,
+  PlanWithPrices,
+  Subscription,
+  SubscriptionWithPlan,
+  PaymentEvent,
+  PlansResponse,
+  SubscriptionResponse,
+  CreateCheckoutRequest,
+  CreateCheckoutResponse,
+  CreatePortalResponse,
+  Invoice,
+  InvoicesResponse,
+} from './types/billing.js';

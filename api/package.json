@@ -23,7 +23,8 @@
     "jose": "^6.1.2",
     "openai": "^4.70.0",
     "pino": "^10.1.0",
-    "pino-pretty": "^13.1.2"
+    "pino-pretty": "^13.1.2",
+    "stripe": "^17.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.19.1",

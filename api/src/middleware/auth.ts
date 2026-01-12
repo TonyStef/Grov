@@ -3,6 +3,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { verifyToken, type DecodedToken } from '../lib/jwt.js';
+import { supabase } from '../db/client.js';
 
 // User object attached to authenticated requests
 export interface AuthUser {
@@ -28,8 +29,8 @@ export async function authPlugin(fastify: FastifyInstance): Promise<void> {
 }
 
 /**
- * Extract and validate JWT from Authorization header
- * Returns null if no token or invalid token
+ * Extract and validate token from Authorization header
+ * Tries API JWT first, falls back to Supabase token
  */
 async function extractUser(request: FastifyRequest): Promise<AuthUser | null> {
   const authHeader = request.headers.authorization;
@@ -38,25 +39,33 @@ async function extractUser(request: FastifyRequest): Promise<AuthUser | null> {
     return null;
   }
 
-  const token = authHeader.slice(7); // Remove 'Bearer ' prefix
+  const token = authHeader.slice(7);
 
+  // Try API JWT first (for CLI clients)
   try {
     const payload = await verifyToken(token);
-
-    // Only accept access tokens for API requests
-    if (payload.type !== 'access') {
-      return null;
+    if (payload.type === 'access') {
+      return {
+        id: payload.sub,
+        email: payload.email,
+        teams: payload.teams || [],
+      };
     }
-
-    return {
-      id: payload.sub,
-      email: payload.email,
-      teams: payload.teams || [],
-    };
   } catch {
-    // Token invalid or expired
-    return null;
+    // Not an API JWT, try Supabase token
   }
+
+  // Try Supabase token (for dashboard)
+  const { data: { user: supabaseUser }, error } = await supabase.auth.getUser(token);
+  if (!error && supabaseUser) {
+    return {
+      id: supabaseUser.id,
+      email: supabaseUser.email || '',
+      teams: [],
+    };
+  }
+
+  return null;
 }
 
 /**

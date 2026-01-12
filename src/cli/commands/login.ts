@@ -181,12 +181,15 @@ export async function login(): Promise<void> {
           console.log('\n✓ Logged in. Sync not enabled.');
         }
 
-        // Continue to agent setup if no agent configured
-        if (!isAnyAgentConfigured()) {
+        // Continue to agent setup if no agent configured (skip if non-interactive)
+        if (!isAnyAgentConfigured() && process.stdin.isTTY) {
           console.log('\n───────────────────────────────────────────────────────────\n');
           console.log('Now let\'s configure your AI agent...\n');
           const { runAgentSetup } = await import('./setup.js');
           await runAgentSetup();
+        } else if (!isAnyAgentConfigured()) {
+          console.log('\nRun "grov setup" to configure your AI agent.');
+          console.log('View memories at: https://app.grov.dev/memories\n');
         } else {
           console.log('\nRun "grov doctor" to verify your setup is complete.');
           console.log('View memories at: https://app.grov.dev/memories\n');

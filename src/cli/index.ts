@@ -133,6 +133,7 @@ program
 program
   .command('login')
   .description('Login to Grov cloud (opens browser for authentication)')
+  .option('--auto', 'Auto mode for postinstall (skips interactive prompts)')
   .action(safeAction(async () => {
     const { login } = await import('./commands/login.js');
     await login();

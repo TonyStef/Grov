@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import type { UserWithPreferences, TeamWithSettings } from '@/lib/queries/settings';
 import type { TeamWithMemberCount } from '@/lib/queries/teams';
+import type { PlanWithPrices, SubscriptionResponse } from '@grov/shared';
 import { ProfileSettings } from './profile-settings';
 import { TeamSettings } from './team-settings';
 import { PreferencesSettings } from './preferences-settings';
 import { NotificationsSettings } from './notifications-settings';
 import { ApiKeysPlaceholder } from './api-keys-placeholder';
-import { BillingPlaceholder } from './billing-placeholder';
+import { BillingSection } from './billing-section';
 import { DangerZone } from './danger-zone';
 
 type Tab = 'profile' | 'team' | 'preferences' | 'notifications' | 'api' | 'billing';
@@ -18,6 +19,9 @@ interface SettingsClientProps {
   team: TeamWithSettings | null;
   teams: TeamWithMemberCount[];
   isAdmin: boolean;
+  isOwner: boolean;
+  plans: PlanWithPrices[];
+  subscription: SubscriptionResponse | null;
 }
 
 const tabs: { id: Tab; label: string }[] = [
@@ -29,7 +33,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: 'billing', label: 'Billing' },
 ];
 
-export function SettingsClient({ user, team, teams, isAdmin }: SettingsClientProps) {
+export function SettingsClient({ user, team, teams, isAdmin, isOwner, plans, subscription }: SettingsClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
 
   return (
@@ -92,7 +96,12 @@ export function SettingsClient({ user, team, teams, isAdmin }: SettingsClientPro
         )}
 
         {activeTab === 'billing' && (
-          <BillingPlaceholder />
+          <BillingSection
+            team={team}
+            plans={plans}
+            subscription={subscription}
+            isOwner={isOwner}
+          />
         )}
       </div>
     </div>

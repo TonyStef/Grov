@@ -223,3 +223,87 @@ export async function deleteAccount(): Promise<ActionResult> {
 
   return { success: true };
 }
+
+const API_URL = process.env.API_URL || 'http://localhost:3001';
+
+interface CheckoutResult {
+  error?: string;
+  checkout_url?: string;
+}
+
+export async function createCheckout(teamId: string, priceId: string): Promise<CheckoutResult> {
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session) {
+    return { error: 'You must be logged in' };
+  }
+
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('role')
+    .eq('team_id', teamId)
+    .eq('user_id', session.user.id)
+    .single();
+
+  if (membership?.role !== 'owner') {
+    return { error: 'Only team owners can manage billing' };
+  }
+
+  const response = await fetch(`${API_URL}/teams/${teamId}/billing/checkout`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ price_id: priceId }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    return { error: data.error || 'Failed to create checkout session' };
+  }
+
+  const data = await response.json();
+  return { checkout_url: data.checkout_url };
+}
+
+interface PortalResult {
+  error?: string;
+  portal_url?: string;
+}
+
+export async function createPortalSession(teamId: string): Promise<PortalResult> {
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session) {
+    return { error: 'You must be logged in' };
+  }
+
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('role')
+    .eq('team_id', teamId)
+    .eq('user_id', session.user.id)
+    .single();
+
+  if (membership?.role !== 'owner') {
+    return { error: 'Only team owners can manage billing' };
+  }
+
+  const response = await fetch(`${API_URL}/teams/${teamId}/billing/portal`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    return { error: data.error || 'Failed to create portal session' };
+  }
+
+  const data = await response.json();
+  return { portal_url: data.portal_url };
+}

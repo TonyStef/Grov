@@ -11,6 +11,25 @@ export const getAuthUser = cache(async (): Promise<User | null> => {
   return user;
 });
 
+interface AuthSession {
+  user: User;
+  accessToken: string;
+}
+
+/**
+ * Get verified user and access token for API calls - cached per request
+ */
+export const getAuthSession = cache(async (): Promise<AuthSession | null> => {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  return { user, accessToken: session.access_token };
+});
+
 /**
  * Verify user is member of a team - cached per team per request
  */

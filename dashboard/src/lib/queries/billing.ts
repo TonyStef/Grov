@@ -1,6 +1,6 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
-import { getAuthUser } from '@/lib/auth';
+import { getAuthUser, getAuthSession } from '@/lib/auth';
 import type {
   PlansResponse,
   SubscriptionResponse,
@@ -25,16 +25,12 @@ export const getPlans = cache(async (): Promise<PlanWithPrices[]> => {
 export const getSubscription = cache(async (
   teamId: string
 ): Promise<SubscriptionResponse | null> => {
-  const user = await getAuthUser();
-  if (!user) return null;
-
-  const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return null;
+  const auth = await getAuthSession();
+  if (!auth) return null;
 
   const response = await fetch(`${API_URL}/teams/${teamId}/billing/subscription`, {
     headers: {
-      Authorization: `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${auth.accessToken}`,
     },
     next: { revalidate: 60 },
   });

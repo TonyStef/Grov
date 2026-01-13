@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAuthSession } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import type { TeamSettings } from '@grov/shared';
 
@@ -232,18 +233,17 @@ interface CheckoutResult {
 }
 
 export async function createCheckout(teamId: string, priceId: string): Promise<CheckoutResult> {
-  const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-
-  if (!session) {
+  const auth = await getAuthSession();
+  if (!auth) {
     return { error: 'You must be logged in' };
   }
 
+  const supabase = await createClient();
   const { data: membership } = await supabase
     .from('team_members')
     .select('role')
     .eq('team_id', teamId)
-    .eq('user_id', session.user.id)
+    .eq('user_id', auth.user.id)
     .single();
 
   if (membership?.role !== 'owner') {
@@ -254,7 +254,7 @@ export async function createCheckout(teamId: string, priceId: string): Promise<C
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${auth.accessToken}`,
     },
     body: JSON.stringify({ price_id: priceId }),
   });
@@ -274,18 +274,17 @@ interface PortalResult {
 }
 
 export async function createPortalSession(teamId: string): Promise<PortalResult> {
-  const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-
-  if (!session) {
+  const auth = await getAuthSession();
+  if (!auth) {
     return { error: 'You must be logged in' };
   }
 
+  const supabase = await createClient();
   const { data: membership } = await supabase
     .from('team_members')
     .select('role')
     .eq('team_id', teamId)
-    .eq('user_id', session.user.id)
+    .eq('user_id', auth.user.id)
     .single();
 
   if (membership?.role !== 'owner') {
@@ -295,7 +294,7 @@ export async function createPortalSession(teamId: string): Promise<PortalResult>
   const response = await fetch(`${API_URL}/teams/${teamId}/billing/portal`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${auth.accessToken}`,
     },
   });
 

@@ -101,7 +101,7 @@
     "@grov/shared": "workspace:*",
     "@types/better-sqlite3": "^7.6.11",
     "@types/debug": "^4.1.12",
-    "@types/node": "^22.19.1",
+    "@types/node": "^25.0.6",
     "husky": "^9.1.7",
     "turbo": "^2.6.3",
     "typescript": "^5.7.2",

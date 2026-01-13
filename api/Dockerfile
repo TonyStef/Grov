@@ -42,6 +42,10 @@ RUN sed -i '/"@grov\/shared"/d' package.json && npm install --omit=dev
 # Copy built files
 COPY --from=builder /app/api/dist ./dist
 
+# Copy built shared package
+COPY --from=builder /app/shared/dist ./node_modules/@grov/shared/dist
+COPY --from=builder /app/shared/package.json ./node_modules/@grov/shared/
+
 # Cloud Run uses PORT env var
 ENV PORT=8080
 EXPOSE 8080

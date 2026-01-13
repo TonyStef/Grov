@@ -63,7 +63,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         return sendError(reply, 500, 'Failed to fetch teams');
       }
 
-      const teams = (data || []).map((row: { team: Team }) => row.team);
+      const teams = (data || []).map((row) => row.team as unknown as Team);
 
       return { teams };
     }

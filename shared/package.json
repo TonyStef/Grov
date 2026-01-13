@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.79.0",
     "typescript": "^5.7.2"
   },
   "engines": {

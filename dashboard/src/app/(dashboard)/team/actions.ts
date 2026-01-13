@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { randomBytes } from 'crypto';
+import { slugify, checkTeamMemberLimit, getTeamMemberRole, isAdminOrOwner, getInviteExpiryDate } from '@grov/shared';
 
 interface ActionResult<T = unknown> {
   error?: string;
@@ -29,11 +30,7 @@ export async function createTeam(formData: FormData): Promise<ActionResult<{ id:
     return { error: 'Team name must be between 2 and 50 characters' };
   }
 
-  // Generate slug from name
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+  const slug = slugify(name);
 
   // Create the team
   const { data: team, error: teamError } = await supabase
@@ -88,21 +85,18 @@ export async function createInvite(teamId: string): Promise<ActionResult> {
     return { error: 'You must be logged in to create invites' };
   }
 
-  // Verify user is admin or owner
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership || !['owner', 'admin'].includes(membership.role)) {
+  const role = await getTeamMemberRole(supabase, teamId, user.id);
+  if (!isAdminOrOwner(role)) {
     return { error: 'Only admins and owners can create invites' };
   }
 
-  // Generate invite code
+  const limit = await checkTeamMemberLimit(supabase, teamId);
+  if (!limit.allowed) {
+    return { error: 'Team member limit reached. Upgrade your plan to add more members.' };
+  }
+
   const inviteCode = randomBytes(16).toString('hex');
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  const expiresAt = getInviteExpiryDate();
 
   const { error } = await supabase
     .from('team_invitations')
@@ -136,36 +130,20 @@ export async function removeMember(teamId: string, memberId: string): Promise<Ac
     return { error: 'You must be logged in to remove members' };
   }
 
-  // Verify user is admin or owner
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership || !['owner', 'admin'].includes(membership.role)) {
+  const role = await getTeamMemberRole(supabase, teamId, user.id);
+  if (!isAdminOrOwner(role)) {
     return { error: 'Only admins and owners can remove members' };
   }
 
-  // Check target member's role
-  const { data: targetMember } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('team_id', teamId)
-    .eq('user_id', memberId)
-    .single();
-
-  if (!targetMember) {
+  const targetRole = await getTeamMemberRole(supabase, teamId, memberId);
+  if (!targetRole) {
     return { error: 'Member not found' };
   }
 
-  // Can't remove owner
-  if (targetMember.role === 'owner') {
+  if (targetRole === 'owner') {
     return { error: 'Cannot remove the team owner' };
   }
 
-  // Can't remove yourself
   if (memberId === user.id) {
     return { error: 'You cannot remove yourself from the team' };
   }
@@ -205,29 +183,17 @@ export async function changeRole(
     return { error: 'Invalid role' };
   }
 
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('team_id', teamId)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership || membership.role !== 'owner') {
+  const role = await getTeamMemberRole(supabase, teamId, user.id);
+  if (role !== 'owner') {
     return { error: 'Only owners can change member roles' };
   }
 
-  const { data: targetMember } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('team_id', teamId)
-    .eq('user_id', memberId)
-    .single();
-
-  if (!targetMember) {
+  const targetRole = await getTeamMemberRole(supabase, teamId, memberId);
+  if (!targetRole) {
     return { error: 'Member not found' };
   }
 
-  if (targetMember.role === 'owner') {
+  if (targetRole === 'owner') {
     return { error: 'Cannot change the owner role' };
   }
 
@@ -272,15 +238,8 @@ export async function cancelInvite(inviteId: string): Promise<ActionResult> {
     return { error: 'Invitation not found' };
   }
 
-  // Verify user is admin or owner
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('team_id', invite.team_id)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership || !['owner', 'admin'].includes(membership.role)) {
+  const role = await getTeamMemberRole(supabase, invite.team_id, user.id);
+  if (!isAdminOrOwner(role)) {
     return { error: 'Only admins and owners can cancel invites' };
   }
 
@@ -336,6 +295,11 @@ export async function joinTeam(inviteCode: string): Promise<ActionResult<{ id: s
 
   if (existingMembership) {
     return { error: 'You are already a member of this team' };
+  }
+
+  const limit = await checkTeamMemberLimit(supabase, invite.team_id);
+  if (!limit.allowed) {
+    return { error: 'This team has reached its member limit' };
   }
 
   // Add as member

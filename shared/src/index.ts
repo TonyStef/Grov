@@ -84,3 +84,14 @@ export type {
   Invoice,
   InvoicesResponse,
 } from './types/billing.js';
+
+// Utilities
+export { slugify } from './utils/text.js';
+export {
+  checkTeamMemberLimit,
+  getTeamMemberRole,
+  isAdminOrOwner,
+  getInviteExpiryDate,
+  INVITE_EXPIRY_DAYS,
+  type MemberLimitCheck,
+} from './utils/team.js';

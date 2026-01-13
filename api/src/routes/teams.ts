@@ -1,14 +1,16 @@
 // Team management routes
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type {
-  Team,
-  CreateTeamInput,
-  UpdateTeamInput,
-  TeamListResponse,
-  TeamMembersResponse,
-  CreateInvitationResponse,
-  JoinTeamRequest,
+import {
+  slugify,
+  checkTeamMemberLimit,
+  getInviteExpiryDate,
+  type Team,
+  type CreateTeamInput,
+  type UpdateTeamInput,
+  type TeamMembersResponse,
+  type CreateInvitationResponse,
+  type JoinTeamRequest,
 } from '@grov/shared';
 import { supabase } from '../db/client.js';
 import { randomBytes } from 'crypto';
@@ -30,22 +32,13 @@ const teamRateLimits = {
   removeMember: { max: 10, timeWindow: '1 minute' },
 };
 
-// Generate invite code
 function generateInviteCode(): string {
   return randomBytes(16).toString('hex');
 }
 
-// Slugify team name
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
 export default async function teamsRoutes(fastify: FastifyInstance) {
   // List user's teams
-  fastify.get<{ Reply: TeamListResponse }>(
+  fastify.get<{ Reply: { teams: Team[] } }>(
     '/',
     { preHandler: [requireAuth], config: { rateLimit: teamRateLimits.list } },
     async (request, reply) => {
@@ -70,10 +63,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         return sendError(reply, 500, 'Failed to fetch teams');
       }
 
-      const teams = (data || []).map((item: any) => ({
-        ...item.team,
-        member_count: 1, // TODO: Add actual count with aggregation
-      }));
+      const teams = (data || []).map((row: { team: Team }) => row.team);
 
       return { teams };
     }
@@ -235,8 +225,14 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params;
       const user = getAuthenticatedUser(request);
+
+      const limit = await checkTeamMemberLimit(supabase, id);
+      if (!limit.allowed) {
+        return sendError(reply, 403, 'Team member limit reached');
+      }
+
       const inviteCode = generateInviteCode();
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const expiresAt = getInviteExpiryDate();
 
       const { error } = await supabase.from('team_invitations').insert({
         team_id: id,
@@ -276,11 +272,16 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         .single();
 
       if (inviteError || !invitation) {
-        return reply.status(404).send({ error: 'Invalid invite code' });
+        return sendError(reply, 404, 'Invalid invite code');
       }
 
       if (new Date(invitation.expires_at) < new Date()) {
-        return reply.status(410).send({ error: 'Invite code expired' });
+        return sendError(reply, 410, 'Invite code expired');
+      }
+
+      const limit = await checkTeamMemberLimit(supabase, invitation.team_id);
+      if (!limit.allowed) {
+        return sendError(reply, 403, 'Team member limit reached');
       }
 
       // Add member
@@ -292,10 +293,10 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       if (memberError) {
         if (memberError.code === '23505') {
-          return reply.status(409).send({ error: 'Already a member' });
+          return sendError(reply, 409, 'Already a member');
         }
         fastify.log.error(memberError);
-        return reply.status(500).send({ error: 'Failed to join team' });
+        return sendError(reply, 500, 'Failed to join team');
       }
 
       return { success: true, team_id: invitation.team_id };
@@ -319,12 +320,11 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         .single();
 
       if (targetMember?.role === 'owner') {
-        return reply.status(403).send({ error: 'Cannot remove team owner' });
+        return sendError(reply, 403, 'Cannot remove team owner');
       }
 
-      // Prevent self-removal (owners/admins should transfer ownership first)
       if (userId === user.id) {
-        return reply.status(400).send({ error: 'Cannot remove yourself. Leave the team instead.' });
+        return sendError(reply, 400, 'Cannot remove yourself. Leave the team instead.');
       }
 
       const { error } = await supabase
@@ -335,7 +335,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
 
       if (error) {
         fastify.log.error(error);
-        return reply.status(500).send({ error: 'Failed to remove member' });
+        return sendError(reply, 500, 'Failed to remove member');
       }
 
       return { success: true };

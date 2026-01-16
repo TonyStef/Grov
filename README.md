@@ -6,7 +6,7 @@
 
 <p align="center"><strong>Collective AI memory for engineering teams.</strong></p>
 
-<p align="center"><em>When one dev's Claude figures something out, every dev's Claude knows it.</em></p>
+<p align="center"><em>When one dev's AI figures something out, every dev's AI knows it.</em></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/grov"><img src="https://img.shields.io/npm/v/grov" alt="npm version"></a>
@@ -70,6 +70,16 @@ grov proxy            # Start (keep running)
 ```
 
 Then use Claude Code normally in another terminal. That's it.
+
+### Other Tools
+
+```bash
+grov setup              # Interactive setup (Cursor, Zed, Codex)
+grov init cursor        # Direct setup for Cursor CLI
+grov init antigravity   # Direct setup for Antigravity
+```
+
+> IDE integrations (Cursor, Zed, Antigravity) use native MCP - no proxy needed.
 
 > **Important:** Your `ANTHROPIC_API_KEY` must be set permanently in your shell profile, not just with `export` in a terminal. See [Troubleshooting](#troubleshooting) for setup instructions.
 
@@ -162,16 +172,26 @@ No manual `/compact` needed. No lost reasoning.
 ## Commands
 
 ```bash
-grov init         # Configure proxy URL (one-time)
-grov proxy        # Start the proxy (required)
-grov proxy-status # Show active sessions
-grov status       # Show captured tasks
-grov login        # Login to cloud dashboard
-grov sync         # Sync memories to team dashboard
-grov doctor       # Diagnose setup issues
-grov disable      # Disable grov
-grov uninstall    # Remove all grov data and config
-grov drift-test   # Test drift detection
+# Setup
+grov init             # Configure for Claude Code (proxy mode)
+grov init cursor      # Configure for Cursor CLI
+grov init antigravity # Configure for Antigravity
+grov setup            # Interactive setup (Cursor, Zed, Codex)
+
+# Proxy (CLI tools only)
+grov proxy            # Start the proxy
+grov proxy-status     # Show active sessions
+
+# Memory & Sync
+grov status           # Show captured tasks
+grov login            # Login to cloud dashboard
+grov sync             # Sync memories to team dashboard
+
+# Utilities
+grov doctor           # Diagnose setup issues
+grov disable          # Disable grov
+grov uninstall        # Remove all grov data and config
+grov drift-test       # Test drift detection
 ```
 
 ---
@@ -268,10 +288,23 @@ Get your API key at: https://console.anthropic.com/settings/keys
 
 ---
 
+## Supported Tools
+
+| Tool | Type | Proxy Required |
+|------|------|----------------|
+| Claude Code | CLI | Yes |
+| Cursor | IDE | No (native MCP) |
+| Cursor CLI | CLI | No |
+| Zed | IDE | No (native MCP) |
+| Antigravity | IDE | No (native MCP) |
+| Codex | CLI | Yes |
+
+**Coming soon:** VS Code, Gemini CLI
+
 ## Requirements
 
 - Node.js 18+
-- Claude Code
+- One of the supported tools above
 
 ---
 
@@ -293,7 +326,9 @@ Get your API key at: https://console.anthropic.com/settings/keys
 - [x] Hybrid search (semantic + lexical)
 - [x] Extended cache (keep prompt cache warm)
 - [x] Auto-compaction with reasoning preservation
+- [x] IDE integrations (Cursor, Zed, Antigravity)
 - [ ] VS Code extension
+- [ ] Gemini CLI support
 
 ---
 

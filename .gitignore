@@ -67,5 +67,9 @@ strix_runs/
 #grov
 .grov
 
-#
-.cursor
+# AI Agent Skills (local only)
+.cursor/
+.claude/
+.codex/
+.opencode/
+.agent/

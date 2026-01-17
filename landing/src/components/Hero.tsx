@@ -177,6 +177,27 @@ export default function Hero() {
                 />
               </a>
             </div>
+
+            {/* Video CTA */}
+            <a
+              href="https://www.youtube.com/watch?v=NvkG8Ddjgeg"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg border border-grov-border bg-grov-surface/50 hover:bg-grov-surface hover:border-grov-border-hover transition-[opacity,background-color,border-color] group min-h-[56px] justify-center lg:justify-start ${
+                isVisible ? 'opacity-100' : 'opacity-0'
+              }`}
+              style={{ touchAction: 'manipulation', transitionDelay: '600ms' }}
+            >
+              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-red-600 group-hover:bg-red-500 transition-colors shrink-0">
+                {YouTubeIcon}
+              </span>
+              <div className="text-left">
+                <div className="font-mono text-xs text-grov-text-muted">Watch the 4-minute demo</div>
+                <div className="text-sm text-grov-text group-hover:text-grov-accent transition-colors">
+                  Universal AI Context: From Terminal to IDE
+                </div>
+              </div>
+            </a>
           </div>
 
           {/* Right: Interactive Demo */}
@@ -188,25 +209,6 @@ export default function Hero() {
             id="demo"
           >
             <InteractiveDemo hideHeader />
-
-            {/* Video CTA below demo */}
-            <a
-              href="https://www.youtube.com/watch?v=NvkG8Ddjgeg"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-4 flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-grov-border bg-grov-surface/50 hover:bg-grov-surface hover:border-grov-border-hover transition-[background-color,border-color] group min-h-[56px]"
-              style={{ touchAction: 'manipulation' }}
-            >
-              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-red-600 group-hover:bg-red-500 transition-colors">
-                {YouTubeIcon}
-              </span>
-              <div className="text-left">
-                <div className="font-mono text-xs text-grov-text-muted">Watch the 4-minute demo</div>
-                <div className="text-sm text-grov-text group-hover:text-grov-accent transition-colors">
-                  Universal AI Context: From Terminal to IDE in seconds
-                </div>
-              </div>
-            </a>
 
             {/* Subtle glow effect */}
             <div className="absolute -inset-8 bg-grov-accent/5 blur-3xl -z-10 rounded-full" />

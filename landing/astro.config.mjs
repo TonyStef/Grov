@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
 import mdx from '@astrojs/mdx';
+import react from '@astrojs/react';
 
 // Fetch version from npm registry at build time
 async function getPublishedVersion() {
@@ -19,7 +20,7 @@ const APP_VERSION = await getPublishedVersion();
 
 export default defineConfig({
   site: 'https://grov.dev',
-  integrations: [mdx()],
+  integrations: [mdx(), react()],
   vite: {
     plugins: [tailwindcss()],
     build: {

@@ -1,7 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import Hero from '../components/Hero.astro';
-import ProblemSection from '../components/ProblemSection.astro';
+import Hero from '../components/Hero';
+import ProblemSection from '../components/ProblemSection';
 import HowItWorks from '../components/HowItWorks.astro';
 import CaptureExample from '../components/CaptureExample.astro';
 import InstallSection from '../components/InstallSection.astro';
@@ -10,8 +10,8 @@ import Footer from '../components/Footer.astro';
 
 <Layout>
   <main>
-    <Hero />
-    <ProblemSection />
+    <Hero client:load />
+    <ProblemSection client:visible />
     <HowItWorks />
     <CaptureExample />
     <InstallSection />

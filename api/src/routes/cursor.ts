@@ -101,6 +101,7 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
 
           const { data, error: rpcError } = await supabase.rpc('hybrid_search_match', {
             p_team_id: teamId,
+            p_user_id: user.id,
             p_project_path: req.projectPath,
             p_query_embeddings: embeddingsStr,
             p_query_text: req.original_query,
@@ -151,17 +152,11 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
         memoryId = matchedMemory.id;
       }
 
-      // Prepare memory data with full merge logic
       const now = new Date().toISOString();
-
-      // For INSERT: simple data structure
-      // For UPDATE: merge with existing data using updateResult
       let memoryData: Record<string, unknown>;
 
       if (action === 'update' && matchedMemory && updateResult) {
-        // === MERGE LOGIC (ported from prepareSyncPayload) ===
-
-        // 1. Handle superseded_mapping - mark old decisions as inactive
+        // Merge decisions with superseded mapping
         const existingDecisions = matchedMemory.decisions || [];
         const supersededMap = new Map(
           updateResult.superseded_mapping.map(m => [m.old_index, {
@@ -179,45 +174,27 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
           return { ...d, active: d.active !== false };
         });
 
-        const newDecisions = extracted.decisions.map(d => ({
-          ...d,
-          date: now,
-          active: true,
-        }));
-
+        const newDecisions = extracted.decisions.map(d => ({ ...d, date: now, active: true }));
         const allDecisions = [...updatedDecisions, ...newDecisions];
 
-        // 2. Handle condensed_old_reasoning - save to reasoning_evolution
-        const existingReasoningEvolution = matchedMemory.reasoning_evolution || [];
-        const reasoningEvolution = [...existingReasoningEvolution];
+        // Build reasoning evolution
+        const reasoningEvolution = [...(matchedMemory.reasoning_evolution || [])];
         if (updateResult.condensed_old_reasoning) {
-          reasoningEvolution.push({
-            content: updateResult.condensed_old_reasoning,
-            date: now,
-          });
+          reasoningEvolution.push({ content: updateResult.condensed_old_reasoning, date: now });
         }
 
-        // 3. Handle consolidated_evolution_steps - use if present
-        const existingEvolution = matchedMemory.evolution_steps || [];
-        const baseEvolution = updateResult.consolidated_evolution_steps || existingEvolution;
+        // Build evolution steps
+        const baseEvolution = updateResult.consolidated_evolution_steps || matchedMemory.evolution_steps || [];
         const evolutionSteps = [...baseEvolution];
         if (updateResult.evolution_summary) {
-          evolutionSteps.push({
-            summary: updateResult.evolution_summary,
-            date: now,
-          });
+          evolutionSteps.push({ summary: updateResult.evolution_summary, date: now });
         }
 
-        // 4. Apply max limits
+        // Apply max limits
         const MAX_DECISIONS = 20;
         const MAX_EVOLUTION_STEPS = 10;
         const MAX_REASONING_EVOLUTION = 5;
 
-        const finalDecisions = allDecisions.slice(-MAX_DECISIONS);
-        const finalEvolutionSteps = evolutionSteps.slice(-MAX_EVOLUTION_STEPS);
-        const finalReasoningEvolution = reasoningEvolution.slice(-MAX_REASONING_EVOLUTION);
-
-        // 5. Build merged memory data
         memoryData = {
           team_id: teamId,
           user_id: user.id,
@@ -226,15 +203,14 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
           goal: extracted.goal,
           system_name: extracted.system_name,
           summary: extracted.summary,
-          reasoning_trace: extracted.reasoning_trace,  // OVERWRITE with new
-          decisions: finalDecisions,
+          reasoning_trace: extracted.reasoning_trace,
+          decisions: allDecisions.slice(-MAX_DECISIONS),
           files_touched: extracted.files_touched,
           status: 'complete',
-          evolution_steps: finalEvolutionSteps,
-          reasoning_evolution: finalReasoningEvolution,
+          evolution_steps: evolutionSteps.slice(-MAX_EVOLUTION_STEPS),
+          reasoning_evolution: reasoningEvolution.slice(-MAX_REASONING_EVOLUTION),
         };
       } else {
-        // INSERT: simple structure
         memoryData = {
           team_id: teamId,
           user_id: user.id,
@@ -299,5 +275,3 @@ export default async function cursorRoutes(fastify: FastifyInstance) {
     }
   );
 }
-
-// test

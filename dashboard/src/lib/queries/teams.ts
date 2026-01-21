@@ -24,6 +24,7 @@ interface TeamMemberQueryResult {
   user_id: string;
   role: TeamRole;
   joined_at: string;
+  active_branch: string;
   profile: ProfileData | ProfileData[] | null;
 }
 
@@ -121,6 +122,7 @@ export async function getTeamMembers(teamId: string): Promise<TeamMemberWithProf
       user_id,
       role,
       joined_at,
+      active_branch,
       profile:profiles (
         email,
         full_name,
@@ -139,6 +141,7 @@ export async function getTeamMembers(teamId: string): Promise<TeamMemberWithProf
       user_id: member.user_id,
       role: member.role,
       joined_at: member.joined_at,
+      active_branch: member.active_branch || 'main',
       email: profile?.email || '',
       full_name: profile?.full_name || null,
       avatar_url: profile?.avatar_url || null,

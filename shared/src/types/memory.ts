@@ -67,6 +67,10 @@ export interface Memory {
   linked_commit: string | null;
   created_at: string;
   updated_at?: string;  // Set by trigger on UPDATE, defaults to created_at
+  // Branch management
+  branch: string;
+  source_branch?: string | null;
+  merged_at?: string | null;
   // Memory editing fields
   evolution_steps?: EvolutionStep[];
   reasoning_evolution?: ReasoningEvolutionEntry[];
@@ -87,6 +91,8 @@ export interface CreateMemoryInput {
   tags?: string[];
   status: MemoryStatus;
   linked_commit?: string;
+  // Branch management
+  branch?: string;
   // Memory editing fields (for UPDATE path)
   memory_id?: string;                          // If present, triggers UPDATE instead of INSERT
   evolution_steps?: EvolutionStep[];
@@ -105,6 +111,7 @@ export interface MemoryFilters {
   status?: MemoryStatus;
   user_id?: string;
   project_path?: string;
+  branch?: string;
 }
 
 // Paginated memory list response

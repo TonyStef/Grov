@@ -2,6 +2,45 @@ import { createClient } from '@/lib/supabase/server';
 import { getAuthUser, verifyTeamMembership } from '@/lib/auth';
 import type { Memory } from '@grov/shared';
 
+/**
+ * Verify if a user has access to a specific branch
+ * Returns true for 'main' branch (all team members have access)
+ * For other branches, checks if user is a member
+ */
+async function verifyBranchAccess(
+  userId: string,
+  teamId: string,
+  branchName: string
+): Promise<boolean> {
+  if (branchName === 'main') {
+    return true;
+  }
+
+  const supabase = await createClient();
+
+  // Get branch ID
+  const { data: branchData, error: branchError } = await supabase
+    .from('memory_branches')
+    .select('id')
+    .eq('team_id', teamId)
+    .eq('name', branchName)
+    .single();
+
+  if (branchError || !branchData) {
+    return false;
+  }
+
+  // Check membership
+  const { data: membership } = await supabase
+    .from('memory_branch_members')
+    .select('id')
+    .eq('branch_id', branchData.id)
+    .eq('user_id', userId)
+    .single();
+
+  return !!membership;
+}
+
 export interface MemoryWithProfile extends Memory {
   profile?: {
     email: string;
@@ -17,6 +56,7 @@ export interface MemoryFilters {
   user_id?: string;
   from?: string;
   to?: string;
+  branch?: string;
 }
 
 export interface MemoriesListResult {
@@ -60,6 +100,15 @@ export async function getMemoriesList(
     return { memories: [], cursor: null, has_more: false };
   }
 
+  // Verify branch access for non-main branches
+  const targetBranch = filters.branch || 'main';
+  if (targetBranch !== 'main') {
+    const hasBranchAccess = await verifyBranchAccess(user.id, teamId, targetBranch);
+    if (!hasBranchAccess) {
+      return { memories: [], cursor: null, has_more: false };
+    }
+  }
+
   const supabase = await createClient();
 
   let query = supabase
@@ -101,6 +150,13 @@ export async function getMemoriesList(
 
   if (filters.to) {
     query = query.lte('created_at', filters.to);
+  }
+
+  if (filters.branch) {
+    query = query.eq('branch', filters.branch);
+  } else {
+    // Default to main branch if not specified
+    query = query.eq('branch', 'main');
   }
 
   if (cursor) {
@@ -223,6 +279,12 @@ export async function getMemory(memoryId: string): Promise<MemoryWithProfile | n
 
   const isMember = await verifyTeamMembership(user.id, memory.team_id);
   if (!isMember) return null;
+
+  // Verify branch access for non-main branches
+  if (memory.branch && memory.branch !== 'main') {
+    const hasBranchAccess = await verifyBranchAccess(user.id, memory.team_id, memory.branch);
+    if (!hasBranchAccess) return null;
+  }
 
   return memory as MemoryWithProfile;
 }

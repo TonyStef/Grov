@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Brain, FileCode, Clock } from 'lucide-react';
+import { Brain, FileCode, Clock, GitBranch } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentTeam } from '@/lib/queries/current-team';
 import { getMemoriesList, getTeamTags } from '@/lib/queries/memories';
-import { formatRelativeDate, truncate, getInitials, getFileExtension } from '@/lib/utils';
+import { getTeamBranches } from '@/lib/queries/branches';
+import { getTeamMembers, getUserRoleInTeam } from '@/lib/queries/teams';
+import { formatRelativeDate, truncate, getInitials } from '@/lib/utils';
 import { MemoriesFilters } from './_components/memories-filters';
+import { MemoriesPageClient } from './_components/memories-page-client';
 
 export const metadata: Metadata = {
   title: 'Memories',
@@ -18,6 +21,7 @@ interface PageProps {
     tags?: string;
     status?: string;
     user?: string;
+    branch?: string;
   }>;
 }
 
@@ -36,38 +40,64 @@ export default async function MemoriesPage({ searchParams }: PageProps) {
     return <NoTeamState />;
   }
 
+  // Fetch team data first to get active branch
+  const [teamMembers, branches, availableTags, userRole] = await Promise.all([
+    getTeamMembers(team.id),
+    getTeamBranches(team.id),
+    getTeamTags(team.id),
+    getUserRoleInTeam(team.id),
+  ]);
+
+  // Get user's active branch from team membership
+  const currentMember = teamMembers.find(m => m.user_id === authUser.id);
+  const savedActiveBranch = currentMember?.active_branch || 'main';
+  const activeBranch = params.branch || savedActiveBranch;
+
   // Parse filters from URL
   const filters = {
     search: params.search,
     tags: params.tags?.split(',').filter(Boolean),
     status: params.status,
     user_id: params.user,
+    branch: activeBranch,
   };
 
-  // Fetch memories and available tags in parallel
-  const [memoriesResult, availableTags] = await Promise.all([
-    getMemoriesList(team.id, filters, 20),
-    getTeamTags(team.id),
-  ]);
+  // Fetch memories with branch filter
+  const memoriesResult = await getMemoriesList(team.id, filters, 20);
 
   const { memories, has_more, cursor } = memoriesResult;
 
   return (
     <div className="animate-grow-in space-y-4 p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Memories</h1>
-        <p className="text-sm text-text-calm">
-          Browse captured reasoning from {team.name}&apos;s sessions
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold">Memories</h1>
+          <p className="text-sm text-text-calm">
+            Browse captured reasoning from {team.name}&apos;s sessions
+          </p>
+        </div>
+        <MemoriesPageClient
+          teamId={team.id}
+          branches={branches}
+          activeBranch={activeBranch}
+          userRole={userRole}
+          teamMembers={teamMembers.map(m => ({
+            user_id: m.user_id,
+            email: m.email,
+            full_name: m.full_name,
+            avatar_url: m.avatar_url,
+          }))}
+        />
       </header>
 
       <MemoriesFilters
         availableTags={availableTags}
         currentFilters={params}
+        activeBranch={activeBranch}
       />
 
       {memories.length === 0 ? (
-        <EmptyState hasFilters={!!(params.search || params.tags || params.status)} />
+        <EmptyState hasFilters={!!(params.search || params.tags || params.status)} branchName={activeBranch} />
       ) : (
         <div className="space-y-3">
           {memories.map((memory) => (
@@ -93,26 +123,24 @@ export default async function MemoriesPage({ searchParams }: PageProps) {
   );
 }
 
-// Check if memory was edited (has at least 1 evolution step)
-function wasMemoryEdited(memory: any): { edited: boolean; lastDate: string } {
-  const evolutionSteps = memory.evolution_steps || [];
-  if (evolutionSteps.length > 0) {
-    const lastStep = evolutionSteps[evolutionSteps.length - 1];
-    return { edited: true, lastDate: lastStep.date };
+function getEditInfo(memory: { evolution_steps?: Array<{ date: string }>; created_at: string }): { edited: boolean; lastDate: string } {
+  const steps = memory.evolution_steps || [];
+  if (steps.length > 0) {
+    return { edited: true, lastDate: steps[steps.length - 1].date };
   }
   return { edited: false, lastDate: memory.created_at };
 }
 
-function MemoryCard({ memory }: { memory: any }) {
-  const statusColors = {
-    complete: 'bg-success/10 text-success',
-    question: 'bg-warning/10 text-warning',
-    partial: 'bg-info/10 text-info',
-    abandoned: 'bg-error/10 text-error',
-  };
+const STATUS_COLORS: Record<string, string> = {
+  complete: 'bg-success/10 text-success',
+  question: 'bg-warning/10 text-warning',
+  partial: 'bg-info/10 text-info',
+  abandoned: 'bg-error/10 text-error',
+};
 
-  const statusColor = statusColors[memory.status as keyof typeof statusColors] || statusColors.complete;
-  const { edited, lastDate } = wasMemoryEdited(memory);
+function MemoryCard({ memory }: { memory: any }) {
+  const statusColor = STATUS_COLORS[memory.status] || STATUS_COLORS.complete;
+  const { edited, lastDate } = getEditInfo(memory);
 
   return (
     <Link
@@ -171,6 +199,19 @@ function MemoryCard({ memory }: { memory: any }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {/* Branch badge - show if not on main or if merged from another branch */}
+          {memory.source_branch && (
+            <span className="flex items-center gap-1 rounded bg-info/10 text-info px-2 py-0.5 text-[11px] font-medium">
+              <GitBranch className="h-3 w-3" />
+              {memory.source_branch}
+            </span>
+          )}
+          {memory.branch && memory.branch !== 'main' && !memory.source_branch && (
+            <span className="flex items-center gap-1 rounded bg-warning/10 text-warning px-2 py-0.5 text-[11px] font-medium">
+              <GitBranch className="h-3 w-3" />
+              {memory.branch}
+            </span>
+          )}
           {edited && (
             <span className="rounded bg-leaf/10 text-leaf px-2 py-0.5 text-[11px] font-medium">
               Edited
@@ -187,10 +228,16 @@ function MemoryCard({ memory }: { memory: any }) {
   );
 }
 
-function EmptyState({ hasFilters }: { hasFilters: boolean }) {
+function EmptyState({ hasFilters, branchName }: { hasFilters: boolean; branchName: string }) {
+  const isOnBranch = branchName !== 'main';
+
   return (
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-root/50 py-8">
-      <Brain className="h-5 w-5 text-leaf mb-2" />
+      {isOnBranch ? (
+        <GitBranch className="h-5 w-5 text-warning mb-2" />
+      ) : (
+        <Brain className="h-5 w-5 text-leaf mb-2" />
+      )}
       <div className="text-center">
         {hasFilters ? (
           <>
@@ -199,11 +246,20 @@ function EmptyState({ hasFilters }: { hasFilters: boolean }) {
               Try adjusting your filters
             </p>
             <Link
-              href="/memories"
+              href={isOnBranch ? `/memories?branch=${branchName}` : '/memories'}
               className="mt-3 inline-flex items-center rounded-md bg-bark border border-border px-3 py-1 text-[11px] font-medium text-text-calm hover:bg-moss transition-all"
             >
               Clear filters
             </Link>
+          </>
+        ) : isOnBranch ? (
+          <>
+            <p className="text-xs font-medium text-text-bright">
+              No branch-specific memories yet
+            </p>
+            <p className="mt-1 text-[11px] text-text-calm max-w-xs">
+              Main branch memories are still injected. New memories synced while on this branch will appear here.
+            </p>
           </>
         ) : (
           <>

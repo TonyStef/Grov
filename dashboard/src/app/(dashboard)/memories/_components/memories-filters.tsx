@@ -12,12 +12,15 @@ interface MemoriesFiltersProps {
     tags?: string;
     status?: string;
     user?: string;
+    branch?: string;
   };
+  activeBranch?: string;
 }
 
 export function MemoriesFilters({
   availableTags,
   currentFilters,
+  activeBranch,
 }: MemoriesFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,7 +70,12 @@ export function MemoriesFilters({
 
   const clearFilters = () => {
     setSearchValue('');
-    router.push('/memories');
+    // Preserve branch when clearing other filters
+    if (activeBranch && activeBranch !== 'main') {
+      router.push(`/memories?branch=${activeBranch}`);
+    } else {
+      router.push('/memories');
+    }
   };
 
   const hasActiveFilters = !!(

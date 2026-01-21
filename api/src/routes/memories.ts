@@ -25,6 +25,43 @@ function sendError(reply: FastifyReply, status: number, error: string) {
   return reply.status(status).send({ error } as Record<string, unknown>);
 }
 
+// Helper to verify branch membership for non-main branches
+async function verifyBranchAccess(
+  teamId: string,
+  branchName: string,
+  userId: string
+): Promise<{ allowed: boolean; error?: string }> {
+  if (branchName === 'main') {
+    return { allowed: true };
+  }
+
+  // Get branch ID
+  const { data: branchData, error: branchError } = await supabase
+    .from('memory_branches')
+    .select('id')
+    .eq('team_id', teamId)
+    .eq('name', branchName)
+    .single();
+
+  if (branchError || !branchData) {
+    return { allowed: false, error: 'Branch not found' };
+  }
+
+  // Check membership
+  const { data: membership } = await supabase
+    .from('memory_branch_members')
+    .select('id')
+    .eq('branch_id', branchData.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (!membership) {
+    return { allowed: false, error: 'You are not a member of this branch' };
+  }
+
+  return { allowed: true };
+}
+
 // Rate limit configurations for memory endpoints
 const memoryRateLimits = {
   list: { max: 60, timeWindow: '1 minute' },
@@ -46,20 +83,13 @@ function sanitizeSearchInput(input: string): string {
 }
 
 /**
- * Save chunks for a memory to the memory_chunks table
- * Handles DELETE of old chunks + INSERT of new chunks
- *
- * @param memoryId - The memory ID to associate chunks with
- * @param teamId - The team ID for the chunks
- * @param projectPath - The project path for pre-filtering
- * @param chunks - Array of MemoryChunk objects with embeddings
- * @param fastify - Fastify instance for logging
- * @returns Object with success status and counts
+ * Save chunks for a memory (DELETE old + INSERT new)
  */
 async function saveMemoryChunks(
   memoryId: string,
   teamId: string,
   projectPath: string,
+  branch: string,
   chunks: MemoryChunk[],
   fastify: FastifyInstance
 ): Promise<{ success: boolean; inserted: number; error?: string }> {
@@ -67,7 +97,6 @@ async function saveMemoryChunks(
     return { success: true, inserted: 0 };
   }
 
-  // Step 1: Delete existing chunks for this memory
   const { error: deleteError } = await supabase
     .from('memory_chunks')
     .delete()
@@ -78,19 +107,18 @@ async function saveMemoryChunks(
     return { success: false, inserted: 0, error: deleteError.message };
   }
 
-  // Step 2: Prepare chunks for insert
   const chunksToInsert = chunks.map(chunk => ({
     memory_id: memoryId,
     team_id: teamId,
     project_path: projectPath,
+    branch,
     chunk_type: chunk.chunk_type,
     chunk_index: chunk.chunk_index,
     content: chunk.content,
     embedding: chunk.embedding,
   }));
 
-  // Step 3: Insert new chunks
-  const { error: insertError, count } = await supabase
+  const { error: insertError } = await supabase
     .from('memory_chunks')
     .insert(chunksToInsert);
 
@@ -103,7 +131,7 @@ async function saveMemoryChunks(
 }
 
 export default async function memoriesRoutes(fastify: FastifyInstance) {
-  // List memories for a team (with optional hybrid search)
+  // List memories for a team with optional hybrid search
   fastify.get<{
     Params: { id: string };
     Querystring: MemoryFilters & {
@@ -118,6 +146,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAuth, requireTeamMember], config: { rateLimit: memoryRateLimits.list } },
     async (request, reply) => {
       const { id } = request.params;
+      const user = getAuthenticatedUser(request);
       const {
         search,
         tags,
@@ -131,12 +160,12 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         cursor,
         context,
         current_files,
+        branch,
       } = request.query;
 
       const limit = Math.min(parseInt(limitStr, 10), 100);
 
-      // HYBRID SEARCH: If context provided, use semantic search (for injection)
-      // NO FALLBACK: If context is provided but search fails, return empty (strict mode)
+      // Hybrid search for context-aware queries (used by CLI injection)
       if (context && project_path) {
         if (!isEmbeddingEnabled()) {
           return { memories: [], cursor: null, has_more: false };
@@ -147,17 +176,15 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           return { memories: [], cursor: null, has_more: false };
         }
 
-        // Parse current_files (comma-separated string → array)
         const currentFilesArray = current_files
           ? current_files.split(',').map(f => f.trim()).filter(Boolean)
           : [];
 
-        // Convert embedding array to PostgreSQL vector string format
         const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
-        // Call hybrid_search_injection RPC function (searches memory_chunks)
         const { data, error } = await supabase.rpc('hybrid_search_injection', {
           p_team_id: id,
+          p_user_id: user.id,
           p_project_path: project_path,
           p_query_embedding: embeddingStr,
           p_query_text: context,
@@ -177,13 +204,13 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         };
       }
 
-      // REGULAR QUERY: Only used when NO context provided (dashboard/listing, NOT injection)
+      // Regular query for dashboard listing
       let query = supabase
         .from('memories')
         .select('*')
         .eq('team_id', id)
         .order('updated_at', { ascending: false })
-        .limit(limit + 1); // Fetch one extra to check if there are more
+        .limit(limit + 1);
 
       // Apply filters
       if (search) {
@@ -221,6 +248,17 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         query = query.eq('project_path', project_path);
       }
 
+      // Verify branch access for non-main branches
+      const targetBranch = branch || 'main';
+      if (targetBranch !== 'main') {
+        const branchAccess = await verifyBranchAccess(id, targetBranch, user.id);
+        if (!branchAccess.allowed) {
+          return sendError(reply, 403, branchAccess.error || 'Branch access denied');
+        }
+      }
+
+      query = query.eq('branch', targetBranch);
+
       if (cursor) {
         query = query.lt('updated_at', cursor);
       }
@@ -234,23 +272,17 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       const memories = data || [];
       const hasMore = memories.length > limit;
-
-      if (hasMore) {
-        memories.pop(); // Remove the extra item
-      }
+      if (hasMore) memories.pop();
 
       return {
         memories,
-        cursor: hasMore ? memories[memories.length - 1]?.updated_at || null : null,
+        cursor: hasMore && memories.length > 0 ? memories[memories.length - 1].updated_at : null,
         has_more: hasMore,
       };
     }
   );
 
-  // Match endpoint - find best matching memory for UPDATE decision
-  // Used by CLI before sync to check if a similar memory exists
-  // POST to accept full memory data for chunk generation
-  // New architecture: uses multi-vector search with chunks
+  // Match endpoint for finding similar memories (used by CLI pre-sync)
   fastify.post<{
     Params: { id: string };
     Body: {
@@ -276,15 +308,15 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params;
       const { project_path, summary, goal, system_name, original_query, reasoning_trace, decisions, task_type } = request.body;
+      const user = getAuthenticatedUser(request);
 
       // Validate required params
       if (!project_path || !original_query) {
         return { match: null };
       }
 
-      // Step 1: Generate chunks with embeddings
       const chunks = await generateChunks({
-        system_name,  // Parent system anchor for semantic search
+        system_name,
         summary,
         goal,
         original_query,
@@ -297,17 +329,16 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         return { match: null };
       }
 
-      // Step 2: Extract embeddings array for multi-vector search
       const embeddingsArray = chunks.map(c => `"[${c.embedding.join(',')}]"`);
       const embeddingsStr = `{${embeddingsArray.join(',')}}`;
 
-      // Call hybrid search RPC with array of embeddings
       const { data: searchResults, error: searchError } = await supabase.rpc('hybrid_search_match', {
         p_team_id: id,
+        p_user_id: user.id,
         p_project_path: project_path,
         p_query_embeddings: embeddingsStr,
         p_query_text: original_query,
-        p_semantic_threshold: 0.5,  // Low base threshold, combined_score decides
+        p_semantic_threshold: 0.5,
         p_limit: 1,
       });
 
@@ -322,7 +353,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       const bestMatch = searchResults[0];
 
-      // Return full memory content + chunks for CLI to reuse in SYNC
       return {
         match: bestMatch as unknown as Memory,
         combined_score: bestMatch.combined_score,
@@ -337,6 +367,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAuth, requireTeamMember], config: { rateLimit: memoryRateLimits.read } },
     async (request, reply) => {
       const { id, memoryId } = request.params;
+      const user = getAuthenticatedUser(request);
 
       const { data, error } = await supabase
         .from('memories')
@@ -347,6 +378,15 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
       if (error || !data) {
         return sendError(reply, 404, 'Memory not found');
+      }
+
+      // Verify branch access for non-main branches
+      if (data.branch && data.branch !== 'main') {
+        const branchAccess = await verifyBranchAccess(id, data.branch, user.id);
+        if (!branchAccess.allowed) {
+          // Return 404 to avoid leaking branch existence
+          return sendError(reply, 404, 'Memory not found');
+        }
       }
 
       return data;
@@ -376,7 +416,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         return sendError(reply, 400, `Maximum ${MAX_MEMORIES_PER_SYNC} memories per sync`);
       }
 
-      // Separate memories into UPDATE (has memory_id) and INSERT (no memory_id)
       const memoriesToUpdate = memories.filter(m => m.memory_id);
       const memoriesToInsert = memories.filter(m => !m.memory_id);
 
@@ -385,23 +424,42 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
       let failed = 0;
       const errors: string[] = [];
 
-      // UPDATE PATH: memories with memory_id
       for (const memory of memoriesToUpdate) {
         try {
-          // Update existing memory - CLI has already prepared all fields
-          // Note: embeddings now stored in memory_chunks table, not in memories
-          const { data: updatedData, error, count } = await supabase
+          // First, fetch the memory to verify branch access
+          const { data: existingMemory } = await supabase
+            .from('memories')
+            .select('branch')
+            .eq('id', memory.memory_id)
+            .eq('team_id', id)
+            .single();
+
+          if (!existingMemory) {
+            failed++;
+            errors.push(`UPDATE ${memory.memory_id}: Memory not found`);
+            continue;
+          }
+
+          // Verify branch access for non-main branches
+          if (existingMemory.branch && existingMemory.branch !== 'main') {
+            const branchAccess = await verifyBranchAccess(id, existingMemory.branch, user.id);
+            if (!branchAccess.allowed) {
+              failed++;
+              errors.push(`UPDATE ${memory.memory_id}: ${branchAccess.error || 'Branch access denied'}`);
+              continue;
+            }
+          }
+
+          const { data: updatedData, error } = await supabase
             .from('memories')
             .update({
-              // Core fields
               original_query: memory.original_query,
               goal: memory.goal,
-              system_name: memory.system_name,  // Parent system anchor for semantic search
+              system_name: memory.system_name,
               summary: memory.summary,
               files_touched: memory.files_touched || [],
               status: memory.status,
               linked_commit: memory.linked_commit,
-              // Fields prepared by CLI (shouldUpdateMemory + prepareSyncPayload)
               reasoning_trace: memory.reasoning_trace || [],
               decisions: memory.decisions || [],
               evolution_steps: memory.evolution_steps || [],
@@ -410,8 +468,8 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
               tags: memory.tags || [],
             })
             .eq('id', memory.memory_id)
-            .eq('team_id', id)  // Security: verify team ownership
-            .select('id'); // Select ID to confirm update happened
+            .eq('team_id', id)
+            .select('id, branch')
 
           if (error) {
             fastify.log.error(`[SYNC] UPDATE failed ${memory.memory_id}: ${error.message}`);
@@ -421,16 +479,15 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           }
 
           if (!updatedData || updatedData.length === 0) {
-             fastify.log.error(`[SYNC] UPDATE failed ${memory.memory_id}: not found`);
-             failed++;
-             errors.push(`UPDATE ${memory.memory_id}: ID not found or access denied`);
-             continue;
+            fastify.log.error(`[SYNC] UPDATE failed ${memory.memory_id}: not found`);
+            failed++;
+            errors.push(`UPDATE ${memory.memory_id}: ID not found or access denied`);
+            continue;
           }
 
-          // Generate and save chunks for semantic search
           if (embeddingsEnabled) {
             const chunks = await generateChunks({
-              system_name: memory.system_name,  // Parent system anchor for semantic search
+              system_name: memory.system_name,
               summary: memory.summary,
               goal: memory.goal,
               original_query: memory.original_query,
@@ -439,14 +496,8 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
             });
 
             if (chunks && chunks.length > 0) {
-              const chunkResult = await saveMemoryChunks(
-                memory.memory_id!,
-                id,
-                memory.project_path,
-                chunks,
-                fastify
-              );
-              // Don't fail sync if chunks fail - memory is already saved
+              const branchToUse = updatedData[0].branch || 'main';
+              await saveMemoryChunks(memory.memory_id!, id, memory.project_path, branchToUse, chunks, fastify);
             }
           }
 
@@ -459,13 +510,19 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // INSERT PATH: memories without memory_id
-      if (memoriesToInsert.length > 0) {
+      for (const memory of memoriesToInsert) {
+        try {
+          const targetBranch = memory.branch || request.teamMembership?.active_branch || 'main';
 
-        for (const memory of memoriesToInsert) {
-          try {
-            // Prepare memory data (without embeddings - those go in chunks now)
-            const memoryData = {
+          // Verify branch membership if not 'main'
+          const branchAccess = await verifyBranchAccess(id, targetBranch, user.id);
+          if (!branchAccess.allowed) {
+            failed++;
+            errors.push(`INSERT failed: ${branchAccess.error || 'Branch access denied'}`);
+            continue;
+          }
+
+          const memoryData = {
               team_id: id,
               user_id: user.id,
               client_task_id: memory.client_task_id || null,
@@ -483,6 +540,7 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
               linked_commit: memory.linked_commit,
               evolution_steps: memory.evolution_steps || [],
               reasoning_evolution: memory.reasoning_evolution || [],
+              branch: targetBranch,
             };
 
             // Insert memory and get the ID back
@@ -501,36 +559,27 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
 
             const memoryId = insertedMemory.id;
 
-            // Generate and save chunks for semantic search
-            if (embeddingsEnabled) {
-              const chunks = await generateChunks({
-                system_name: memory.system_name,  // Parent system anchor for semantic search
-                summary: memory.summary,
-                goal: memory.goal,
-                original_query: memory.original_query,
-                reasoning_trace: memory.reasoning_trace,
-                decisions: memory.decisions,
-              });
+          if (embeddingsEnabled) {
+            const chunks = await generateChunks({
+              system_name: memory.system_name,
+              summary: memory.summary,
+              goal: memory.goal,
+              original_query: memory.original_query,
+              reasoning_trace: memory.reasoning_trace,
+              decisions: memory.decisions,
+            });
 
-              if (chunks && chunks.length > 0) {
-                const chunkResult = await saveMemoryChunks(
-                  memoryId,
-                  id,
-                  memory.project_path,
-                  chunks,
-                  fastify
-                );
-                // Don't fail sync if chunks fail - memory is already saved
-              }
+            if (chunks && chunks.length > 0) {
+              await saveMemoryChunks(memoryId, id, memory.project_path, memoryData.branch as string, chunks, fastify);
             }
-
-            synced++;
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Unknown error';
-            fastify.log.error(`[SYNC] INSERT error: ${msg}`);
-            failed++;
-            errors.push(`INSERT failed: ${msg}`);
           }
+
+          synced++;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          fastify.log.error(`[SYNC] INSERT error: ${msg}`);
+          failed++;
+          errors.push(`INSERT failed: ${msg}`);
         }
       }
 
@@ -540,7 +589,6 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         errors: errors.length > 0 ? errors : undefined,
       };
 
-      // Return appropriate status code based on results
       if (failed > 0 && synced === 0) {
         return reply.status(500).send(response);
       }
@@ -552,15 +600,12 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
   );
 
   // Regenerate chunks for a memory (admin only)
-  // POST /:id/memories/:memoryId/regenerate
-  // New architecture: regenerates chunks in memory_chunks table
   fastify.post<{ Params: { id: string; memoryId: string } }>(
     '/:id/memories/:memoryId/regenerate',
     { preHandler: [requireAuth, requireTeamAdmin] },
     async (request, reply) => {
       const { id, memoryId } = request.params;
 
-      // Fetch the memory
       const { data: memory, error: fetchError } = await supabase
         .from('memories')
         .select('*')
@@ -572,10 +617,8 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         return sendError(reply, 404, 'Memory not found');
       }
 
-
-      // Generate new chunks
       const chunks = await generateChunks({
-        system_name: memory.system_name,  // Parent system anchor for semantic search
+        system_name: memory.system_name,
         summary: memory.summary,
         goal: memory.goal,
         original_query: memory.original_query,
@@ -587,11 +630,11 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
         return sendError(reply, 500, 'Failed to generate chunks');
       }
 
-      // Save chunks (DELETE old + INSERT new)
       const chunkResult = await saveMemoryChunks(
         memoryId,
         id,
         memory.project_path,
+        memory.branch,
         chunks,
         fastify
       );

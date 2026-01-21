@@ -12,10 +12,8 @@ const PROXY_URL = 'http://127.0.0.1:8080/v1';
 interface ModelProvider {
   name: string;
   base_url: string;
-  env_key: string;
   wire_api: 'responses' | 'chat';
-  query_params?: Record<string, string>;
-  http_headers?: Record<string, string>;
+  requires_openai_auth: boolean;
 }
 
 interface CodexConfig {
@@ -66,14 +64,15 @@ export function setProxyEnv(enable: boolean): { action: 'added' | 'removed' | 'u
       config._grov_original_provider = config.model_provider;
     }
 
+    // requires_openai_auth = true uses existing ChatGPT subscription auth
+    // This allows users to use Grov with their Plus/Pro subscription - no API key needed
     config.model_providers.grov = {
       name: 'Grov Memory Proxy',
       base_url: PROXY_URL,
-      env_key: 'OPENAI_API_KEY',
       wire_api: 'responses',
+      requires_openai_auth: true,
     };
 
-    // Tell Codex to use the grov provider
     config.model_provider = 'grov';
 
     writeCodexConfig(config);
@@ -86,7 +85,6 @@ export function setProxyEnv(enable: boolean): { action: 'added' | 'removed' | 'u
 
   delete config.model_providers.grov;
 
-  // Restore original provider or remove the setting
   if (config._grov_original_provider) {
     config.model_provider = config._grov_original_provider;
     delete config._grov_original_provider;

@@ -10,6 +10,14 @@ interface TeamMemberInfo {
   team_id: string;
   user_id: string;
   role: TeamRole;
+  active_branch: string;
+}
+
+// Extend FastifyRequest to include team membership
+declare module 'fastify' {
+  interface FastifyRequest {
+    teamMembership?: TeamMemberInfo;
+  }
 }
 
 /**
@@ -22,7 +30,7 @@ async function getTeamMembership(
 ): Promise<TeamMemberInfo | null> {
   const { data, error } = await supabase
     .from('team_members')
-    .select('team_id, user_id, role')
+    .select('team_id, user_id, role, active_branch')
     .eq('team_id', teamId)
     .eq('user_id', userId)
     .single();
@@ -35,85 +43,60 @@ async function getTeamMembership(
 }
 
 /**
+ * Extract and validate user and team ID from request.
+ * Returns membership if valid, or sends error response and returns null.
+ */
+async function validateTeamRequest(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+): Promise<TeamMemberInfo | null> {
+  const user = request.user;
+
+  if (!user) {
+    reply.status(401).send({ error: 'Unauthorized', message: 'Authentication required' });
+    return null;
+  }
+
+  const teamId = request.params.id;
+  if (!teamId) {
+    reply.status(400).send({ error: 'Bad Request', message: 'Team ID is required' });
+    return null;
+  }
+
+  const membership = await getTeamMembership(user.id, teamId);
+  if (!membership) {
+    reply.status(403).send({ error: 'Forbidden', message: 'You are not a member of this team' });
+    return null;
+  }
+
+  return membership;
+}
+
+/**
  * Middleware: Require team membership
  * Expects team ID in route params as :id
- * Returns 403 if user is not a member of the team
  * Use after requireAuth middleware
  */
 export async function requireTeamMember(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ): Promise<void> {
-  const user = request.user;
-
-  if (!user) {
-    return reply.status(401).send({
-      error: 'Unauthorized',
-      message: 'Authentication required',
-    });
-  }
-
-  const teamId = request.params.id;
-
-  if (!teamId) {
-    return reply.status(400).send({
-      error: 'Bad Request',
-      message: 'Team ID is required',
-    });
-  }
-
-  // Fast path: check JWT cache first (token expires in 1hr, acceptable staleness)
-  if (user.teams?.includes(teamId)) {
-    return;
-  }
-
-  // Slow path: verify in database for users not in JWT cache
-  const membership = await getTeamMembership(user.id, teamId);
-
-  if (!membership) {
-    return reply.status(403).send({
-      error: 'Forbidden',
-      message: 'You are not a member of this team',
-    });
+  const membership = await validateTeamRequest(request, reply);
+  if (membership) {
+    request.teamMembership = membership;
   }
 }
 
 /**
  * Middleware: Require team admin or owner role
- * Returns 403 if user is not admin/owner of the team
  * Use after requireAuth middleware
  */
 export async function requireTeamAdmin(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ): Promise<void> {
-  const user = request.user;
-
-  if (!user) {
-    return reply.status(401).send({
-      error: 'Unauthorized',
-      message: 'Authentication required',
-    });
-  }
-
-  const teamId = request.params.id;
-
-  if (!teamId) {
-    return reply.status(400).send({
-      error: 'Bad Request',
-      message: 'Team ID is required',
-    });
-  }
-
-  // Verify team membership and role
-  const membership = await getTeamMembership(user.id, teamId);
-
-  if (!membership) {
-    return reply.status(403).send({
-      error: 'Forbidden',
-      message: 'You are not a member of this team',
-    });
-  }
+  const membership = await validateTeamRequest(request, reply);
+  if (!membership) return;
 
   if (membership.role !== 'owner' && membership.role !== 'admin') {
     return reply.status(403).send({
@@ -121,44 +104,29 @@ export async function requireTeamAdmin(
       message: 'Admin or owner role required for this action',
     });
   }
+
+  request.teamMembership = membership;
 }
 
 /**
  * Middleware: Require team owner role
- * Returns 403 if user is not the owner of the team
  * Use after requireAuth middleware
  */
 export async function requireTeamOwner(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ): Promise<void> {
-  const user = request.user;
+  const membership = await validateTeamRequest(request, reply);
+  if (!membership) return;
 
-  if (!user) {
-    return reply.status(401).send({
-      error: 'Unauthorized',
-      message: 'Authentication required',
-    });
-  }
-
-  const teamId = request.params.id;
-
-  if (!teamId) {
-    return reply.status(400).send({
-      error: 'Bad Request',
-      message: 'Team ID is required',
-    });
-  }
-
-  // Verify team ownership
-  const membership = await getTeamMembership(user.id, teamId);
-
-  if (!membership || membership.role !== 'owner') {
+  if (membership.role !== 'owner') {
     return reply.status(403).send({
       error: 'Forbidden',
       message: 'Only the team owner can perform this action',
     });
   }
+
+  request.teamMembership = membership;
 }
 
 /**

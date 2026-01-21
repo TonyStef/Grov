@@ -191,6 +191,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
           user_id,
           role,
           joined_at,
+          active_branch,
           profile:profiles (
             email,
             full_name,
@@ -209,6 +210,7 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         user_id: item.user_id,
         role: item.role,
         joined_at: item.joined_at,
+        active_branch: item.active_branch,
         email: item.profile?.email || '',
         full_name: item.profile?.full_name,
         avatar_url: item.profile?.avatar_url,

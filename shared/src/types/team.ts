@@ -34,6 +34,7 @@ export interface TeamMember {
   user_id: string;
   role: TeamRole;
   joined_at: string;
+  active_branch: string;
 }
 
 // Team member with profile info

@@ -31,6 +31,7 @@ export interface AntigravityExtractRequest {
   filesTouched: string[];
   completionStatus: 'complete' | 'partial';
   updatedAt: string;
+  branch?: string;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -39,6 +40,43 @@ export interface AntigravityExtractRequest {
 
 function sendError(reply: FastifyReply, status: number, error: string) {
   return reply.status(status).send({ error });
+}
+
+// Helper to verify branch membership for non-main branches
+async function verifyBranchAccess(
+  teamId: string,
+  branchName: string,
+  userId: string
+): Promise<{ allowed: boolean; error?: string }> {
+  if (branchName === 'main') {
+    return { allowed: true };
+  }
+
+  // Get branch ID
+  const { data: branchData, error: branchError } = await supabase
+    .from('memory_branches')
+    .select('id')
+    .eq('team_id', teamId)
+    .eq('name', branchName)
+    .single();
+
+  if (branchError || !branchData) {
+    return { allowed: false, error: 'Branch not found' };
+  }
+
+  // Check membership
+  const { data: membership } = await supabase
+    .from('memory_branch_members')
+    .select('id')
+    .eq('branch_id', branchData.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (!membership) {
+    return { allowed: false, error: 'You are not a member of this branch' };
+  }
+
+  return { allowed: true };
 }
 
 function validateRequest(body: unknown): { valid: true; data: AntigravityExtractRequest } | { valid: false; error: string } {
@@ -74,6 +112,7 @@ function validateRequest(body: unknown): { valid: true; data: AntigravityExtract
       filesTouched: Array.isArray(data.filesTouched) ? data.filesTouched.filter((f): f is string => typeof f === 'string') : [],
       completionStatus: data.completionStatus === 'partial' ? 'partial' : 'complete',
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+      branch: typeof data.branch === 'string' ? data.branch : undefined,
     },
   };
 }
@@ -82,6 +121,7 @@ async function saveChunks(
   memoryId: string,
   teamId: string,
   projectPath: string,
+  branch: string,
   chunks: MemoryChunk[]
 ): Promise<void> {
   if (!chunks.length) return;
@@ -92,6 +132,7 @@ async function saveChunks(
     memory_id: memoryId,
     team_id: teamId,
     project_path: projectPath,
+    branch: branch,
     chunk_type: c.chunk_type,
     chunk_index: c.chunk_index,
     content: c.content,
@@ -142,6 +183,14 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
         return { success: true, action: 'skip', reason: 'no extractable content' };
       }
 
+      const branchToUse = req.branch || request.teamMembership?.active_branch || 'main';
+
+      // Verify branch membership if not 'main'
+      const branchAccess = await verifyBranchAccess(teamId, branchToUse, user.id);
+      if (!branchAccess.allowed) {
+        return sendError(reply, 403, branchAccess.error || 'Branch access denied');
+      }
+
       // Search for match
       let matchedMemory: ExistingMemory | null = null;
 
@@ -161,6 +210,7 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
 
           const { data, error: rpcError } = await supabase.rpc('hybrid_search_match', {
             p_team_id: teamId,
+            p_user_id: user.id,
             p_project_path: req.projectPath,
             p_query_embeddings: embeddingsStr,
             p_query_text: req.title,
@@ -209,12 +259,12 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
         memoryId = matchedMemory.id;
       }
 
-      // Prepare memory data
       const now = new Date().toISOString();
+      const status = req.completionStatus === 'complete' ? 'complete' : 'active';
       let memoryData: Record<string, unknown>;
 
       if (action === 'update' && matchedMemory && updateResult) {
-        // MERGE LOGIC
+        // Merge decisions with superseded mapping
         const existingDecisions = matchedMemory.decisions || [];
         const supersededMap = new Map(
           updateResult.superseded_mapping.map(m => [m.old_index, {
@@ -232,33 +282,20 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
           return { ...d, active: d.active !== false };
         });
 
-        const newDecisions = extracted.decisions.map(d => ({
-          ...d,
-          date: now,
-          active: true,
-        }));
-
+        const newDecisions = extracted.decisions.map(d => ({ ...d, date: now, active: true }));
         const allDecisions = [...updatedDecisions, ...newDecisions];
 
-        // Handle reasoning evolution
-        const existingReasoningEvolution = matchedMemory.reasoning_evolution || [];
-        const reasoningEvolution = [...existingReasoningEvolution];
+        // Build reasoning evolution
+        const reasoningEvolution = [...(matchedMemory.reasoning_evolution || [])];
         if (updateResult.condensed_old_reasoning) {
-          reasoningEvolution.push({
-            content: updateResult.condensed_old_reasoning,
-            date: now,
-          });
+          reasoningEvolution.push({ content: updateResult.condensed_old_reasoning, date: now });
         }
 
-        // Handle evolution steps
-        const existingEvolution = matchedMemory.evolution_steps || [];
-        const baseEvolution = updateResult.consolidated_evolution_steps || existingEvolution;
+        // Build evolution steps
+        const baseEvolution = updateResult.consolidated_evolution_steps || matchedMemory.evolution_steps || [];
         const evolutionSteps = [...baseEvolution];
         if (updateResult.evolution_summary) {
-          evolutionSteps.push({
-            summary: updateResult.evolution_summary,
-            date: now,
-          });
+          evolutionSteps.push({ summary: updateResult.evolution_summary, date: now });
         }
 
         // Apply max limits
@@ -278,12 +315,12 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
           decisions: allDecisions.slice(-MAX_DECISIONS),
           files_touched: extracted.files_touched,
           linked_commit: req.linkedCommit,
-          status: req.completionStatus === 'complete' ? 'complete' : 'active',
+          status,
           evolution_steps: evolutionSteps.slice(-MAX_EVOLUTION_STEPS),
           reasoning_evolution: reasoningEvolution.slice(-MAX_REASONING_EVOLUTION),
+          branch: branchToUse,
         };
       } else {
-        // INSERT: simple structure
         memoryData = {
           team_id: teamId,
           user_id: user.id,
@@ -296,9 +333,10 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
           decisions: extracted.decisions.map(d => ({ ...d, date: now, active: true })),
           files_touched: extracted.files_touched,
           linked_commit: req.linkedCommit,
-          status: req.completionStatus === 'complete' ? 'complete' : 'active',
+          status,
           evolution_steps: [],
           reasoning_evolution: [],
+          branch: branchToUse,
         };
       }
 
@@ -341,7 +379,7 @@ export default async function antigravityRoutes(fastify: FastifyInstance) {
         });
 
         if (chunks) {
-          await saveChunks(memoryId, teamId, req.projectPath, chunks);
+          await saveChunks(memoryId, teamId, req.projectPath, branchToUse, chunks);
         }
       }
 

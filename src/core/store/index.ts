@@ -47,7 +47,9 @@ export {
   getActiveSessionForUser,
   getActiveSessionsForStatus,
   getCompletedSessionForProject,
-  clearStalePendingCorrections
+  clearStalePendingCorrections,
+  getOrphanedSessionCount,
+  repairOrphanedSessions
 } from './sessions.js';
 
 // Re-export step functions

@@ -368,6 +368,14 @@ export function initDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_drift_log_timestamp ON drift_log(timestamp);
   `);
 
+  // Nullify orphaned parent references
+  db.prepare(`
+    UPDATE session_states
+    SET parent_session_id = NULL
+    WHERE parent_session_id IS NOT NULL
+      AND parent_session_id NOT IN (SELECT session_id FROM session_states)
+  `).run();
+
   return db;
 }
 

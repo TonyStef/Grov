@@ -321,3 +321,30 @@ export function clearStalePendingCorrections(): number {
 
   return result.changes;
 }
+
+/**
+ * Detect orphaned parent_session_id references
+ */
+export function getOrphanedSessionCount(): number {
+  const database = getDb();
+  const result = database.prepare(`
+    SELECT COUNT(*) as count FROM session_states
+    WHERE parent_session_id IS NOT NULL
+      AND parent_session_id NOT IN (SELECT session_id FROM session_states)
+  `).get() as { count: number };
+  return result.count;
+}
+
+/**
+ * Nullify orphaned parent_session_id references
+ */
+export function repairOrphanedSessions(): number {
+  const database = getDb();
+  const result = database.prepare(`
+    UPDATE session_states
+    SET parent_session_id = NULL
+    WHERE parent_session_id IS NOT NULL
+      AND parent_session_id NOT IN (SELECT session_id FROM session_states)
+  `).run();
+  return result.changes;
+}

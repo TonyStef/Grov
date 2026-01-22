@@ -176,11 +176,19 @@ program
 program
   .command('doctor [agent]')
   .description('Check grov setup and diagnose issues (optional: claude, codex)')
-  .action(safeAction(async (agent?: string) => {
-    const { doctor } = await import('./commands/doctor.js');
-    const agentName = agent === 'claude' || agent === 'codex' ? agent : undefined;
-    await doctor(agentName);
-  }));
+  .option('--repair', 'Repair database integrity issues')
+  .action(async (agent: string | undefined, options: { repair?: boolean }) => {
+    try {
+      const { doctor } = await import('./commands/doctor.js');
+      const agentName = agent === 'claude' || agent === 'codex' ? agent : undefined;
+      await doctor(agentName, options);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : 'Unknown error');
+      process.exit(1);
+    } finally {
+      closeDatabase();
+    }
+  });
 
 // grov agents - List supported agents
 program

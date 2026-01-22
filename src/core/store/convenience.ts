@@ -61,37 +61,52 @@ export function markSessionCompleted(sessionId: string): void {
 
 /**
  * Cleanup old completed/abandoned sessions and their steps/drift_log
+ * Orders deletion by hierarchy depth (children first) to respect FK constraints
  */
 export function cleanupOldCompletedSessions(maxAgeMs: number = 86400000): number {
   const database = getDb();
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
 
+  // Get sessions ordered by depth: leaves first, then parents
   const oldSessions = database.prepare(`
-    SELECT session_id FROM session_states
-    WHERE status IN ('completed', 'abandoned')
-      AND completed_at < ?
-      AND session_id NOT IN (
-        SELECT DISTINCT parent_session_id
-        FROM session_states
-        WHERE parent_session_id IS NOT NULL
-          AND status != 'completed'
+    WITH RECURSIVE session_depth AS (
+      SELECT s.session_id, 0 as depth
+      FROM session_states s
+      WHERE s.status IN ('completed', 'abandoned')
+        AND s.completed_at < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM session_states child
+          WHERE child.parent_session_id = s.session_id
+        )
+      UNION ALL
+      SELECT parent.session_id, sd.depth + 1
+      FROM session_states parent
+      INNER JOIN session_depth sd ON sd.session_id IN (
+        SELECT session_id FROM session_states
+        WHERE parent_session_id = parent.session_id
       )
-  `).all(cutoff) as Array<{ session_id: string }>;
+      WHERE parent.status IN ('completed', 'abandoned')
+        AND parent.completed_at < ?
+    )
+    SELECT DISTINCT session_id, MAX(depth) as depth
+    FROM session_depth
+    GROUP BY session_id
+    ORDER BY depth ASC
+  `).all(cutoff, cutoff) as Array<{ session_id: string; depth: number }>;
 
   if (oldSessions.length === 0) {
     return 0;
   }
 
-  // Delete in correct order to respect FK constraints
-  for (const session of oldSessions) {
-    // 1. Delete from drift_log (FK to session_states)
-    database.prepare('DELETE FROM drift_log WHERE session_id = ?').run(session.session_id);
-    // 2. Delete from steps (FK to session_states)
-    database.prepare('DELETE FROM steps WHERE session_id = ?').run(session.session_id);
-    // 3. Now safe to delete session_states
-    database.prepare('DELETE FROM session_states WHERE session_id = ?').run(session.session_id);
-  }
+  const deleteTransaction = database.transaction(() => {
+    for (const session of oldSessions) {
+      database.prepare('DELETE FROM drift_log WHERE session_id = ?').run(session.session_id);
+      database.prepare('DELETE FROM steps WHERE session_id = ?').run(session.session_id);
+      database.prepare('DELETE FROM session_states WHERE session_id = ?').run(session.session_id);
+    }
+  });
 
+  deleteTransaction();
   return oldSessions.length;
 }
 

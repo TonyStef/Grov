@@ -6,13 +6,19 @@ import { join } from 'path';
 import { request } from 'undici';
 import { readCredentials, getSyncStatus } from '../../core/cloud/credentials.js';
 import { initDatabase } from '../../core/store/database.js';
+import { getOrphanedSessionCount, repairOrphanedSessions } from '../../core/store/sessions.js';
 import { getAllCliAgents, getCliAgentById } from '../agents/registry.js';
 
 const DB_PATH = join(homedir(), '.grov', 'memory.db');
 
-export async function doctor(agent?: string): Promise<void> {
+export async function doctor(agent?: string, options?: { repair?: boolean }): Promise<void> {
   console.log('\nGrov Doctor');
   console.log('===========\n');
+
+  if (options?.repair) {
+    await runRepair();
+    return;
+  }
 
   if (!agent) {
     await runGeneralChecks();
@@ -63,6 +69,38 @@ async function runGeneralChecks(): Promise<void> {
   const dbOk = dbStats.tasks > 0 || dbStats.sessions > 0;
   const dbMsg = `${dbStats.tasks} tasks, ${dbStats.unsynced} unsynced, ${dbStats.sessions} active`;
   printCheck('Local Database', dbOk, dbMsg, 'Empty', 'Use Claude/Codex with proxy, or Cursor with MCP');
+
+  const orphans = checkOrphanedSessions();
+  printCheck('Session Integrity', orphans === 0, 'No orphaned sessions', `${orphans} orphaned session(s)`, 'grov doctor --repair');
+}
+
+async function runRepair(): Promise<void> {
+  console.log('Database Repair\n');
+
+  if (!existsSync(DB_PATH)) {
+    console.log('\x1b[31m✗\x1b[0m No database found');
+    return;
+  }
+
+  initDatabase();
+  const orphans = getOrphanedSessionCount();
+
+  if (orphans === 0) {
+    console.log('\x1b[32m✓\x1b[0m No orphaned sessions found');
+    return;
+  }
+
+  console.log(`Found ${orphans} orphaned session(s)`);
+  const repaired = repairOrphanedSessions();
+  console.log(`\x1b[32m✓\x1b[0m Repaired ${repaired} session(s)`);
+}
+
+function checkOrphanedSessions(): number {
+  if (!existsSync(DB_PATH)) {
+    return 0;
+  }
+  initDatabase();
+  return getOrphanedSessionCount();
 }
 
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // Hoisted static SVG icons
 const CopyIcon = (
@@ -18,6 +18,8 @@ const CheckIcon = (
 export default function Hero() {
   const [isVisible, setIsVisible] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [svgSize, setSvgSize] = useState({ width: 0, height: 0 });
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   const handleCopy = async () => {
     try {
@@ -39,6 +41,20 @@ export default function Hero() {
   useEffect(() => {
     const timer = setTimeout(() => setIsVisible(true), 50);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Measure the container for SVG dimensions
+  useEffect(() => {
+    const updateSize = () => {
+      if (wrapperRef.current) {
+        const rect = wrapperRef.current.getBoundingClientRect();
+        setSvgSize({ width: rect.width, height: rect.height });
+      }
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
   }, []);
 
   return (
@@ -118,33 +134,37 @@ export default function Hero() {
             }`}
             style={{ transitionDelay: '300ms' }}
           >
-            <div className="relative">
+            <div className="relative" ref={wrapperRef}>
               {/* Animated border SVG */}
-              <svg
-                className="absolute inset-0 w-full h-full pointer-events-none"
-                aria-hidden="true"
-              >
-                <rect
-                  x="0.5"
-                  y="0.5"
-                  width="calc(100% - 1px)"
-                  height="calc(100% - 1px)"
-                  rx="16"
-                  ry="16"
-                  fill="none"
-                  stroke="url(#border-gradient)"
-                  strokeWidth="1"
-                  className="animate-dash"
-                />
-                <defs>
-                  <linearGradient id="border-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="var(--color-grov-accent)" stopOpacity="0" />
-                    <stop offset="40%" stopColor="var(--color-grov-accent)" stopOpacity="1" />
-                    <stop offset="60%" stopColor="var(--color-grov-accent)" stopOpacity="1" />
-                    <stop offset="100%" stopColor="var(--color-grov-accent)" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-              </svg>
+              {svgSize.width > 0 && (
+                <svg
+                  className="absolute inset-0 w-full h-full pointer-events-none"
+                  style={{ overflow: 'visible' }}
+                  aria-hidden="true"
+                >
+                  <rect
+                    x="0"
+                    y="0"
+                    width={svgSize.width}
+                    height={svgSize.height}
+                    rx="24"
+                    ry="24"
+                    fill="none"
+                    stroke="url(#border-gradient)"
+                    strokeWidth="1.5"
+                    className="animate-dash"
+                    pathLength="100"
+                  />
+                  <defs>
+                    <linearGradient id="border-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#34d399" stopOpacity="0" />
+                      <stop offset="40%" stopColor="#34d399" stopOpacity="1" />
+                      <stop offset="60%" stopColor="#34d399" stopOpacity="1" />
+                      <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+              )}
 
               {/* Terminal */}
               <div className="relative rounded-2xl border border-grov-border bg-grov-surface overflow-hidden">

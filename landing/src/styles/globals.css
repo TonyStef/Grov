@@ -123,9 +123,9 @@
   }
 }
 
-/* Animated border dash effect */
+/* Animated border dash effect - uses pathLength="100" for normalized values */
 .animate-dash {
-  stroke-dasharray: 200 1000;
+  stroke-dasharray: 15 85;
   stroke-dashoffset: 0;
   animation: dash-move 4s linear infinite;
 }
@@ -135,7 +135,7 @@
     stroke-dashoffset: 0;
   }
   100% {
-    stroke-dashoffset: -1200;
+    stroke-dashoffset: -100;
   }
 }
 

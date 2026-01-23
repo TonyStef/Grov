@@ -1,20 +1,104 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Hero from '../components/Hero';
-import ProblemSection from '../components/ProblemSection';
-import HowItWorks from '../components/HowItWorks.astro';
+import InteractiveDemo from '../components/InteractiveDemo';
+import TeamFlow from '../components/TeamFlow';
 import CaptureExample from '../components/CaptureExample.astro';
-import InstallSection from '../components/InstallSection.astro';
 import Footer from '../components/Footer.astro';
 ---
 
 <Layout>
   <main>
     <Hero client:load />
-    <ProblemSection client:visible />
-    <HowItWorks />
+
+    <!-- Interactive Demo Section -->
+    <section class="py-20 px-6 reveal-section">
+      <div class="max-w-5xl mx-auto">
+        <InteractiveDemo client:visible hideHeader />
+
+        <!-- YouTube Video Link -->
+        <div class="mt-12 flex justify-center">
+          <a
+            href="https://www.youtube.com/watch?v=NvkG8Ddjgeg"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex items-center gap-4 px-6 py-4 rounded-2xl glass hover:border-grov-border-hover group transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent focus-visible:ring-offset-2 focus-visible:ring-offset-grov-black"
+            style="touch-action: manipulation;"
+          >
+            <span class="flex items-center justify-center w-12 h-12 rounded-xl bg-red-600 group-hover:bg-red-500 transition-colors shrink-0">
+              <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+              </svg>
+            </span>
+            <div class="text-left">
+              <div class="font-mono text-xs text-grov-text-muted">Watch the full demo</div>
+              <div class="text-base text-grov-text group-hover:text-grov-accent transition-colors">
+                Universal AI Context: From Terminal to IDE
+              </div>
+            </div>
+            <svg class="w-5 h-5 text-grov-text-muted group-hover:text-grov-accent group-hover:translate-x-1 transition-all ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <TeamFlow client:visible />
+
+    <!-- Token Savings -->
+    <section class="py-20 px-6 reveal-section">
+      <div class="max-w-3xl mx-auto">
+        <div class="card">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+            <div>
+              <h3 class="text-lg font-semibold text-grov-text mb-4" style="font-family: var(--font-display);">
+                How Grov saves tokens
+              </h3>
+              <p class="text-grov-text-secondary text-sm mb-6">
+                Semantic search finds relevant memories, shows lightweight previews, expands only what's needed.
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div class="space-y-3">
+                  <div class="flex items-start gap-3">
+                    <span class="text-grov-accent font-mono shrink-0">1.</span>
+                    <span class="text-grov-text-secondary">Preview: 3-5 memories × ~100 tokens</span>
+                  </div>
+                  <div class="flex items-start gap-3">
+                    <span class="text-grov-accent font-mono shrink-0">2.</span>
+                    <span class="text-grov-text-secondary">Expand on demand: ~500-1K tokens each</span>
+                  </div>
+                </div>
+                <div class="space-y-3">
+                  <div class="flex items-start gap-3">
+                    <span class="text-grov-accent font-mono shrink-0">3.</span>
+                    <span class="text-grov-text-secondary">Worst case (all 5): ~5-7K tokens</span>
+                  </div>
+                  <div class="flex items-start gap-3">
+                    <span class="text-grov-text-muted font-mono shrink-0">vs.</span>
+                    <span class="text-grov-text-secondary">Manual exploration: 50K+ tokens</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="shrink-0">
+              <a
+                href="/docs/how-memory-works"
+                class="btn-secondary text-sm"
+                style="touch-action: manipulation;"
+              >
+                Learn how it works
+                <svg class="w-4 h-4 ml-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <CaptureExample />
-    <InstallSection />
   </main>
   <Footer />
 </Layout>

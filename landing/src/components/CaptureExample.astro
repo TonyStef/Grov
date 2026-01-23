@@ -2,57 +2,49 @@
 // What gets captured - JSON example
 ---
 
-<section class="py-24 px-6 reveal-section">
+<section class="py-28 px-6 reveal-section">
   <div class="max-w-4xl mx-auto">
     <!-- Section header -->
     <div class="text-center mb-16">
-      <h2 class="text-section-mobile md:text-section text-grov-text">
+      <h2
+        class="text-section-mobile md:text-section text-grov-text text-balance"
+        style="font-family: var(--font-display);"
+      >
         What gets captured
       </h2>
-      <p class="mt-6 text-body-lg text-grov-text-secondary max-w-2xl mx-auto">
+      <p class="mt-8 text-body-lg text-grov-text-secondary max-w-2xl mx-auto text-pretty">
         Not what changed. <span class="text-grov-text">Why</span> it changed.
       </p>
     </div>
 
     <!-- JSON example -->
-    <div class="code-block text-left">
-      <pre class="text-code"><code><span class="text-grov-text-muted">&#123;</span>
-  <span class="text-grov-accent">"task"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Fix auth logout bug"</span><span class="text-grov-text-muted">,</span>
-  <span class="text-grov-accent">"goal"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Prevent random user logouts"</span><span class="text-grov-text-muted">,</span>
-  <span class="text-grov-accent">"files_touched"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span>
-    <span class="text-grov-text">"src/auth/session.ts"</span><span class="text-grov-text-muted">,</span>
-    <span class="text-grov-text">"src/middleware/token.ts"</span>
-  <span class="text-grov-text-muted">],</span>
-  <span class="text-grov-accent">"reasoning_trace"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span>
-    <span class="text-grov-text">"Investigated token refresh logic"</span><span class="text-grov-text-muted">,</span>
-    <span class="text-grov-text">"Found refresh window was too short"</span><span class="text-grov-text-muted">,</span>
-    <span class="text-grov-text">"Extended from 5min to 15min"</span>
-  <span class="text-grov-text-muted">],</span>
-  <span class="text-grov-accent">"status"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"complete"</span><span class="text-grov-text-muted">,</span>
-  <span class="text-grov-accent">"tags"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span><span class="text-grov-text">"auth"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"session"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"token"</span><span class="text-grov-text-muted">]</span>
+    <div class="terminal">
+      <div class="terminal-header">
+        <div class="flex gap-2" aria-hidden="true">
+          <div class="terminal-dot terminal-dot-red"></div>
+          <div class="terminal-dot terminal-dot-yellow"></div>
+          <div class="terminal-dot terminal-dot-green"></div>
+        </div>
+        <span class="ml-4 text-grov-text-muted text-xs font-mono">memory.json</span>
+      </div>
+      <div class="terminal-content text-left">
+        <pre class="text-code"><code><span class="text-grov-text-muted">&#123;</span>
+  <span class="text-grov-accent syntax-glow">"goal"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Prevent random user logouts"</span><span class="text-grov-text-muted">,</span>
+  <span class="text-grov-accent syntax-glow">"system_name"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Auth Session"</span><span class="text-grov-text-muted">,</span>
+  <span class="text-grov-accent syntax-glow">"files_touched"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span><span class="text-grov-text">"src/auth/session.ts"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"src/middleware/token.ts"</span><span class="text-grov-text-muted">],</span>
+  <span class="text-grov-accent syntax-glow">"reasoning_trace"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[&#123;</span>
+    <span class="text-grov-accent syntax-glow">"aspect"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Token Refresh"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-accent syntax-glow">"conclusion"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Refresh window of 5min too short for slow networks"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-accent syntax-glow">"insight"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Race condition when refresh takes longer than window"</span>
+  <span class="text-grov-text-muted">&#125;],</span>
+  <span class="text-grov-accent syntax-glow">"decisions"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[&#123;</span>
+    <span class="text-grov-accent syntax-glow">"choice"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Extend refresh window to 15min"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-accent syntax-glow">"reason"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Handles slow networks without compromising security"</span>
+  <span class="text-grov-text-muted">&#125;],</span>
+  <span class="text-grov-accent syntax-glow">"tags"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span><span class="text-grov-text">"auth"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"session"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"token-refresh"</span><span class="text-grov-text-muted">]</span>
 <span class="text-grov-text-muted">&#125;</span></code></pre>
+      </div>
     </div>
 
-    <!-- Explanation -->
-    <div class="mt-12 grid md:grid-cols-3 gap-6">
-      <div class="text-center">
-        <div class="text-grov-accent text-2xl font-bold mb-2">Reasoning</div>
-        <p class="text-grov-text-secondary text-small">
-          The "why" behind each decision, not just the code diff
-        </p>
-      </div>
-      <div class="text-center">
-        <div class="text-grov-accent text-2xl font-bold mb-2">Context</div>
-        <p class="text-grov-text-secondary text-small">
-          Files touched, patterns used, constraints discovered
-        </p>
-      </div>
-      <div class="text-center">
-        <div class="text-grov-accent text-2xl font-bold mb-2">Tags</div>
-        <p class="text-grov-text-secondary text-small">
-          Auto-generated for quick retrieval and team search
-        </p>
-      </div>
-    </div>
   </div>
 </section>

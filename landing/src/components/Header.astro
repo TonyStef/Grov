@@ -5,25 +5,41 @@ declare const __APP_VERSION__: string;
 const version = `v${__APP_VERSION__}`;
 ---
 
-<header id="site-header" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">
+<header id="site-header" class="fixed top-0 left-0 right-0 z-50 border-b border-transparent transition-[background-color,border-color,backdrop-filter] duration-300">
   <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
     <!-- Logo with version -->
-    <a href="/" class="flex items-center gap-3 opacity-90 hover:opacity-100 transition-opacity">
-      <img src="/logo.png" alt="Grov" class="h-8 w-auto" />
-      <span class="hidden sm:inline font-mono text-xs text-grov-accent px-2 py-0.5 bg-grov-accent-bg rounded-full border border-grov-accent/20">
+    <a
+      href="/"
+      class="flex items-center gap-3 opacity-90 hover:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent focus-visible:ring-offset-2 focus-visible:ring-offset-grov-black rounded-lg"
+      style="touch-action: manipulation;"
+    >
+      <img src="/logo.png" alt="Grov" class="h-8 w-auto" width="32" height="32" />
+      <span class="hidden sm:inline font-mono text-xs text-grov-accent px-2.5 py-1 rounded-full badge">
         {version}
       </span>
     </a>
 
-<!-- Desktop Navigation -->
+    <!-- Desktop Navigation -->
     <nav class="hidden md:flex items-center gap-8">
-      <a href="/docs" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+      <a
+        href="/docs"
+        class="text-sm text-grov-text-secondary hover:text-grov-text transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent focus-visible:ring-offset-2 focus-visible:ring-offset-grov-black rounded-md px-2 py-1"
+        style="touch-action: manipulation;"
+      >
         Docs
       </a>
-      <a href="/integrations" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+      <a
+        href="/integrations"
+        class="text-sm text-grov-text-secondary hover:text-grov-text transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent focus-visible:ring-offset-2 focus-visible:ring-offset-grov-black rounded-md px-2 py-1"
+        style="touch-action: manipulation;"
+      >
         Integrations
       </a>
-      <a href="/pricing" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors">
+      <a
+        href="/pricing"
+        class="text-sm text-grov-text-secondary hover:text-grov-text transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent focus-visible:ring-offset-2 focus-visible:ring-offset-grov-black rounded-md px-2 py-1"
+        style="touch-action: manipulation;"
+      >
         Pricing
       </a>
     </nav>
@@ -32,13 +48,15 @@ const version = `v${__APP_VERSION__}`;
     <div class="flex items-center gap-4">
       <a
         href="https://app.grov.dev"
-        class="hidden sm:inline font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors"
+        class="hidden sm:inline text-sm text-grov-text-secondary hover:text-grov-text transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent focus-visible:ring-offset-2 focus-visible:ring-offset-grov-black rounded-md px-2 py-1"
+        style="touch-action: manipulation;"
       >
         Login
       </a>
       <a
         href="https://app.grov.dev/login"
-        class="btn-primary text-sm py-2 px-4"
+        class="btn-primary text-sm py-2.5 px-5"
+        style="touch-action: manipulation;"
       >
         Get Started
       </a>
@@ -46,11 +64,12 @@ const version = `v${__APP_VERSION__}`;
       <!-- Mobile Menu Button -->
       <button
         id="mobile-menu-btn"
-        class="md:hidden p-2 text-grov-text-secondary hover:text-grov-text transition-colors"
+        class="md:hidden p-2.5 text-grov-text-secondary hover:text-grov-text transition-colors rounded-xl glass focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent"
         aria-label="Toggle menu"
         aria-expanded="false"
+        style="touch-action: manipulation;"
       >
-        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path id="menu-icon" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16" />
           <path id="close-icon" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
         </svg>
@@ -59,19 +78,35 @@ const version = `v${__APP_VERSION__}`;
   </div>
 
   <!-- Mobile Menu -->
-  <div id="mobile-menu" class="hidden md:hidden border-t border-grov-border bg-grov-black/95 backdrop-blur-lg">
-    <nav class="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-4">
-      <a href="/docs" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+  <div id="mobile-menu" class="hidden md:hidden border-t glass">
+    <nav class="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-2">
+      <a
+        href="/docs"
+        class="text-sm text-grov-text-secondary hover:text-grov-text hover:bg-grov-surface-elevated transition-colors py-3 px-4 rounded-xl"
+        style="touch-action: manipulation;"
+      >
         Docs
       </a>
-      <a href="/integrations" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+      <a
+        href="/integrations"
+        class="text-sm text-grov-text-secondary hover:text-grov-text hover:bg-grov-surface-elevated transition-colors py-3 px-4 rounded-xl"
+        style="touch-action: manipulation;"
+      >
         Integrations
       </a>
-      <a href="/pricing" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2">
+      <a
+        href="/pricing"
+        class="text-sm text-grov-text-secondary hover:text-grov-text hover:bg-grov-surface-elevated transition-colors py-3 px-4 rounded-xl"
+        style="touch-action: manipulation;"
+      >
         Pricing
       </a>
-      <div class="pt-4 border-t border-grov-border">
-        <a href="https://app.grov.dev" class="font-mono text-sm text-grov-text-secondary hover:text-grov-text transition-colors py-2 block">
+      <div class="pt-4 mt-2 border-t border-grov-border">
+        <a
+          href="https://app.grov.dev"
+          class="text-sm text-grov-text-secondary hover:text-grov-text hover:bg-grov-surface-elevated transition-colors py-3 px-4 rounded-xl block"
+          style="touch-action: manipulation;"
+        >
           Login
         </a>
       </div>
@@ -88,9 +123,13 @@ const version = `v${__APP_VERSION__}`;
     const currentScroll = window.scrollY;
 
     if (currentScroll > 50) {
-      header?.classList.add('bg-grov-black/95', 'backdrop-blur-lg', 'border-b', 'border-grov-border');
+      header?.classList.add('glass');
+      header?.classList.remove('border-transparent');
+      header?.classList.add('border-grov-border');
     } else {
-      header?.classList.remove('bg-grov-black/95', 'backdrop-blur-lg', 'border-b', 'border-grov-border');
+      header?.classList.remove('glass');
+      header?.classList.add('border-transparent');
+      header?.classList.remove('border-grov-border');
     }
 
     lastScroll = currentScroll;

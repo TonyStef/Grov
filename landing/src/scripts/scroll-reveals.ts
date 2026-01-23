@@ -1,12 +1,24 @@
 /**
  * Scroll-triggered reveal animations using Intersection Observer
- * Sections scale from 0.95 -> 1.0 + fade in when entering viewport
+ * Sections translate Y + fade in when entering viewport
+ * Respects prefers-reduced-motion
  */
 
 export function initScrollReveals(): void {
+  // Check for reduced motion preference
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   const sections = document.querySelectorAll<HTMLElement>('.reveal-section');
 
   if (sections.length === 0) return;
+
+  // If user prefers reduced motion, show all sections immediately
+  if (prefersReducedMotion) {
+    sections.forEach((section) => {
+      section.classList.add('in-view');
+    });
+    return;
+  }
 
   const observer = new IntersectionObserver(
     (entries) => {

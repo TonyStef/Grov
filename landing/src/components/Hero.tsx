@@ -1,101 +1,69 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import InteractiveDemo from './InteractiveDemo';
 
-const GitHubIcon = (
-  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+// Hoisted static SVG icons
+const CopyIcon = (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
   </svg>
 );
 
-const NpmIcon = (
-  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M0 7.334v8h6.666v1.332H12v-1.332h12v-8H0zm6.666 6.664H5.334v-4H3.999v4H1.335V8.667h5.331v5.331zm4 0v1.336H8.001V8.667h5.334v5.332h-2.669v-.001zm12.001 0h-1.33v-4h-1.336v4h-1.335v-4h-1.33v4h-2.671V8.667h8.002v5.331zM10.665 10H12v2.667h-1.335V10z"/>
+const CheckIcon = (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
   </svg>
 );
-
-const YouTubeIcon = (
-  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-  </svg>
-);
-
-interface Stats {
-  stars: string;
-  downloads: string;
-}
 
 export default function Hero() {
-  const [stats, setStats] = useState<Stats>({ stars: '-- stars', downloads: '-- downloads' });
   const [isVisible, setIsVisible] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  // Fade-in on mount
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText('npm install -g grov');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = 'npm install -g grov';
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => setIsVisible(true), 50);
     return () => clearTimeout(timer);
   }, []);
 
-  // Fetch stats
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function fetchStats() {
-      try {
-        const [ghRes, npmRes] = await Promise.all([
-          fetch('https://api.github.com/repos/TonyStef/Grov', { signal: controller.signal }),
-          fetch('https://api.npmjs.org/downloads/point/last-month/grov', { signal: controller.signal })
-        ]);
-
-        const results: Partial<Stats> = {};
-
-        if (ghRes.ok) {
-          const ghData = await ghRes.json();
-          results.stars = `${ghData.stargazers_count} stars`;
-        }
-
-        if (npmRes.ok) {
-          const npmData = await npmRes.json();
-          const downloads = npmData.downloads;
-          const formatted = downloads >= 1000
-            ? `${(downloads / 1000).toFixed(1).replace(/\.0$/, '')}k`
-            : downloads.toString();
-          results.downloads = `${formatted} downloads`;
-        }
-
-        setStats(curr => ({ ...curr, ...results }));
-      } catch (e) {
-        if (e instanceof Error && e.name !== 'AbortError') {
-          console.error('Failed to fetch stats:', e);
-        }
-      }
-    }
-
-    fetchStats();
-    return () => controller.abort();
-  }, []);
-
   return (
-    <section className="min-h-screen flex items-center pt-24 pb-16 px-6">
-      <div className="max-w-7xl mx-auto w-full">
-        <div className="grid lg:grid-cols-[1fr_1.4fr] gap-12 lg:gap-16 items-start lg:pt-8">
+    <section className="min-h-screen flex items-center pt-28 pb-20 px-6">
+      <div className="max-w-6xl mx-auto w-full">
+        <div className="grid lg:grid-cols-2 gap-16 lg:gap-24 items-center">
 
           {/* Left: Content */}
           <div className="space-y-8 text-center lg:text-left">
-            {/* Badge */}
+            {/* Badge - minimal annotation style */}
             <div
-              className={`inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full transition-opacity duration-500 ${
+              className={`inline-flex items-center transition-opacity duration-500 ${
                 isVisible ? 'opacity-100' : 'opacity-0'
               }`}
             >
-              <span className="w-2 h-2 bg-grov-accent rounded-full animate-pulse" />
-              <span className="font-mono text-xs text-grov-accent">For Teams Using AI Coding Assistants</span>
+              <span className="text-grov-text-muted text-sm tracking-wide">
+                <span className="text-grov-accent font-medium">//</span>
+                {' '}for teams using AI coding assistants
+              </span>
             </div>
 
             {/* Headline */}
             <h1
-              className={`text-hero-mobile md:text-hero text-grov-text leading-tight transition-[opacity,transform] duration-500 ${
-                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
+              className={`text-hero-mobile md:text-hero text-grov-text text-balance transition-all duration-700 ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
               }`}
               style={{ fontFamily: 'var(--font-display)', transitionDelay: '100ms' }}
             >
@@ -105,8 +73,8 @@ export default function Hero() {
 
             {/* Subheadline */}
             <p
-              className={`text-subhead text-grov-text-secondary max-w-lg mx-auto lg:mx-0 transition-[opacity,transform] duration-500 ${
-                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
+              className={`text-subhead text-grov-text-secondary max-w-lg mx-auto lg:mx-0 text-pretty transition-all duration-700 ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
               }`}
               style={{ transitionDelay: '200ms' }}
             >
@@ -115,13 +83,22 @@ export default function Hero() {
 
             {/* CTAs */}
             <div
-              className={`flex flex-col sm:flex-row gap-4 justify-center lg:justify-start transition-[opacity,transform] duration-500 ${
-                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
+              className={`flex flex-col sm:flex-row gap-4 justify-center lg:justify-start transition-all duration-700 ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
               }`}
-              style={{ transitionDelay: '400ms' }}
+              style={{ transitionDelay: '300ms' }}
             >
-              <a href="#install" className="btn-primary" style={{ touchAction: 'manipulation' }}>
-                Initialize Memory
+              <a
+                href="https://github.com/TonyStef/Grov"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                style={{ touchAction: 'manipulation' }}
+              >
+                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+                </svg>
+                View on GitHub
               </a>
               <button
                 data-cal-link="stef-antonio-virgil-hdzzp1"
@@ -132,86 +109,87 @@ export default function Hero() {
                 Schedule a Demo
               </button>
             </div>
-
-            {/* Trust signals */}
-            <div
-              className={`flex items-center gap-6 justify-center lg:justify-start pt-4 flex-wrap transition-opacity duration-500 ${
-                isVisible ? 'opacity-100' : 'opacity-0'
-              }`}
-              style={{ transitionDelay: '500ms' }}
-            >
-              <a
-                href="https://github.com/TonyStef/Grov"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm text-grov-text-muted hover:text-grov-text transition-[color] min-h-[44px]"
-                style={{ touchAction: 'manipulation' }}
-              >
-                {GitHubIcon}
-                <span className="font-mono">{stats.stars}</span>
-              </a>
-              <a
-                href="https://www.npmjs.com/package/grov"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm text-grov-text-muted hover:text-grov-text transition-[color] min-h-[44px]"
-                style={{ touchAction: 'manipulation' }}
-              >
-                {NpmIcon}
-                <span className="font-mono">{stats.downloads}</span>
-              </a>
-              <a
-                href="https://www.producthunt.com/products/grov?utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-grov"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center min-h-[44px]"
-                style={{ touchAction: 'manipulation' }}
-              >
-                <img
-                  src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1051166&theme=dark&t=1765984839313"
-                  alt="Grov - Featured on Product Hunt"
-                  width={180}
-                  height={40}
-                  className="opacity-80 hover:opacity-100 transition-opacity"
-                  loading="lazy"
-                />
-              </a>
-            </div>
-
-            {/* Video CTA */}
-            <a
-              href="https://www.youtube.com/watch?v=NvkG8Ddjgeg"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg border border-grov-border bg-grov-surface/50 hover:bg-grov-surface hover:border-grov-border-hover transition-[opacity,background-color,border-color] group min-h-[56px] justify-center lg:justify-start ${
-                isVisible ? 'opacity-100' : 'opacity-0'
-              }`}
-              style={{ touchAction: 'manipulation', transitionDelay: '600ms' }}
-            >
-              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-red-600 group-hover:bg-red-500 transition-colors shrink-0">
-                {YouTubeIcon}
-              </span>
-              <div className="text-left">
-                <div className="font-mono text-xs text-grov-text-muted">Watch the 4-minute demo</div>
-                <div className="text-sm text-grov-text group-hover:text-grov-accent transition-colors">
-                  Universal AI Context: From Terminal to IDE
-                </div>
-              </div>
-            </a>
           </div>
 
-          {/* Right: Interactive Demo */}
+          {/* Right: Install Terminal */}
           <div
-            className={`relative transition-[opacity,transform] duration-500 ${
-              isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
+            className={`transition-all duration-700 ${
+              isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
             }`}
             style={{ transitionDelay: '300ms' }}
-            id="demo"
           >
-            <InteractiveDemo hideHeader />
+            <div className="relative">
+              {/* Animated border SVG */}
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                aria-hidden="true"
+              >
+                <rect
+                  x="0.5"
+                  y="0.5"
+                  width="calc(100% - 1px)"
+                  height="calc(100% - 1px)"
+                  rx="16"
+                  ry="16"
+                  fill="none"
+                  stroke="url(#border-gradient)"
+                  strokeWidth="1"
+                  className="animate-dash"
+                />
+                <defs>
+                  <linearGradient id="border-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="var(--color-grov-accent)" stopOpacity="0" />
+                    <stop offset="40%" stopColor="var(--color-grov-accent)" stopOpacity="1" />
+                    <stop offset="60%" stopColor="var(--color-grov-accent)" stopOpacity="1" />
+                    <stop offset="100%" stopColor="var(--color-grov-accent)" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+              </svg>
 
-            {/* Subtle glow effect */}
-            <div className="absolute -inset-8 bg-grov-accent/5 blur-3xl -z-10 rounded-full" />
+              {/* Terminal */}
+              <div className="relative rounded-2xl border border-grov-border bg-grov-surface overflow-hidden">
+                {/* Terminal header */}
+                <div className="px-4 py-3 border-b border-grov-border flex items-center gap-2">
+                  <div className="flex gap-2" aria-hidden="true">
+                    <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+                    <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+                    <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+                  </div>
+                  <span className="ml-2 text-xs text-grov-text-muted font-mono">terminal</span>
+                </div>
+
+                {/* Terminal content */}
+                <div className="p-6 md:p-8">
+                  {/* Install command */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 font-mono">
+                      <span className="text-grov-accent text-lg">$</span>
+                      <code className="text-grov-text text-lg md:text-xl">npm install -g grov</code>
+                    </div>
+                    <button
+                      onClick={handleCopy}
+                      className={`p-2.5 rounded-xl transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grov-accent ${
+                        copied
+                          ? 'bg-grov-accent/20 text-grov-accent'
+                          : 'text-grov-text-muted hover:text-grov-text hover:bg-grov-surface-elevated'
+                      }`}
+                      style={{ touchAction: 'manipulation' }}
+                      aria-label={copied ? 'Copied!' : 'Copy to clipboard'}
+                    >
+                      {copied ? CheckIcon : CopyIcon}
+                    </button>
+                  </div>
+
+                  {/* Tagline */}
+                  <div className="mt-6 pt-6 border-t border-grov-border">
+                    <div className="flex items-center gap-3 text-grov-accent">
+                      <span>✓</span>
+                      <span className="text-grov-text-secondary">It's the only memory layer you need.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -356,7 +356,7 @@ const ExpandedMemoryCard = memo(function ExpandedMemoryCard({
 }) {
   return (
     <div
-      className="border border-grov-accent/30 rounded-lg overflow-hidden bg-grov-surface-elevated/50"
+      className="border border-grov-accent/30 rounded-2xl overflow-hidden bg-grov-surface-elevated/50 backdrop-blur-sm"
       style={{
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
@@ -566,14 +566,14 @@ export default function InteractiveDemo({ hideHeader = false }: InteractiveDemoP
         </div>
 
         {/* Demo Terminal */}
-        <div className="rounded-xl border border-grov-border overflow-hidden bg-grov-surface shadow-2xl">
+        <div className="terminal">
           {/* Terminal Header */}
-          <div className="px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between border-b border-grov-border bg-grov-surface-elevated">
+          <div className="terminal-header justify-between">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="flex gap-1.5 sm:gap-2" aria-hidden="true">
-                <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#ff5f56]" />
-                <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#ffbd2e]" />
-                <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#27c93f]" />
+                <div className="terminal-dot terminal-dot-red" />
+                <div className="terminal-dot terminal-dot-yellow" />
+                <div className="terminal-dot terminal-dot-green" />
               </div>
               <span className="font-mono text-[10px] sm:text-xs text-grov-text-muted truncate max-w-[140px] sm:max-w-none">
                 {promptData.mode === 'mcp' ? `${promptData.ide?.toLowerCase()} + grov mcp` : 'claude-code + grov'}
@@ -606,7 +606,7 @@ export default function InteractiveDemo({ hideHeader = false }: InteractiveDemoP
 
           {/* Terminal Content */}
           <div
-            className="p-4 sm:p-6 bg-grov-black min-h-[320px] sm:min-h-[400px] space-y-4"
+            className="terminal-content min-h-[320px] sm:min-h-[400px] space-y-4"
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
           >
             {/* User Prompt Line */}

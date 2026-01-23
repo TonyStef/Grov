@@ -1,91 +1,87 @@
 ---
-// How it works section - 4 steps
+// How it works - the memory loop
 ---
 
-<section class="py-24 px-6 bg-grov-surface reveal-section">
-  <div class="max-w-4xl mx-auto">
+<section class="py-28 px-6 reveal-section">
+  <div class="max-w-5xl mx-auto">
     <!-- Section header -->
-    <div class="text-center mb-20">
-      <h2 class="text-section-mobile md:text-section text-grov-text">
-        How it works
+    <div class="text-center mb-16">
+      <h2
+        class="text-section-mobile md:text-section text-grov-text text-balance"
+        style="font-family: var(--font-display);"
+      >
+        The memory loop
       </h2>
+      <p class="mt-6 text-body-lg text-grov-text-secondary">
+        Works with any AI coding agent. Zero workflow changes.
+      </p>
     </div>
 
-    <!-- Steps -->
-    <div class="space-y-16">
-      <!-- Step 1 -->
-      <div class="flex flex-col md:flex-row gap-8 items-start">
-        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-grov-black border border-grov-border flex items-center justify-center">
-          <span class="text-grov-accent font-bold">1</span>
-        </div>
-        <div class="flex-grow">
-          <h3 class="text-xl font-bold text-grov-text mb-3">
-            Install once
-          </h3>
-          <p class="text-grov-text-secondary mb-4">
-            Three commands. Takes 30 seconds.
-          </p>
-          <div class="code-block">
-            <code>
-              <span class="text-grov-text-muted">$</span>
-              <span class="text-grov-text"> npm install -g grov</span>
-              <br />
-              <span class="text-grov-text-muted">$</span>
-              <span class="text-grov-text"> grov init</span>
-              <br />
-              <span class="text-grov-text-muted">$</span>
-              <span class="text-grov-text"> grov proxy</span>
-            </code>
+    <!-- The Loop - 3 columns -->
+    <div class="grid md:grid-cols-3 gap-px bg-grov-border rounded-2xl overflow-hidden">
+      <!-- Capture -->
+      <div class="bg-grov-surface p-8 md:p-10 relative group">
+        <div class="absolute top-8 right-8 text-6xl font-bold text-grov-border opacity-50 select-none" style="font-family: var(--font-display);">1</div>
+        <div class="relative">
+          <div class="w-10 h-10 rounded-xl bg-grov-accent/10 border border-grov-accent/20 flex items-center justify-center mb-6">
+            <svg class="w-5 h-5 text-grov-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
           </div>
-        </div>
-      </div>
-
-      <!-- Step 2 -->
-      <div class="flex flex-col md:flex-row gap-8 items-start">
-        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-grov-black border border-grov-border flex items-center justify-center">
-          <span class="text-grov-accent font-bold">2</span>
-        </div>
-        <div class="flex-grow">
-          <h3 class="text-xl font-bold text-grov-text mb-3">
-            Use Claude normally
+          <h3 class="text-lg font-semibold text-grov-text mb-3" style="font-family: var(--font-display);">
+            Capture
           </h3>
-          <p class="text-grov-text-secondary">
-            Keep grov proxy running in a terminal. It captures reasoning from your sessions
-            through a local proxy. No changes to your workflow.
+          <p class="text-grov-text-secondary text-sm leading-relaxed">
+            Grov intercepts your AI sessions through a local proxy. It extracts reasoning, decisions, and context automatically.
           </p>
         </div>
       </div>
 
-      <!-- Step 3 -->
-      <div class="flex flex-col md:flex-row gap-8 items-start">
-        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-grov-black border border-grov-border flex items-center justify-center">
-          <span class="text-grov-accent font-bold">3</span>
-        </div>
-        <div class="flex-grow">
-          <h3 class="text-xl font-bold text-grov-text mb-3">
-            Context compounds
+      <!-- Store -->
+      <div class="bg-grov-surface p-8 md:p-10 relative group">
+        <div class="absolute top-8 right-8 text-6xl font-bold text-grov-border opacity-50 select-none" style="font-family: var(--font-display);">2</div>
+        <div class="relative">
+          <div class="w-10 h-10 rounded-xl bg-grov-accent/10 border border-grov-accent/20 flex items-center justify-center mb-6">
+            <svg class="w-5 h-5 text-grov-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-grov-text mb-3" style="font-family: var(--font-display);">
+            Store
           </h3>
-          <p class="text-grov-text-secondary">
-            Throughout your session, grov injects relevant context from past sessions.
-            Claude skips exploration and reads files directly. Your AI gets smarter over time.
+          <p class="text-grov-text-secondary text-sm leading-relaxed">
+            Memories sync to your team's shared knowledge base. Semantic search indexes everything for instant retrieval.
           </p>
         </div>
       </div>
 
-      <!-- Step 4 -->
-      <div class="flex flex-col md:flex-row gap-8 items-start">
-        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-grov-black border border-grov-border flex items-center justify-center">
-          <span class="text-grov-accent font-bold">4</span>
-        </div>
-        <div class="flex-grow">
-          <h3 class="text-xl font-bold text-grov-text mb-3">
-            Stay on track
+      <!-- Inject -->
+      <div class="bg-grov-surface p-8 md:p-10 relative group">
+        <div class="absolute top-8 right-8 text-6xl font-bold text-grov-border opacity-50 select-none" style="font-family: var(--font-display);">3</div>
+        <div class="relative">
+          <div class="w-10 h-10 rounded-xl bg-grov-accent/10 border border-grov-accent/20 flex items-center justify-center mb-6">
+            <svg class="w-5 h-5 text-grov-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-grov-text mb-3" style="font-family: var(--font-display);">
+            Inject
           </h3>
-          <p class="text-grov-text-secondary">
-            Grov monitors what Claude does and corrects if it drifts from your goal.
-            It scores alignment and injects corrections automatically.
+          <p class="text-grov-text-secondary text-sm leading-relaxed">
+            When you start a new session, Grov injects relevant context via MCP. Your agent skips re-exploration entirely.
           </p>
         </div>
+      </div>
+    </div>
+
+    <!-- Supported agents -->
+    <div class="mt-12 text-center">
+      <p class="text-grov-text-muted text-sm mb-4">Works with</p>
+      <div class="flex flex-wrap justify-center gap-3">
+        <span class="px-4 py-2 rounded-full text-sm text-grov-text-secondary bg-grov-surface border border-grov-border">Claude Code</span>
+        <span class="px-4 py-2 rounded-full text-sm text-grov-text-secondary bg-grov-surface border border-grov-border">Cursor</span>
+        <span class="px-4 py-2 rounded-full text-sm text-grov-text-secondary bg-grov-surface border border-grov-border">Windsurf</span>
+        <span class="px-4 py-2 rounded-full text-sm text-grov-text-secondary bg-grov-surface border border-grov-border">Any MCP client</span>
       </div>
     </div>
   </div>

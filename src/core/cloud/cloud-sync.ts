@@ -54,13 +54,16 @@ const SYNC_CONFIG = {
 /**
  * Convert local Task to CreateMemoryInput for API
  */
-export function taskToMemory(task: Task): CreateMemoryInput {
+export function taskToMemory(
+  task: Task,
+  taskType?: 'information' | 'planning' | 'implementation'
+): CreateMemoryInput {
   return {
     client_task_id: task.id,
     project_path: task.project_path,
     original_query: task.original_query,
     goal: task.goal,
-    system_name: task.system_name,  // Parent anchor for semantic search
+    system_name: task.system_name,
     summary: task.summary,
     reasoning_trace: task.reasoning_trace,
     files_touched: task.files_touched,
@@ -68,6 +71,7 @@ export function taskToMemory(task: Task): CreateMemoryInput {
     constraints: task.constraints,
     tags: task.tags,
     status: task.status,
+    task_type: taskType,
     linked_commit: task.linked_commit,
   };
 }
@@ -82,18 +86,13 @@ function getToday(): string {
 /**
  * Prepare sync payload for UPDATE path
  * Merges existing memory with new data based on shouldUpdateMemory result
- *
- * @param existingMemory - The memory that was matched
- * @param newData - Extracted reasoning and decisions from current session
- * @param updateResult - Result from shouldUpdateMemory Haiku call
- * @param task - The current task being synced
- * @returns Payload ready for sync with memory_id for UPDATE
  */
 export function prepareSyncPayload(
   existingMemory: Memory,
   newData: ExtractedReasoningAndDecisions,
   updateResult: ShouldUpdateResult,
-  task: Task
+  task: Task,
+  taskType?: 'information' | 'planning' | 'implementation'
 ): UpdateMemoryInput {
   const today = getToday();
 
@@ -171,18 +170,19 @@ export function prepareSyncPayload(
 
   // 8. Build final payload
   return {
-    memory_id: existingMemory.id,  // Triggers UPDATE path in API
+    memory_id: existingMemory.id,
     client_task_id: task.id,
     project_path: task.project_path,
     original_query: task.original_query,
     goal: task.goal,
-    system_name: newData.system_name || task.system_name,  // Parent anchor for semantic search
-    reasoning_trace: newData.reasoning_trace,  // OVERWRITE with new
+    system_name: newData.system_name || task.system_name,
+    reasoning_trace: newData.reasoning_trace,
     files_touched: task.files_touched,
     decisions: finalDecisions,
     constraints: task.constraints,
     tags: task.tags,
     status: task.status,
+    task_type: taskType,
     linked_commit: task.linked_commit,
     evolution_steps: finalEvolutionSteps,
     reasoning_evolution: finalReasoningEvolution,
@@ -266,7 +266,7 @@ export async function syncTask(
 
     // Step 2: If no match, INSERT as new memory
     if (!matchResult.match) {
-      const memory = taskToMemory(task);
+      const memory = taskToMemory(task, taskType);
       const result = await syncMemories(teamId, { memories: [memory] });
       console.log(`[SYNC TO CLOUD] ${taskId} -> INSERT (${taskType || 'unknown'})`);
       return result.synced === 1;
@@ -277,7 +277,7 @@ export async function syncTask(
 
     // If no extracted data, INSERT anyway
     if (!effectiveExtractedData) {
-      const memory = taskToMemory(task);
+      const memory = taskToMemory(task, taskType);
       const result = await syncMemories(teamId, { memories: [memory] });
       console.log(`[SYNC TO CLOUD] ${taskId} -> INSERT (${taskType || 'unknown'})`);
       return result.synced === 1;
@@ -316,7 +316,8 @@ export async function syncTask(
       matchResult.match,
       effectiveExtractedData,
       updateResult,
-      task
+      task,
+      taskType
     );
 
     // Sync with memory_id for UPDATE path
@@ -374,7 +375,7 @@ export async function syncTasks(tasks: Task[]): Promise<{
   }
 
   // Convert tasks to memories
-  const memories = tasks.map(taskToMemory);
+  const memories = tasks.map(t => taskToMemory(t));
 
   // Batch and sync
   const batches: CreateMemoryInput[][] = [];

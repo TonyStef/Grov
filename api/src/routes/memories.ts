@@ -62,6 +62,37 @@ async function verifyBranchAccess(
   return { allowed: true };
 }
 
+function trackAnalyticsEvent(
+  teamId: string,
+  userId: string,
+  eventType: string,
+  data: {
+    memoryId?: string;
+    taskType?: string;
+    systemName?: string;
+    reasoningTraceCount?: number;
+    decisionsCount?: number;
+    filesTouchedCount?: number;
+    isUpdate?: boolean;
+  }
+) {
+  supabase
+    .from('analytics_events')
+    .insert({
+      team_id: teamId,
+      user_id: userId,
+      event_type: eventType,
+      memory_id: data.memoryId,
+      task_type: data.taskType,
+      system_name: data.systemName,
+      reasoning_trace_count: data.reasoningTraceCount,
+      decisions_count: data.decisionsCount,
+      files_touched_count: data.filesTouchedCount,
+      is_update: data.isUpdate,
+    })
+    .then(() => {});
+}
+
 // Rate limit configurations for memory endpoints
 const memoryRateLimits = {
   list: { max: 60, timeWindow: '1 minute' },
@@ -501,6 +532,16 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
             }
           }
 
+          trackAnalyticsEvent(id, user.id, 'memory.synced', {
+            memoryId: memory.memory_id,
+            taskType: memory.task_type,
+            systemName: memory.system_name,
+            reasoningTraceCount: memory.reasoning_trace?.length ?? 0,
+            decisionsCount: memory.decisions?.length ?? 0,
+            filesTouchedCount: memory.files_touched?.length ?? 0,
+            isUpdate: true,
+          });
+
           synced++;
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -573,6 +614,16 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
               await saveMemoryChunks(memoryId, id, memory.project_path, memoryData.branch as string, chunks, fastify);
             }
           }
+
+          trackAnalyticsEvent(id, user.id, 'memory.synced', {
+            memoryId: insertedMemory.id,
+            taskType: memory.task_type,
+            systemName: memory.system_name,
+            reasoningTraceCount: memory.reasoning_trace?.length ?? 0,
+            decisionsCount: memory.decisions?.length ?? 0,
+            filesTouchedCount: memory.files_touched?.length ?? 0,
+            isUpdate: false,
+          });
 
           synced++;
         } catch (err) {

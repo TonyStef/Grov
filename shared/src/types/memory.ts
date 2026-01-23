@@ -90,6 +90,7 @@ export interface CreateMemoryInput {
   constraints?: string[];
   tags?: string[];
   status: MemoryStatus;
+  task_type?: 'information' | 'planning' | 'implementation';
   linked_commit?: string;
   // Branch management
   branch?: string;

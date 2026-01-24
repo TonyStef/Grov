@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { UserWithPreferences, TeamWithSettings } from '@/lib/queries/settings';
 import type { TeamWithMemberCount } from '@/lib/queries/teams';
-import type { PlanWithPrices, SubscriptionResponse } from '@grov/shared';
+import type { SubscriptionResponse, TeamUsageResponse, UsageBreakdownResponse } from '@grov/shared';
 import { ProfileSettings } from './profile-settings';
 import { TeamSettings } from './team-settings';
 import { PreferencesSettings } from './preferences-settings';
@@ -20,8 +20,9 @@ interface SettingsClientProps {
   teams: TeamWithMemberCount[];
   isAdmin: boolean;
   isOwner: boolean;
-  plans: PlanWithPrices[];
   subscription: SubscriptionResponse | null;
+  usage: TeamUsageResponse | null;
+  usageBreakdown: UsageBreakdownResponse | null;
 }
 
 const tabs: { id: Tab; label: string }[] = [
@@ -33,7 +34,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: 'billing', label: 'Billing' },
 ];
 
-export function SettingsClient({ user, team, teams, isAdmin, isOwner, plans, subscription }: SettingsClientProps) {
+export function SettingsClient({ user, team, teams, isAdmin, isOwner, subscription, usage, usageBreakdown }: SettingsClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
 
   return (
@@ -98,9 +99,11 @@ export function SettingsClient({ user, team, teams, isAdmin, isOwner, plans, sub
         {activeTab === 'billing' && (
           <BillingSection
             team={team}
-            plans={plans}
             subscription={subscription}
+            usage={usage}
+            usageBreakdown={usageBreakdown}
             isOwner={isOwner}
+            isAdmin={isAdmin}
           />
         )}
       </div>

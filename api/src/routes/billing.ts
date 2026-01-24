@@ -477,6 +477,9 @@ async function processWebhookEvent(event: Stripe.Event, fastify: FastifyInstance
     case 'customer.subscription.deleted':
       await handleSubscriptionDeleted(event);
       break;
+    case 'invoice.created':
+      await handleInvoiceCreated(event);
+      break;
     case 'invoice.paid':
       await logPaymentEvent(event);
       break;
@@ -624,6 +627,82 @@ async function handlePaymentFailed(event: Stripe.Event) {
 
   await supabase.from('subscriptions').update({ status: 'past_due' }).eq('id', sub.id);
   await logPaymentEvent(event, sub.team_id);
+}
+
+async function handleInvoiceCreated(event: Stripe.Event) {
+  const invoice = event.data.object as Stripe.Invoice;
+  const subscriptionId = invoice.subscription as string;
+
+  if (!subscriptionId) return;
+
+  const { data: sub } = await supabase
+    .from('subscriptions')
+    .select('team_id, plan:plans(injection_limit_per_seat, overage_rate_cents)')
+    .eq('stripe_subscription_id', subscriptionId)
+    .single();
+
+  if (!sub) return;
+
+  const teamId = sub.team_id;
+  const plan = sub.plan as unknown as { injection_limit_per_seat: number; overage_rate_cents: number } | null;
+
+  const periodStart = new Date(invoice.period_start * 1000);
+  const previousPeriodStart = new Date(periodStart.getFullYear(), periodStart.getMonth() - 1, 1);
+
+  const { data: usagePeriod } = await supabase
+    .from('team_usage_periods')
+    .select('id, injection_count')
+    .eq('team_id', teamId)
+    .eq('period_start', previousPeriodStart.toISOString())
+    .single();
+
+  if (!usagePeriod) return;
+
+  const { count: memberCount } = await supabase
+    .from('team_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('team_id', teamId);
+
+  const limitPerSeat = plan?.injection_limit_per_seat ?? 150;
+  const quota = (memberCount || 1) * limitPerSeat;
+  const overage = Math.max(0, usagePeriod.injection_count - quota);
+
+  if (overage === 0) return;
+
+  const rateCents = plan?.overage_rate_cents ?? 2;
+  const amountCents = overage * rateCents;
+
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('stripe_customer_id')
+    .eq('team_id', teamId)
+    .single();
+
+  if (!subscription?.stripe_customer_id) return;
+
+  const invoiceItem = await stripe.invoiceItems.create({
+    customer: subscription.stripe_customer_id,
+    invoice: invoice.id,
+    amount: amountCents,
+    currency: 'usd',
+    description: `Injection overage: ${overage} × $${(rateCents / 100).toFixed(2)}`,
+  });
+
+  await supabase.from('overage_charges').insert({
+    team_id: teamId,
+    usage_period_id: usagePeriod.id,
+    injection_count: usagePeriod.injection_count,
+    quota,
+    overage,
+    rate_cents: rateCents,
+    amount_cents: amountCents,
+    stripe_invoice_item_id: invoiceItem.id,
+    stripe_invoice_id: invoice.id,
+    status: 'invoiced',
+    processed_at: new Date().toISOString(),
+  });
+
+  await logPaymentEvent(event, teamId);
 }
 
 async function logPaymentEvent(event: Stripe.Event, teamId?: string) {

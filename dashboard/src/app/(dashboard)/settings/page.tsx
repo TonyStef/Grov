@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { getUserWithPreferences, getTeamWithSettings, isTeamAdmin } from '@/lib/queries/settings';
 import { getUserTeams } from '@/lib/queries/teams';
 import { getCurrentTeamId } from '@/lib/queries/current-team';
-import { getPlans, getSubscription, isTeamOwner } from '@/lib/queries/billing';
+import { getSubscription, isTeamOwner, getTeamUsage, getUsageBreakdown } from '@/lib/queries/billing';
 import { SettingsClient } from './_components/settings-client';
 
 export const metadata: Metadata = {
@@ -10,11 +10,10 @@ export const metadata: Metadata = {
 };
 
 export default async function SettingsPage() {
-  const [user, teams, currentTeamId, plans] = await Promise.all([
+  const [user, teams, currentTeamId] = await Promise.all([
     getUserWithPreferences(),
     getUserTeams(),
     getCurrentTeamId(),
-    getPlans(),
   ]);
 
   if (!user) {
@@ -29,13 +28,17 @@ export default async function SettingsPage() {
   let teamIsAdmin = false;
   let teamIsOwner = false;
   let subscription = null;
+  let usage = null;
+  let usageBreakdown = null;
 
   if (currentTeamId) {
-    [team, teamIsAdmin, teamIsOwner, subscription] = await Promise.all([
+    [team, teamIsAdmin, teamIsOwner, subscription, usage, usageBreakdown] = await Promise.all([
       getTeamWithSettings(currentTeamId),
       isTeamAdmin(currentTeamId),
       isTeamOwner(currentTeamId),
       getSubscription(currentTeamId),
+      getTeamUsage(currentTeamId),
+      getUsageBreakdown(currentTeamId),
     ]);
   }
 
@@ -54,8 +57,9 @@ export default async function SettingsPage() {
         teams={teams}
         isAdmin={teamIsAdmin}
         isOwner={teamIsOwner}
-        plans={plans}
         subscription={subscription}
+        usage={usage}
+        usageBreakdown={usageBreakdown}
       />
     </div>
   );

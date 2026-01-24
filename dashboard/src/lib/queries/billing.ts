@@ -5,6 +5,8 @@ import type {
   PlansResponse,
   SubscriptionResponse,
   PlanWithPrices,
+  TeamUsageResponse,
+  UsageBreakdownResponse,
 } from '@grov/shared';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
@@ -55,4 +57,38 @@ export const isTeamOwner = cache(async (teamId: string): Promise<boolean> => {
     .single();
 
   return membership?.role === 'owner';
+});
+
+export const getTeamUsage = cache(async (
+  teamId: string
+): Promise<TeamUsageResponse | null> => {
+  const auth = await getAuthSession();
+  if (!auth) return null;
+
+  const response = await fetch(`${API_URL}/teams/${teamId}/usage`, {
+    headers: {
+      Authorization: `Bearer ${auth.accessToken}`,
+    },
+    next: { revalidate: 60 },
+  });
+
+  if (!response.ok) return null;
+  return response.json();
+});
+
+export const getUsageBreakdown = cache(async (
+  teamId: string
+): Promise<UsageBreakdownResponse | null> => {
+  const auth = await getAuthSession();
+  if (!auth) return null;
+
+  const response = await fetch(`${API_URL}/teams/${teamId}/usage/breakdown`, {
+    headers: {
+      Authorization: `Bearer ${auth.accessToken}`,
+    },
+    next: { revalidate: 300 },
+  });
+
+  if (!response.ok) return null;
+  return response.json();
 });

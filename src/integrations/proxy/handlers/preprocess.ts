@@ -9,6 +9,8 @@ import {
   markCleared,
 } from '../../../core/store/store.js';
 import { isSyncEnabled, getSyncTeamId } from '../../../core/cloud/cloud-sync.js';
+import { getCurrentUser } from '../../../core/cloud/credentials.js';
+import { reportInjection } from '../../../core/cloud/api-client.js';
 import {
   clearSessionState,
   cacheMemories,
@@ -21,6 +23,7 @@ import {
   setCachedPreview,
   getCachedPreview,
 } from '../injection/memory-injection.js';
+import { handleInjectionResponse } from '../utils/usage-warnings.js';
 import type { AgentAdapter } from '../agents/types.js';
 
 let pendingPlanClear: { projectPath: string; summary: string } | null = null;
@@ -201,6 +204,21 @@ export async function preProcessRequest(
             previewSize: preview?.length || 0,
             hasDriftRecovery: !!driftRecovery,
           });
+
+          const user = getCurrentUser();
+          if (user && teamId) {
+            reportInjection({
+              team_id: teamId,
+              user_id: user.id,
+              session_id: sessionInfo.sessionId,
+              event_id: `${sessionInfo.sessionId}:${Date.now()}:preview`,
+              injection_type: 'preview',
+              memory_ids: memories.map(m => m.id),
+              timestamp: new Date().toISOString(),
+            })
+              .then(res => handleInjectionResponse(res, teamId))
+              .catch(() => {});
+          }
         } else {
           // No memories found - inject explicit "no entries" so Claude doesn't use old previews
           let noMemoriesMsg = '[PROJECT KNOWLEDGE BASE: No relevant entries for this query]';

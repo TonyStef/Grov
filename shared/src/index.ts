@@ -85,6 +85,23 @@ export type {
   InvoicesResponse,
 } from './types/billing.js';
 
+// Usage types
+export type {
+  UsageStatus,
+  InjectionType,
+  RecordInjectionRequest,
+  RecordInjectionResponse,
+  TeamUsageResponse,
+  UsageHistoryParams,
+  UsageHistoryResponse,
+  UsagePeriodSummary,
+  UsageBreakdownResponse,
+  UserUsage,
+  DailyUsage,
+  OverageChargeStatus,
+  OverageCharge,
+} from './types/usage.js';
+
 // Utilities
 export { slugify } from './utils/text.js';
 export {

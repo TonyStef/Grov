@@ -3,6 +3,9 @@
 
 import { randomUUID } from 'crypto';
 import { config, buildSafeHeaders } from './config.js';
+import { getSyncTeamId } from '../../core/cloud/cloud-sync.js';
+import { getCurrentUser } from '../../core/cloud/credentials.js';
+import { reportInjection } from '../../core/cloud/api-client.js';
 import { extendedCache, evictOldestCacheEntry } from './cache/extended-cache.js';
 import { getNextRequestId, taskLog, proxyLog, logTokenUsage } from './utils/logging.js';
 import { preProcessRequest, setPendingPlanClear } from './handlers/preprocess.js';
@@ -48,6 +51,7 @@ import {
   addInjectionRecord,
   hasToolCycleAtPosition,
 } from './injection/memory-injection.js';
+import { handleInjectionResponse } from './utils/usage-warnings.js';
 
 // In-memory state
 const lastDriftResults = new Map<string, DriftCheckResult>();
@@ -284,6 +288,25 @@ export async function handleAgentRequest(context: RequestContext): Promise<Orche
           if (ids.length > 0) {
             const expandedCount = expandedParts.filter(p => !p.includes('not found')).length;
             console.log(`[MEMORY] Expanded ${expandedCount}/${ids.length} memories`);
+
+            const teamId = getSyncTeamId();
+            const user = getCurrentUser();
+            if (teamId && user && expandedCount > 0) {
+              const expandedIds = ids.filter((_, i) => !expandedParts[i].includes('not found'));
+              for (const memoryId of expandedIds) {
+                reportInjection({
+                  team_id: teamId,
+                  user_id: user.id,
+                  session_id: sessionInfo.sessionId,
+                  event_id: `${sessionInfo.sessionId}:${Date.now()}:expand:${memoryId}`,
+                  injection_type: 'expand',
+                  memory_ids: [memoryId],
+                  timestamp: new Date().toISOString(),
+                })
+                  .then(res => handleInjectionResponse(res, teamId))
+                  .catch(() => {});
+              }
+            }
           }
 
           grovExpandResult = expandedParts.join('\n\n');

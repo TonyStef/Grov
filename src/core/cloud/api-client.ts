@@ -13,6 +13,8 @@ import type {
   DeviceFlowStartResponse,
   DeviceFlowPollResponse,
   ReasoningTraceEntry,
+  RecordInjectionRequest,
+  RecordInjectionResponse,
 } from '@grov/shared';
 
 // API configuration
@@ -295,6 +297,19 @@ export async function fetchMatch(
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';
     console.error(`[MATCH-API] FAILED: ${errorMsg}`);
     return { match: null };
+  }
+}
+
+// ============= Usage Tracking =============
+
+export async function reportInjection(
+  event: RecordInjectionRequest
+): Promise<RecordInjectionResponse | null> {
+  try {
+    const response = await apiRequest<RecordInjectionResponse>('POST', '/usage/injection', event);
+    return response.data || null;
+  } catch {
+    return null;
   }
 }
 

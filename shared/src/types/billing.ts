@@ -31,6 +31,8 @@ export interface Plan {
   has_priority_support: boolean;
   features: string[];
   sort_order: number;
+  injection_limit_per_seat: number | null;
+  overage_rate_cents: number | null;
   created_at: string;
   updated_at: string;
 }

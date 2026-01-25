@@ -230,6 +230,13 @@ export async function fetchTeamMemories(
       return [];
     }
 
+    // Check if blocked due to quota
+    if (response.data.blocked) {
+      console.log('\n[grov] \x1b[33m⚠️  Free quota exceeded (110%). Upgrade to continue using memory injection.\x1b[0m');
+      console.log('[grov]    Manage plan: https://app.grov.dev/settings\n');
+      return [];
+    }
+
     return response.data.memories;
 
   } catch (err) {

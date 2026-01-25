@@ -2,39 +2,32 @@
 
 import { useState } from 'react';
 import type { UserWithPreferences, TeamWithSettings } from '@/lib/queries/settings';
-import type { TeamWithMemberCount } from '@/lib/queries/teams';
-import type { SubscriptionResponse, TeamUsageResponse, UsageBreakdownResponse } from '@grov/shared';
+import type { SubscriptionResponse, TeamUsageResponse, UsageBreakdownResponse, PlanWithPrices } from '@grov/shared';
 import { ProfileSettings } from './profile-settings';
 import { TeamSettings } from './team-settings';
-import { PreferencesSettings } from './preferences-settings';
-import { NotificationsSettings } from './notifications-settings';
-import { ApiKeysPlaceholder } from './api-keys-placeholder';
 import { BillingSection } from './billing-section';
 import { DangerZone } from './danger-zone';
 
-type Tab = 'profile' | 'team' | 'preferences' | 'notifications' | 'api' | 'billing';
+type Tab = 'profile' | 'team' | 'billing';
 
 interface SettingsClientProps {
   user: UserWithPreferences;
   team: TeamWithSettings | null;
-  teams: TeamWithMemberCount[];
   isAdmin: boolean;
   isOwner: boolean;
   subscription: SubscriptionResponse | null;
   usage: TeamUsageResponse | null;
   usageBreakdown: UsageBreakdownResponse | null;
+  plans: PlanWithPrices[];
 }
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'profile', label: 'Profile' },
-  { id: 'team', label: 'Team Settings' },
-  { id: 'preferences', label: 'Preferences' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'api', label: 'API Keys' },
+  { id: 'team', label: 'Team' },
   { id: 'billing', label: 'Billing' },
 ];
 
-export function SettingsClient({ user, team, teams, isAdmin, isOwner, subscription, usage, usageBreakdown }: SettingsClientProps) {
+export function SettingsClient({ user, team, isAdmin, isOwner, subscription, usage, usageBreakdown, plans }: SettingsClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
 
   return (
@@ -84,18 +77,6 @@ export function SettingsClient({ user, team, teams, isAdmin, isOwner, subscripti
           )
         )}
 
-        {activeTab === 'preferences' && (
-          <PreferencesSettings teams={teams} />
-        )}
-
-        {activeTab === 'notifications' && (
-          <NotificationsSettings />
-        )}
-
-        {activeTab === 'api' && (
-          <ApiKeysPlaceholder />
-        )}
-
         {activeTab === 'billing' && (
           <BillingSection
             team={team}
@@ -104,6 +85,7 @@ export function SettingsClient({ user, team, teams, isAdmin, isOwner, subscripti
             usageBreakdown={usageBreakdown}
             isOwner={isOwner}
             isAdmin={isAdmin}
+            plans={plans}
           />
         )}
       </div>

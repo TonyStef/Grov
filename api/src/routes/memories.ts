@@ -202,6 +202,47 @@ export default async function memoriesRoutes(fastify: FastifyInstance) {
           return { memories: [], cursor: null, has_more: false };
         }
 
+        // Check quota for free users (block at 110% = 165 injections)
+        const FREE_QUOTA = 150;
+        const BLOCK_THRESHOLD = 1.1; // 110%
+
+        // Check if team has paid subscription
+        const { data: subscription } = await supabase
+          .from('subscriptions')
+          .select('stripe_subscription_id')
+          .eq('team_id', id)
+          .in('status', ['active', 'trialing'])
+          .single();
+
+        const hasPaidSubscription = !!subscription?.stripe_subscription_id;
+
+        // For free users, check if over limit
+        if (!hasPaidSubscription) {
+          const now = new Date();
+          const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+          const { data: usagePeriod } = await supabase
+            .from('team_usage_periods')
+            .select('injection_count')
+            .eq('team_id', id)
+            .eq('period_start', periodStart.toISOString())
+            .single();
+
+          const currentCount = usagePeriod?.injection_count ?? 0;
+          const blockLimit = Math.floor(FREE_QUOTA * BLOCK_THRESHOLD); // 165
+
+          if (currentCount >= blockLimit) {
+            fastify.log.info(`[QUOTA] Free user blocked: team=${id} usage=${currentCount}/${blockLimit}`);
+            return {
+              memories: [],
+              cursor: null,
+              has_more: false,
+              blocked: true,
+              block_reason: 'quota_exceeded',
+            };
+          }
+        }
+
         const queryEmbedding = await generateEmbedding(context);
         if (!queryEmbedding) {
           return { memories: [], cursor: null, has_more: false };

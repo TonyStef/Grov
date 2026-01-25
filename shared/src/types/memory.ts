@@ -120,6 +120,9 @@ export interface MemoryListResponse {
   memories: Memory[];
   cursor: string | null;
   has_more: boolean;
+  // Quota enforcement for free users
+  blocked?: boolean;
+  block_reason?: 'quota_exceeded';
 }
 
 // Memory sync request from CLI

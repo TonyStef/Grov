@@ -251,6 +251,19 @@ export async function billingTeamRoutes(fastify: FastifyInstance) {
         return sendError(reply, customerResult.status, customerResult.error);
       }
 
+      // Get team member count for per-seat pricing
+      const { count: seatCount, error: countError } = await supabase
+        .from('team_members')
+        .select('*', { count: 'exact', head: true })
+        .eq('team_id', teamId);
+
+      if (countError) {
+        fastify.log.error(countError, 'Failed to count team members');
+        return sendError(reply, 500, 'Failed to count team members');
+      }
+
+      const quantity = Math.max(seatCount || 1, 1); // Minimum 1 seat
+
       const dashboardUrl = process.env.DASHBOARD_URL || 'http://localhost:3000';
 
       try {
@@ -258,7 +271,7 @@ export async function billingTeamRoutes(fastify: FastifyInstance) {
           customer: customerResult.customerId,
           mode: 'subscription',
           payment_method_types: ['card'],
-          line_items: [{ price: priceId, quantity: 1 }],
+          line_items: [{ price: priceId, quantity }],
           metadata: { team_id: teamId },
           subscription_data: {
             trial_period_days: 14,
@@ -462,6 +475,34 @@ async function getOrCreateStripeCustomer(
   }
 
   return { success: true, customerId: customer.id };
+}
+
+export async function syncSubscriptionSeats(teamId: string): Promise<void> {
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('stripe_subscription_id')
+    .eq('team_id', teamId)
+    .in('status', ['active', 'trialing'])
+    .single();
+
+  if (!subscription?.stripe_subscription_id) return;
+
+  const { count } = await supabase
+    .from('team_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('team_id', teamId);
+
+  const newQuantity = Math.max(count || 1, 1);
+
+  const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
+  const item = stripeSubscription.items.data[0];
+
+  if (item && item.quantity !== newQuantity) {
+    await stripe.subscriptions.update(subscription.stripe_subscription_id, {
+      items: [{ id: item.id, quantity: newQuantity }],
+      proration_behavior: 'create_prorations',
+    });
+  }
 }
 
 // Webhook event handlers

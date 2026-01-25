@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { getUserWithPreferences, getTeamWithSettings, isTeamAdmin } from '@/lib/queries/settings';
-import { getUserTeams } from '@/lib/queries/teams';
 import { getCurrentTeamId } from '@/lib/queries/current-team';
-import { getSubscription, isTeamOwner, getTeamUsage, getUsageBreakdown } from '@/lib/queries/billing';
+import { getSubscription, isTeamOwner, getTeamUsage, getUsageBreakdown, getPlans } from '@/lib/queries/billing';
 import { SettingsClient } from './_components/settings-client';
 
 export const metadata: Metadata = {
@@ -10,10 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default async function SettingsPage() {
-  const [user, teams, currentTeamId] = await Promise.all([
+  const [user, currentTeamId, plans] = await Promise.all([
     getUserWithPreferences(),
-    getUserTeams(),
     getCurrentTeamId(),
+    getPlans(),
   ]);
 
   if (!user) {
@@ -54,12 +53,12 @@ export default async function SettingsPage() {
       <SettingsClient
         user={user}
         team={team}
-        teams={teams}
         isAdmin={teamIsAdmin}
         isOwner={teamIsOwner}
         subscription={subscription}
         usage={usage}
         usageBreakdown={usageBreakdown}
+        plans={plans}
       />
     </div>
   );

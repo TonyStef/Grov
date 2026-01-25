@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import type { SubscriptionResponse, TeamUsageResponse, UsageBreakdownResponse, UsageStatus } from '@grov/shared';
+import type { SubscriptionResponse, TeamUsageResponse, UsageBreakdownResponse, UsageStatus, PlanWithPrices } from '@grov/shared';
 import type { TeamWithSettings } from '@/lib/queries/settings';
-import { createPortalSession } from '../actions';
+import { createPortalSession, createCheckout } from '../actions';
 
 interface BillingSectionProps {
   team: TeamWithSettings | null;
@@ -12,6 +12,7 @@ interface BillingSectionProps {
   usageBreakdown: UsageBreakdownResponse | null;
   isOwner: boolean;
   isAdmin: boolean;
+  plans: PlanWithPrices[];
 }
 
 const STATUS_CONFIG: Record<UsageStatus, { color: string; label: string; borderColor: string }> = {
@@ -27,10 +28,23 @@ function getProgressColor(status: UsageStatus): string {
   return 'bg-leaf';
 }
 
-export function BillingSection({ team, subscription, usage, usageBreakdown, isOwner, isAdmin }: BillingSectionProps) {
+export function BillingSection({ team, subscription, usage, usageBreakdown, isOwner, isAdmin, plans }: BillingSectionProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
+
+  const handleUpgrade = (priceId: string) => {
+    if (!team) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await createCheckout(team.id, priceId);
+      if (result.error) {
+        setError(result.error);
+      } else if (result.checkout_url) {
+        window.location.href = result.checkout_url;
+      }
+    });
+  };
 
   if (!team) {
     return (
@@ -242,6 +256,51 @@ export function BillingSection({ team, subscription, usage, usageBreakdown, isOw
           </div>
         )}
       </section>
+
+      {/* Upgrade Section for Free Users */}
+      {isFree && isOwner && plans.length > 0 && (
+        <section>
+          <div className="flex items-baseline justify-between border-b border-border pb-4">
+            <h2 className="font-display text-xs font-medium uppercase tracking-widest text-text-quiet">Upgrade</h2>
+          </div>
+          <div className="mt-8 grid gap-8 md:grid-cols-2">
+            {plans
+              .filter(plan => plan.name !== 'free')
+              .map(plan => {
+                const monthlyPrice = plan.prices.find(p => p.billing_interval === 'month');
+                return (
+                  <div key={plan.id} className="border-l-2 border-text-quiet/30 pl-6">
+                    <h3 className="font-display text-2xl font-medium tracking-tight text-text-bright">
+                      {plan.display_name}
+                    </h3>
+                    <p className="mt-1 text-sm text-text-calm">{plan.description}</p>
+                    <div className="mt-6">
+                      <span className="font-display text-4xl font-semibold tracking-tight text-text-bright">
+                        ${monthlyPrice ? (monthlyPrice.amount_cents / 100).toFixed(0) : '–'}
+                      </span>
+                      <span className="text-sm text-text-quiet">/seat/month</span>
+                    </div>
+                    <ul className="mt-6 space-y-1 text-sm text-text-calm">
+                      <li>• {plan.injection_limit_per_seat?.toLocaleString() || '–'} injections/seat/month</li>
+                      <li>• Up to {plan.max_users} team members</li>
+                      {plan.has_analytics && <li>• Analytics</li>}
+                      {plan.has_priority_support && <li>• Priority support</li>}
+                    </ul>
+                    {monthlyPrice && (
+                      <button
+                        onClick={() => handleUpgrade(monthlyPrice.stripe_price_id)}
+                        disabled={isPending}
+                        className="mt-6 rounded-md bg-leaf px-6 py-2 text-sm font-medium text-root transition-colors hover:bg-leaf/90 disabled:opacity-50"
+                      >
+                        {isPending ? 'Loading...' : `Upgrade to ${plan.display_name}`}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        </section>
+      )}
 
       {/* Error */}
       {error && (

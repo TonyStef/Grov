@@ -16,6 +16,7 @@ import { supabase } from '../db/client.js';
 import { randomBytes } from 'crypto';
 import { requireAuth, getAuthenticatedUser } from '../middleware/auth.js';
 import { requireTeamMember, requireTeamAdmin } from '../middleware/team.js';
+import { syncSubscriptionSeats } from './billing.js';
 
 // Typed error response helper
 function sendError(reply: FastifyReply, status: number, error: string) {
@@ -301,6 +302,8 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         return sendError(reply, 500, 'Failed to join team');
       }
 
+      syncSubscriptionSeats(invitation.team_id).catch((err) => fastify.log.error(err));
+
       return { success: true, team_id: invitation.team_id };
     }
   );
@@ -339,6 +342,8 @@ export default async function teamsRoutes(fastify: FastifyInstance) {
         fastify.log.error(error);
         return sendError(reply, 500, 'Failed to remove member');
       }
+
+      syncSubscriptionSeats(id).catch((err) => fastify.log.error(err));
 
       return { success: true };
     }

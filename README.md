@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="owl_design111.svg" alt="grov logo" width="120">
+  <img src="owl_design11-removebg-preview.png" alt="grov logo" width="120">
 </p>
 
 <h1 align="center">grov</h1>

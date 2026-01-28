@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   },
   description: 'Collective AI Memory for Engineering Teams',
   icons: {
-    icon: '/favicon.png',
+    icon: '/owl-favicon.svg',
   },
 };
 

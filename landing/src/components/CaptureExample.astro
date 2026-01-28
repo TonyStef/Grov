@@ -13,7 +13,7 @@
         What gets captured
       </h2>
       <p class="mt-8 text-body-lg text-grov-text-secondary max-w-2xl mx-auto text-pretty">
-        Not what changed. <span class="text-grov-text">Why</span> it changed.
+        Not what changed. <span class="text-grov-text">Why</span> it changed — so the next session doesn't have to figure it out again.
       </p>
     </div>
 
@@ -27,24 +27,32 @@
         </div>
         <span class="ml-4 text-grov-text-muted text-xs font-mono">memory.json</span>
       </div>
-      <div class="terminal-content text-left">
-        <pre class="text-code"><code><span class="text-grov-text-muted">&#123;</span>
+      <div class="terminal-content text-left overflow-x-auto overscroll-x-contain" style="-webkit-overflow-scrolling: touch;">
+        <pre class="text-code whitespace-pre"><code><span class="text-grov-text-muted">&#123;</span>
   <span class="text-grov-accent syntax-glow">"goal"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Prevent random user logouts"</span><span class="text-grov-text-muted">,</span>
   <span class="text-grov-accent syntax-glow">"system_name"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Auth Session"</span><span class="text-grov-text-muted">,</span>
-  <span class="text-grov-accent syntax-glow">"files_touched"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span><span class="text-grov-text">"src/auth/session.ts"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"src/middleware/token.ts"</span><span class="text-grov-text-muted">],</span>
+  <span class="text-grov-accent syntax-glow">"files_touched"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span>
+    <span class="text-grov-text">"src/auth/session.ts"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-text">"src/middleware/token.ts"</span>
+  <span class="text-grov-text-muted">],</span>
   <span class="text-grov-accent syntax-glow">"reasoning_trace"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[&#123;</span>
     <span class="text-grov-accent syntax-glow">"aspect"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Token Refresh"</span><span class="text-grov-text-muted">,</span>
-    <span class="text-grov-accent syntax-glow">"conclusion"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Refresh window of 5min too short for slow networks"</span><span class="text-grov-text-muted">,</span>
-    <span class="text-grov-accent syntax-glow">"insight"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Race condition when refresh takes longer than window"</span>
+    <span class="text-grov-accent syntax-glow">"conclusion"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Refresh window of 5min too short"</span><span class="text-grov-text-muted">,</span>
+    <span class="text-grov-accent syntax-glow">"insight"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Race condition on slow networks"</span>
   <span class="text-grov-text-muted">&#125;],</span>
   <span class="text-grov-accent syntax-glow">"decisions"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[&#123;</span>
     <span class="text-grov-accent syntax-glow">"choice"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Extend refresh window to 15min"</span><span class="text-grov-text-muted">,</span>
-    <span class="text-grov-accent syntax-glow">"reason"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Handles slow networks without compromising security"</span>
+    <span class="text-grov-accent syntax-glow">"reason"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text">"Handles slow networks safely"</span>
   <span class="text-grov-text-muted">&#125;],</span>
   <span class="text-grov-accent syntax-glow">"tags"</span><span class="text-grov-text-muted">:</span> <span class="text-grov-text-muted">[</span><span class="text-grov-text">"auth"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"session"</span><span class="text-grov-text-muted">,</span> <span class="text-grov-text">"token-refresh"</span><span class="text-grov-text-muted">]</span>
 <span class="text-grov-text-muted">&#125;</span></code></pre>
       </div>
     </div>
+
+    <!-- Mobile scroll hint -->
+    <p class="mt-4 text-center text-grov-text-muted text-xs sm:hidden">
+      Swipe to see more
+    </p>
 
   </div>
 </section>

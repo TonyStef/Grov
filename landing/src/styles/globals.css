@@ -352,8 +352,10 @@
   .terminal-dot-green { background: #27c93f; }
 
   .terminal-content {
-    @apply p-6 font-mono text-code;
+    @apply p-4 sm:p-6 font-mono text-code;
     background: rgba(18, 18, 20, 0.95);
+    -webkit-overflow-scrolling: touch;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* Section container */
@@ -361,6 +363,24 @@
     @apply max-w-6xl mx-auto px-6;
   }
 
+  /* BeforeAfterDemo animations */
+  .animate-ba-spin {
+    animation: ba-spin 1s linear infinite;
+  }
+
+  .animate-ba-blink {
+    animation: ba-blink 1s step-end infinite;
+  }
+}
+
+@keyframes ba-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ba-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
 }
 
 @layer utilities {

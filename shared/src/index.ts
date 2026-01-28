@@ -102,6 +102,26 @@ export type {
   OverageCharge,
 } from './types/usage.js';
 
+// Plan types
+export type {
+  PlanTargetType,
+  PlanStatus,
+  PlanPriority,
+  TaskStatus,
+  SharedPlan,
+  PlanTask,
+  SharedPlanWithTasks,
+  SharedPlanWithProfile,
+  CreatePlanInput,
+  UpdatePlanInput,
+  CreateTaskInput,
+  UpdateTaskInput,
+  PlanListResponse,
+  PlanDetailResponse,
+  PlanInjectionContext,
+  PlanInjectionTask,
+} from './types/plans.js';
+
 // Utilities
 export { slugify } from './utils/text.js';
 export {

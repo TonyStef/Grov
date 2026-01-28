@@ -1,8 +1,6 @@
-// Pre-process requests before forwarding to upstream API (agent-agnostic)
-
 import { config } from '../config.js';
 import { extractFilesFromMessages } from '../request-processor.js';
-import { fetchTeamMemories } from '../../../core/cloud/api-client.js';
+import { fetchTeamMemories, fetchTeamPlans } from '../../../core/cloud/api-client.js';
 import {
   getSessionState,
   updateSessionState,
@@ -15,6 +13,7 @@ import {
   clearSessionState,
   cacheMemories,
   buildMemoryPreview,
+  buildPlanPreview,
   buildToolDescription,
   buildDriftRecoveryInjection,
   reconstructMessages,
@@ -26,18 +25,37 @@ import {
 import { handleInjectionResponse } from '../utils/usage-warnings.js';
 import type { AgentAdapter } from '../agents/types.js';
 
-let pendingPlanClear: { projectPath: string; summary: string } | null = null;
+interface PendingPlanClear {
+  projectPath: string;
+  summary: string;
+}
 
-export function getPendingPlanClear(): { projectPath: string; summary: string } | null {
+let pendingPlanClear: PendingPlanClear | null = null;
+
+export function getPendingPlanClear(): PendingPlanClear | null {
   return pendingPlanClear;
 }
 
-export function setPendingPlanClear(value: { projectPath: string; summary: string }): void {
+export function setPendingPlanClear(value: PendingPlanClear): void {
   pendingPlanClear = value;
 }
 
 export function clearPendingPlan(): void {
   pendingPlanClear = null;
+}
+
+const MAX_RAW_PROMPT_LENGTH = 500;
+
+function cleanUserPrompt(rawPrompt: string): string {
+  return rawPrompt
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/\\n["']?\s*<\/system-reminder>/g, '')
+    .replace(/<\/system-reminder>/g, '')
+    .trim();
+}
+
+function isWarmupRequest(userPrompt: string): boolean {
+  return userPrompt.startsWith('Warmup');
 }
 
 export async function preProcessRequest(
@@ -49,27 +67,19 @@ export async function preProcessRequest(
 ): Promise<unknown> {
   let modified = { ...(body as Record<string, unknown>) };
 
-  // === WARMUP CHECK (FIRST - before any injection) ===
-  // Skip warmup requests entirely - no tool, no system prompt, nothing
   const rawEarlyPrompt = adapter.getLastUserContent(modified);
-  const earlyUserPrompt = rawEarlyPrompt
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-    .replace(/\\n["']?\s*<\/system-reminder>/g, '')
-    .replace(/<\/system-reminder>/g, '')
-    .trim();
-  if (earlyUserPrompt.startsWith('Warmup')) {
+  const earlyUserPrompt = cleanUserPrompt(rawEarlyPrompt);
+
+  if (isWarmupRequest(earlyUserPrompt)) {
     return modified;
   }
 
-  // Save clean user prompt BEFORE any reconstruction/injection (agent-agnostic)
-  modified.__grovRawUserPrompt = earlyUserPrompt.substring(0, 500);
+  modified.__grovRawUserPrompt = earlyUserPrompt.substring(0, MAX_RAW_PROMPT_LENGTH);
 
-  // === TOOL INJECTION (only for real user requests) ===
   const toolDesc = buildToolDescription();
   modified.__grovInjection = toolDesc;
   modified.__grovInjectionCached = false;
 
-  // Add grov_expand tool to tools array (agent-specific format)
   const toolDef = adapter.buildGrovExpandTool();
   modified = adapter.injectTool(modified, toolDef) as Record<string, unknown>;
 
@@ -77,26 +87,24 @@ export async function preProcessRequest(
   const requestType = detectRequestType(messages, sessionInfo.projectPath);
   const sessionState = getSessionState(sessionInfo.sessionId);
 
-  // === COMMIT PENDING RECORDS FROM PREVIOUS TURN ===
-  // When a new turn starts, commit any pending records so reconstruction stays consistent
   if (requestType === 'first') {
     commitPendingRecords(sessionInfo.projectPath);
   }
 
-  // === PLANNING CLEAR ===
-  if (pendingPlanClear && pendingPlanClear.projectPath === sessionInfo.projectPath) {
+  if (pendingPlanClear?.projectPath === sessionInfo.projectPath) {
     modified = adapter.setMessages(modified, []) as Record<string, unknown>;
     modified = adapter.injectMemory(modified, pendingPlanClear.summary) as Record<string, unknown>;
-    pendingPlanClear = null;
+    clearPendingPlan();
     clearSessionState(sessionInfo.projectPath);
     return modified;
   }
 
-  // === CLEAR MODE (token threshold) ===
   if (sessionState) {
     const currentTokenCount = sessionState.token_count || 0;
+    const shouldClear = currentTokenCount > config.TOKEN_CLEAR_THRESHOLD &&
+                        sessionState.pending_clear_summary;
 
-    if (currentTokenCount > config.TOKEN_CLEAR_THRESHOLD && sessionState.pending_clear_summary) {
+    if (shouldClear) {
       logger.info({
         msg: 'CLEAR MODE ACTIVATED',
         tokenCount: currentTokenCount,
@@ -104,7 +112,7 @@ export async function preProcessRequest(
       });
 
       modified = adapter.setMessages(modified, []) as Record<string, unknown>;
-      modified = adapter.injectMemory(modified, sessionState.pending_clear_summary) as Record<string, unknown>;
+      modified = adapter.injectMemory(modified, sessionState.pending_clear_summary!) as Record<string, unknown>;
       markCleared(sessionInfo.sessionId);
 
       updateSessionState(sessionInfo.sessionId, { pending_clear_summary: undefined });
@@ -114,28 +122,29 @@ export async function preProcessRequest(
     }
   }
 
-  // Capture original position BEFORE reconstruction (for injection tracking)
-  const originalMessages = adapter.getMessages(modified);
-  let originalLastUserPos = originalMessages.length - 1;
-  for (let i = originalMessages.length - 1; i >= 0; i--) {
-    if ((originalMessages[i] as { role?: string })?.role === 'user') {
-      originalLastUserPos = i;
-      break;
+  function findLastUserMessagePosition(messages: unknown[]): number {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if ((messages[i] as { role?: string })?.role === 'user') {
+        return i;
+      }
     }
+    return messages.length - 1;
   }
 
-  // === RECONSTRUCT HISTORICAL INJECTIONS (for cache consistency) ===
+  const originalMessages = adapter.getMessages(modified);
+  const originalLastUserPos = findLastUserMessagePosition(originalMessages);
+
   const currentMessages = adapter.getMessages(modified) as Array<{ role: string; content: unknown }>;
   const { messages: reconstructedMsgs, reconstructedCount } = reconstructMessages(
     currentMessages,
     sessionInfo.projectPath
   );
+
   if (reconstructedCount > 0) {
     modified = adapter.setMessages(modified, reconstructedMsgs) as Record<string, unknown>;
     modified.__grovReconstructedCount = reconstructedCount;
   }
 
-  // Pass original position to orchestrator for tool_cycle tracking
   modified.__grovOriginalLastUserPos = originalLastUserPos;
 
   // === MEMORY PREVIEW INJECTION (new system) ===
@@ -249,6 +258,27 @@ export async function preProcessRequest(
         }
       } catch (err) {
         console.error(`[MEMORY] fetchTeamMemories error: ${err}`);
+      }
+
+      // Fetch and inject team plans (separate try/catch - plan failure shouldn't block memories)
+      try {
+        const plans = await fetchTeamPlans(teamId);
+        if (plans.length > 0) {
+          const planPreview = buildPlanPreview(plans);
+          if (planPreview) {
+            const currentInjection = modified.__grovUserMsgInjection as string || '';
+            modified.__grovUserMsgInjection = currentInjection
+              ? `${currentInjection}\n\n${planPreview}`
+              : planPreview;
+
+            // Update cached preview for retry handling
+            setCachedPreview(sessionInfo.projectPath, modified.__grovUserMsgInjection as string, messages.length);
+
+            console.log(`[PLANS] ${plans.length} active plans injected`);
+          }
+        }
+      } catch (err) {
+        console.error(`[PLANS] fetchTeamPlans error: ${err}`);
       }
     } else {
       // Sync not enabled - only inject drift/recovery if pending

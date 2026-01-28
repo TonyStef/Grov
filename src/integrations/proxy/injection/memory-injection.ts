@@ -1,7 +1,4 @@
-// Memory injection - Preview + Expand system for team memory
-// Reference: docs/new_injection.md
-
-import type { Memory } from '@grov/shared';
+import type { Memory, PlanInjectionContext, PlanInjectionTask } from '@grov/shared';
 
 export interface InjectionRecord {
   position: number;
@@ -12,23 +9,27 @@ export interface InjectionRecord {
 }
 
 export interface SessionInjectionState {
-  memoriesById: Map<string, Memory>;  // Keyed by memory ID for unique lookup
-  injectionHistory: InjectionRecord[];  // Committed records (used for reconstruction)
-  pendingRecords: InjectionRecord[];    // New records waiting to be committed (next turn)
-  lastOriginalMsgCount: number;  // Track original message count for stale detection
-  cachedPreview?: { preview: string; msgCount: number };  // Same-turn retry cache
+  memoriesById: Map<string, Memory>;
+  injectionHistory: InjectionRecord[];
+  pendingRecords: InjectionRecord[];
+  lastOriginalMsgCount: number;
+  cachedPreview?: { preview: string; msgCount: number };
 }
 
 const sessionState = new Map<string, SessionInjectionState>();
 
+function createEmptyState(): SessionInjectionState {
+  return {
+    memoriesById: new Map(),
+    injectionHistory: [],
+    pendingRecords: [],
+    lastOriginalMsgCount: 0,
+  };
+}
+
 export function getOrCreateState(sessionId: string): SessionInjectionState {
   if (!sessionState.has(sessionId)) {
-    sessionState.set(sessionId, {
-      memoriesById: new Map(),
-      injectionHistory: [],
-      pendingRecords: [],
-      lastOriginalMsgCount: 0,
-    });
+    sessionState.set(sessionId, createEmptyState());
   }
   return sessionState.get(sessionId)!;
 }
@@ -45,23 +46,25 @@ export function cacheMemories(sessionId: string, memories: Memory[]): void {
   }
 }
 
-// ID-based lookup
+const MEMORY_ID_PREFIX_LENGTH = 8;
+
 export function getCachedMemoryById(sessionId: string, memoryId: string): Memory | null {
   const state = sessionState.get(sessionId);
   if (!state?.memoriesById) {
     return null;
   }
 
-  // Support both full ID and 8-char prefix
   if (state.memoriesById.has(memoryId)) {
     return state.memoriesById.get(memoryId) || null;
   }
-  // Try prefix match (first 8 chars)
+
   for (const [id, memory] of state.memoriesById) {
-    if (id.startsWith(memoryId) || memoryId.startsWith(id.substring(0, 8))) {
+    const idPrefix = id.substring(0, MEMORY_ID_PREFIX_LENGTH);
+    if (id.startsWith(memoryId) || memoryId.startsWith(idPrefix)) {
       return memory;
     }
   }
+
   return null;
 }
 
@@ -83,10 +86,11 @@ export function addInjectionRecord(sessionId: string, record: InjectionRecord): 
   state.pendingRecords.push(record);
 }
 
-// Commit pending records to history (called at start of NEW turn)
 export function commitPendingRecords(sessionId: string): number {
   const state = sessionState.get(sessionId);
-  if (!state || state.pendingRecords.length === 0) return 0;
+  if (!state || state.pendingRecords.length === 0) {
+    return 0;
+  }
 
   const count = state.pendingRecords.length;
   state.injectionHistory.push(...state.pendingRecords);
@@ -94,54 +98,102 @@ export function commitPendingRecords(sessionId: string): number {
   return count;
 }
 
-// Check if tool_cycle already exists for position (in committed OR pending)
+function hasToolCycleInRecords(records: InjectionRecord[], position: number): boolean {
+  return records.some(r => r.type === 'tool_cycle' && r.position === position);
+}
+
 export function hasToolCycleAtPosition(sessionId: string, position: number): boolean {
   const state = sessionState.get(sessionId);
-  if (!state) return false;
-  // Check both committed history and pending records
-  const inHistory = state.injectionHistory.some(
-    (r) => r.type === 'tool_cycle' && r.position === position
-  );
-  const inPending = state.pendingRecords.some(
-    (r) => r.type === 'tool_cycle' && r.position === position
-  );
-  return inHistory || inPending;
+  if (!state) {
+    return false;
+  }
+
+  return hasToolCycleInRecords(state.injectionHistory, position) ||
+         hasToolCycleInRecords(state.pendingRecords, position);
 }
 
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const DAYS_PER_WEEK = 7;
+const DAYS_PER_MONTH = 30;
+
 export function formatAge(updatedAt: string | undefined): string {
-  if (!updatedAt) return 'unknown';
+  if (!updatedAt) {
+    return 'unknown';
+  }
 
   const diffMs = Date.now() - new Date(updatedAt).getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffDays = Math.floor(diffMs / MS_PER_DAY);
 
   if (diffDays === 0) return 'today';
   if (diffDays === 1) return '1 day ago';
-  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < DAYS_PER_WEEK) return `${diffDays} days ago`;
 
-  const diffWeeks = Math.floor(diffDays / 7);
+  const diffWeeks = Math.floor(diffDays / DAYS_PER_WEEK);
   if (diffWeeks === 1) return '1 week ago';
   if (diffWeeks < 4) return `${diffWeeks} weeks ago`;
 
-  const diffMonths = Math.floor(diffDays / 30);
+  const diffMonths = Math.floor(diffDays / DAYS_PER_MONTH);
   if (diffMonths === 1) return '1 month ago';
   return `${diffMonths} months ago`;
 }
 
 export function buildMemoryPreview(memories: Memory[]): string | null {
-  if (!memories || memories.length === 0) return null;
+  if (!memories?.length) {
+    return null;
+  }
 
   const lines: string[] = [`[PROJECT KNOWLEDGE BASE: ${memories.length} verified entries - CURRENT]`];
 
-  memories.forEach((memory) => {
-    const idShort = memory.id.substring(0, 8);
+  for (const memory of memories) {
+    const idShort = memory.id.substring(0, MEMORY_ID_PREFIX_LENGTH);
     const goal = memory.goal || 'No goal';
     const summary = memory.summary || 'No summary';
     const age = formatAge(memory.updated_at);
     lines.push(`#${idShort}: "${goal}" -> ${summary} (${age})`);
-  });
+  }
 
   lines.push('Use grov_expand with these IDs to get full knowledge.');
+
+  return lines.join('\n');
+}
+
+const PRIORITY_ICONS: Record<string, string> = {
+  urgent: '🔴',
+  high: '🟠',
+};
+
+const STATUS_ICONS: Record<string, string> = {
+  completed: '✓',
+  in_progress: '→',
+  blocked: '⊘',
+  pending: '○',
+};
+
+export function buildPlanPreview(plans: PlanInjectionContext[]): string | null {
+  if (!plans?.length) {
+    return null;
+  }
+
+  const lines: string[] = ['[TEAM SHARED PLANS - COORDINATE WITH TEAM]'];
+
+  for (const plan of plans) {
+    const priorityTag = PRIORITY_ICONS[plan.priority] || '';
+    lines.push(`${priorityTag}${plan.title}:`);
+    if (plan.content) {
+      lines.push(`  ${plan.content}`);
+    }
+
+    for (const task of plan.tasks) {
+      const isBlocked = task.blocked_by && task.blocked_by.length > 0;
+      const statusIcon = isBlocked ? STATUS_ICONS.blocked : (STATUS_ICONS[task.status] || STATUS_ICONS.pending);
+      const claimedBy = task.claimed_by_name ? ` (${task.claimed_by_name})` : '';
+      const blockedBy = isBlocked ? ` [blocked by: ${task.blocked_by!.join(', ')}]` : '';
+      lines.push(`  ${statusIcon} ${task.title}${claimedBy}${blockedBy}`);
+    }
+  }
+
+  lines.push('Coordinate: avoid duplicating work on in-progress or blocked tasks.');
 
   return lines.join('\n');
 }

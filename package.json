@@ -85,7 +85,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@modelcontextprotocol/sdk": "^1.25.1",
-    "better-sqlite3": "^11.6.0",
+    "better-sqlite3": "^12.5.0",
     "commander": "^12.1.0",
     "debug": "^4.4.3",
     "dotenv": "^16.4.5",

@@ -20,9 +20,34 @@ const formattedDate = pubDate?.toLocaleDateString('en-US', {
 
 // Build the current page URL from Astro.site
 const currentUrl = new URL(Astro.url.pathname, Astro.site).href;
+
+// Blog article structured data for SEO
+const articleSchema = {
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": title,
+  "description": description,
+  "datePublished": pubDate?.toISOString(),
+  "author": {
+    "@type": "Person",
+    "name": author || "Grov Team"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Grov",
+    "url": "https://grov.dev"
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": currentUrl
+  },
+  ...(image && { "image": `https://grov.dev${image}` })
+};
 ---
 
-<Layout title={`${title} | Grov`} description={description}>
+<Layout title={`${title} | Grov`} description={description} image={image}>
+  <!-- Article structured data -->
+  <script type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
   <div class="bg-grov-black min-h-screen pt-24">
     <!-- Article container -->
     <article class="max-w-4xl mx-auto px-6 py-8">

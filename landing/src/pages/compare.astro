@@ -1,0 +1,266 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Footer from '../components/Footer.astro';
+
+// Comparison structured data
+const comparisonSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "Grov vs Manual Context Management",
+  "description": "Compare Grov's automatic AI memory with manual CLAUDE.md files, fresh sessions, and other approaches to managing Claude Code context.",
+  "url": "https://grov.dev/compare"
+};
+
+const comparisons = [
+  {
+    name: "Manual CLAUDE.md Files",
+    description: "Manually maintaining project context files",
+    pros: [
+      "Full control over what's included",
+      "No dependencies or setup",
+      "Works with any AI tool"
+    ],
+    cons: [
+      "Requires manual updates after every session",
+      "Gets stale quickly",
+      "Doesn't capture reasoning or decisions",
+      "No cross-project or team sharing",
+      "Time-consuming to maintain"
+    ],
+    grovAdvantage: "Grov captures context automatically from every session. No manual work required."
+  },
+  {
+    name: "Fresh Sessions Every Time",
+    description: "Starting new Claude sessions without context",
+    pros: [
+      "Clean slate, no confusion",
+      "Maximum token budget",
+      "No setup required"
+    ],
+    cons: [
+      "Claude re-explores your codebase every time",
+      "Repeats the same questions",
+      "Loses previous decisions and reasoning",
+      "Wastes time and tokens",
+      "No learning across sessions"
+    ],
+    grovAdvantage: "Grov injects relevant context from past sessions, so Claude skips redundant exploration."
+  },
+  {
+    name: "Manual Context Injection",
+    description: "Copy-pasting context into each prompt",
+    pros: [
+      "Precise control over context",
+      "No tools needed"
+    ],
+    cons: [
+      "Tedious and error-prone",
+      "Easy to forget important context",
+      "Doesn't scale across projects",
+      "No structured way to capture decisions",
+      "Context gets lost between sessions"
+    ],
+    grovAdvantage: "Grov automatically injects the right context based on what files you're working with."
+  },
+  {
+    name: "Chat History Export",
+    description: "Saving and re-loading chat logs",
+    pros: [
+      "Preserves full conversation",
+      "Can reference exact discussions"
+    ],
+    cons: [
+      "Consumes massive token budget",
+      "Full of irrelevant exploration noise",
+      "No structured knowledge extraction",
+      "Doesn't work across projects",
+      "Manual import/export process"
+    ],
+    grovAdvantage: "Grov extracts key decisions and reasoning, not raw chat logs. Structured, not noisy."
+  }
+];
+---
+
+<Layout
+  title="Grov vs Alternatives - AI Memory Comparison | Grov"
+  description="Compare Grov's automatic AI memory with manual CLAUDE.md files, fresh sessions, and other approaches. See why teams choose Grov for Claude Code context management."
+>
+  <!-- Comparison structured data -->
+  <script type="application/ld+json" set:html={JSON.stringify(comparisonSchema)} />
+
+  <main class="pt-24 pb-16 px-6">
+    <div class="max-w-5xl mx-auto">
+
+      <!-- Header -->
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-grov-accent-bg border border-grov-accent/20 rounded-full mb-6">
+          <span class="font-mono text-xs text-grov-accent">Comparison</span>
+        </div>
+        <h1 class="text-section text-grov-text mb-4" style="font-family: var(--font-display);">
+          Grov vs The Alternatives
+        </h1>
+        <p class="text-body-lg text-grov-text-secondary max-w-2xl mx-auto">
+          How does automatic AI memory compare to manual context management? Here's an honest breakdown.
+        </p>
+      </div>
+
+      <!-- The Problem -->
+      <section class="card p-8 mb-12">
+        <h2 class="text-xl font-bold text-grov-text mb-4">The Problem Grov Solves</h2>
+        <p class="text-grov-text-secondary mb-4">
+          Every time you start a new Claude Code session, your AI starts from zero. It doesn't remember:
+        </p>
+        <ul class="space-y-2 text-grov-text-secondary">
+          <li class="flex items-start gap-3">
+            <span class="text-red-400 mt-1">✗</span>
+            <span>The architectural decisions you made yesterday</span>
+          </li>
+          <li class="flex items-start gap-3">
+            <span class="text-red-400 mt-1">✗</span>
+            <span>Why you chose JWT over sessions for auth</span>
+          </li>
+          <li class="flex items-start gap-3">
+            <span class="text-red-400 mt-1">✗</span>
+            <span>Which files handle what functionality</span>
+          </li>
+          <li class="flex items-start gap-3">
+            <span class="text-red-400 mt-1">✗</span>
+            <span>The constraints and patterns your codebase follows</span>
+          </li>
+        </ul>
+        <p class="text-grov-text-secondary mt-4">
+          So it re-explores. Every. Single. Time.
+        </p>
+      </section>
+
+      <!-- Comparisons -->
+      <div class="space-y-8">
+        {comparisons.map((comp) => (
+          <section class="card p-8">
+            <div class="flex flex-col lg:flex-row lg:items-start gap-8">
+              <div class="flex-1">
+                <h2 class="text-xl font-bold text-grov-text mb-2">{comp.name}</h2>
+                <p class="text-sm text-grov-text-muted mb-4">{comp.description}</p>
+
+                <div class="grid md:grid-cols-2 gap-6">
+                  <div>
+                    <h3 class="text-sm font-medium text-grov-text mb-2">Pros</h3>
+                    <ul class="space-y-1">
+                      {comp.pros.map((pro) => (
+                        <li class="flex items-start gap-2 text-sm text-grov-text-secondary">
+                          <span class="text-green-400 mt-0.5">+</span>
+                          <span>{pro}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 class="text-sm font-medium text-grov-text mb-2">Cons</h3>
+                    <ul class="space-y-1">
+                      {comp.cons.map((con) => (
+                        <li class="flex items-start gap-2 text-sm text-grov-text-secondary">
+                          <span class="text-red-400 mt-0.5">−</span>
+                          <span>{con}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div class="lg:w-72 p-4 bg-grov-accent-bg border border-grov-accent/20 rounded-lg">
+                <h3 class="text-sm font-medium text-grov-accent mb-2">Grov's Advantage</h3>
+                <p class="text-sm text-grov-text-secondary">{comp.grovAdvantage}</p>
+              </div>
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <!-- Feature Comparison Table -->
+      <section class="mt-16">
+        <h2 class="text-2xl font-bold text-grov-text mb-8 text-center">Feature Comparison</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-grov-border">
+                <th class="text-left py-4 px-4 text-grov-text font-medium">Feature</th>
+                <th class="text-center py-4 px-4 text-grov-text font-medium">Manual Files</th>
+                <th class="text-center py-4 px-4 text-grov-text font-medium">Fresh Sessions</th>
+                <th class="text-center py-4 px-4 text-grov-accent font-medium">Grov</th>
+              </tr>
+            </thead>
+            <tbody class="text-grov-text-secondary">
+              <tr class="border-b border-grov-border/50">
+                <td class="py-3 px-4">Automatic context capture</td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+              <tr class="border-b border-grov-border/50">
+                <td class="py-3 px-4">Captures reasoning & decisions</td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+              <tr class="border-b border-grov-border/50">
+                <td class="py-3 px-4">Team sharing</td>
+                <td class="text-center py-3 px-4"><span class="text-yellow-400">~</span></td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+              <tr class="border-b border-grov-border/50">
+                <td class="py-3 px-4">No manual maintenance</td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+              <tr class="border-b border-grov-border/50">
+                <td class="py-3 px-4">Cross-project context</td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+              <tr class="border-b border-grov-border/50">
+                <td class="py-3 px-4">Anti-drift detection</td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+              <tr class="border-b border-grov-border/50">
+                <td class="py-3 px-4">Extended cache (saves tokens)</td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-red-400">✗</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+              <tr>
+                <td class="py-3 px-4">Free tier available</td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+                <td class="text-center py-3 px-4"><span class="text-green-400">✓</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- CTA -->
+      <section class="mt-16 text-center">
+        <h2 class="text-2xl font-bold text-grov-text mb-4">Ready to Try Grov?</h2>
+        <p class="text-grov-text-secondary mb-8 max-w-xl mx-auto">
+          Install in under a minute. Start free with 150 context injections per month. No credit card required.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a href="/docs" class="btn-primary">
+            Get Started
+          </a>
+          <a href="/pricing" class="btn-secondary">
+            View Pricing
+          </a>
+        </div>
+      </section>
+
+    </div>
+  </main>
+  <Footer />
+</Layout>

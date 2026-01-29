@@ -14,6 +14,27 @@ const {
 } = Astro.props;
 
 const ogImageUrl = `https://grov.dev${image}?v=2`;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
+
+// Organization structured data for SEO
+const organizationSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Grov",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, Windows, Linux",
+  "description": description,
+  "url": "https://grov.dev",
+  "author": {
+    "@type": "Organization",
+    "name": "Grov"
+  },
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+};
 ---
 
 <!doctype html>
@@ -24,9 +45,12 @@ const ogImageUrl = `https://grov.dev${image}?v=2`;
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
 
+    <!-- Canonical URL -->
+    <link rel="canonical" href={canonicalUrl} />
+
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://grov.dev/" />
+    <meta property="og:url" content={canonicalUrl} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImageUrl} />
@@ -41,6 +65,10 @@ const ogImageUrl = `https://grov.dev${image}?v=2`;
     <link rel="icon" type="image/svg+xml" href="/owl-favicon.svg" />
     <link rel="apple-touch-icon" href="/owl-logo.png" />
 
+    <!-- RSS Feed -->
+    <link rel="alternate" type="application/rss+xml" title="Grov Blog" href="/rss.xml" />
+
+    
     <!-- Fonts - Clash Display & Switzer from Fontshare -->
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
     <link
@@ -64,6 +92,9 @@ const ogImageUrl = `https://grov.dev${image}?v=2`;
     <meta name="theme-color" content="#121214" />
 
     <title>{title}</title>
+
+    <!-- Structured Data -->
+    <script type="application/ld+json" set:html={JSON.stringify(organizationSchema)} />
 
     <!-- X (Twitter) Pixel -->
     <script>

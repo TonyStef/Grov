@@ -15,8 +15,10 @@
   },
   "dependencies": {
     "@astrojs/mdx": "^4.3.12",
+    "@astrojs/rss": "^4.0.0",
+    "@astrojs/sitemap": "^3.2.1",
     "@astrojs/react": "^4.4.2",
-    "astro": "^5.16.0",
+        "astro": "^5.16.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

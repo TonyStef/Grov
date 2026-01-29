@@ -1,12 +1,60 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Footer from '../components/Footer.astro';
+
+// Product structured data for SEO
+const pricingSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Grov",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, Windows, Linux",
+  "description": "Collective AI memory for engineering teams. Captures reasoning from Claude Code sessions and injects context into future sessions.",
+  "url": "https://grov.dev",
+  "offers": [
+    {
+      "@type": "Offer",
+      "name": "Free",
+      "price": "0",
+      "priceCurrency": "USD",
+      "description": "Up to 2 users, 150 injections/month, requires own API key"
+    },
+    {
+      "@type": "Offer",
+      "name": "Pro",
+      "price": "5",
+      "priceCurrency": "USD",
+      "priceSpecification": {
+        "@type": "UnitPriceSpecification",
+        "price": "5",
+        "priceCurrency": "USD",
+        "unitText": "seat/month"
+      },
+      "description": "500 injections/seat/month, API included, cloud sync"
+    },
+    {
+      "@type": "Offer",
+      "name": "Team",
+      "price": "10",
+      "priceCurrency": "USD",
+      "priceSpecification": {
+        "@type": "UnitPriceSpecification",
+        "price": "10",
+        "priceCurrency": "USD",
+        "unitText": "seat/month"
+      },
+      "description": "1,000 injections/seat/month, advanced analytics, priority support"
+    }
+  ]
+};
 ---
 
 <Layout
-  title="Pricing | Grov"
-  description="Simple, transparent pricing for AI memory. Start free, scale when you need to."
+  title="Pricing - Free AI Memory for Dev Teams | Grov"
+  description="Simple, transparent pricing for AI memory. Start free with 150 injections/month. Pro from $5/seat. No credit card required."
 >
+  <!-- Pricing structured data for rich results -->
+  <script type="application/ld+json" set:html={JSON.stringify(pricingSchema)} />
   <main class="pt-24 pb-16 px-6">
     <div class="max-w-6xl mx-auto">
 

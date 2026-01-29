@@ -2,6 +2,13 @@
 import Layout from '../layouts/Layout.astro';
 import Footer from '../components/Footer.astro';
 
+// FAQ structured data for SEO (FAQPage schema)
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [] as { "@type": string; name: string; acceptedAnswer: { "@type": string; text: string } }[]
+};
+
 const faqs = [
   {
     question: "What is Grov?",
@@ -44,12 +51,24 @@ const faqs = [
     answer: "It's simple: npm install -g grov, then grov init to configure, and grov proxy to start. Keep the proxy running while you use Claude Code in another terminal. That's it — Grov handles the rest automatically."
   }
 ];
+
+// Build FAQ schema from questions
+faqSchema.mainEntity = faqs.map(faq => ({
+  "@type": "Question",
+  "name": faq.question,
+  "acceptedAnswer": {
+    "@type": "Answer",
+    "text": faq.answer
+  }
+}));
 ---
 
 <Layout
-  title="FAQ | Grov"
-  description="Frequently asked questions about Grov - the collective AI memory tool for engineering teams."
+  title="FAQ - Common Questions Answered | Grov"
+  description="Frequently asked questions about Grov - pricing, security, setup, and how AI memory works for engineering teams."
 >
+  <!-- FAQ structured data for rich results -->
+  <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
   <main class="pt-24 pb-16 px-6">
     <div class="max-w-3xl mx-auto">
 

@@ -4,10 +4,12 @@ import type { FastifyRequest } from 'fastify';
 import type { AgentAdapter, AgentName } from './types.js';
 import { ClaudeAdapter } from './claude/index.js';
 import { CodexAdapter } from './codex/index.js';
+import { NovitaAdapter } from './novita/index.js';
 
 const adapters: AgentAdapter[] = [
   new ClaudeAdapter(),
   new CodexAdapter(),
+  new NovitaAdapter(),
 ];
 
 export function getAllAgents(): AgentAdapter[] {
@@ -32,6 +34,7 @@ export function getSupportedEndpoints(): string[] {
 
 export { ClaudeAdapter } from './claude/index.js';
 export { CodexAdapter } from './codex/index.js';
+export { NovitaAdapter } from './novita/index.js';
 export { BaseAdapter } from './base.js';
 export type {
   AgentAdapter,

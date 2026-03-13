@@ -4,7 +4,7 @@ import type { FastifyRequest } from 'fastify';
 import type { StepActionType } from '../../../core/store/store.js';
 import type { ConversationMessage } from '../../../core/extraction/llm-extractor.js';
 
-export type AgentName = 'claude' | 'codex' | 'gemini';
+export type AgentName = 'claude' | 'codex' | 'gemini' | 'novita';
 
 export interface NormalizedAction {
   toolName: string;
